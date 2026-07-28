@@ -59,6 +59,7 @@ Rules:
 | New partial | Create `src/content/partials/<slug>.mdx`. Use via `<Render file="<slug>" />`. |
 | UI from registry | `pnpm exec nimbus-docs add <slug>`. Register in `src/components.ts` if used in MDX. |
 | Feature recipe | `pnpm exec nimbus-docs add <feature-slug>`. Pipe the printed brief to your agent. |
+| Check it builds | `pnpm exec nimbus-docs check` — build-free preflight (env + structure + authoring). `--json` for an agent loop, `--fix` to repair what's safe. |
 | Custom page route | Add a file under `src/pages/`. |
 | Custom OG style | Edit `src/pages/og/_og-card-config.ts`. |
 | Check for updates | `pnpm exec nimbus-docs outdated` — starter files behind their tag + registry components behind. |
@@ -69,7 +70,9 @@ List installable items: `pnpm exec nimbus-docs list`.
 
 ## Audit this site
 
-When asked to audit, walk the categories below. Emit findings as:
+Start with `pnpm exec nimbus-docs check --json`. It runs the environment, structural, and authoring checks build-free — config validity, `site` placeholder, route collisions, MDX component resolution, and the lint rules — and returns `{ ok, summary, findings[{scope,code,severity,file,line,message,fixable,fix}] }`. Apply each `fix` (or `check --fix`), then re-run until `ok`.
+
+Then walk the categories below for what `check` doesn't cover yet — route-file existence, registry hygiene, the AI surface, post-build search, and Cloudflare config. Emit findings as:
 
 ```
 - [error|warn|info] FILE:LINE — what + why + fix.

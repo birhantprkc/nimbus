@@ -25,6 +25,7 @@ import mri from "mri";
 import * as p from "@clack/prompts";
 
 import { BUNDLED_INDEX } from "./_registry.generated.js";
+import { checkCommand } from "./check.js";
 import { installComponents } from "./component.js";
 import { loadDotenv } from "./dotenv.js";
 import { installFeature } from "./feature.js";
@@ -82,6 +83,10 @@ interface CliArgs {
   overwrite: boolean;
   all: boolean;
   apply: boolean;
+  env: boolean;
+  structure: boolean;
+  lint: boolean;
+  json: boolean;
   type?: string;
   format?: string;
   rule?: string;
@@ -96,6 +101,7 @@ const HELP = `
     list [--type ui|lib|feature]   List available registry items
     add                            Same as \`list\`
     add <slug>                     Install a component or hand off a feature
+    check                          Build-free preflight: env + structure + authoring (--fix, --json)
     init                           Create the committed nimbus.json record (adopt an existing project)
     outdated                       Show what's behind upstream (starter files + registry components)
     diff [file]                    Show upstream/your changes to starter files (read-only)
@@ -111,28 +117,32 @@ const HELP = `
     --print                        Feature: print markdown to stdout (skip agent detect)
     --force                        \`init\`: rebuild an existing nimbus.json
     --root <dir>                   \`init\`: src dir to scan (monorepo; default src)
+    --env, --structure, --lint     \`check\`: run only the named categories (default: all three)
     --type <ui|lib|feature>        \`list\`: filter by type
-    --format <json>                \`lint\`: machine-readable output
+    --format <json>                \`lint\`/\`check\`: machine-readable output
+    --json                         \`check\`: machine-readable output (alias for --format=json)
     --rule <nimbus/...>            \`lint\`: run a single rule
-    --fix                          \`lint\`: apply auto-fixes in place
-    --quiet                        \`lint\`: errors only, suppress warnings
+    --fix                          \`lint\`/\`check\`: apply auto-fixes in place
+    --quiet                        \`lint\`/\`check\`: errors only, suppress warnings
     --help, -h
     --version, -v
 
   Examples (run with your package manager — see Usage above):
     nimbus-docs add dialog                              # component: resolve + install
     nimbus-docs add card --overwrite                    # re-install over your copy (review with git)
+    nimbus-docs check                                   # build-free preflight (env + structure + authoring)
+    nimbus-docs check --json                            # agent-readable findings + fixes
+    nimbus-docs check --fix                             # apply safe fixes, prompt for the rest
     nimbus-docs outdated                                # what's behind upstream (starter + registry)
     nimbus-docs init                                    # adopt an existing repo — writes nimbus.json
     nimbus-docs add 404-page --print | claude           # explicit pipe to claude
     nimbus-docs lint                                    # pretty output, exit non-zero on error
     nimbus-docs lint --format=json                      # agent-readable diagnostics
-    nimbus-docs lint --rule=nimbus/single-h1            # one rule
 `;
 
 async function main(): Promise<void> {
   const args = mri(process.argv.slice(2), {
-    boolean: ["yes", "print", "help", "version", "quiet", "color", "fix", "force", "overwrite", "all", "apply"],
+    boolean: ["yes", "print", "help", "version", "quiet", "color", "fix", "force", "overwrite", "all", "apply", "env", "structure", "lint", "json"],
     string: ["type", "format", "rule", "root", "to", "template-dir"],
     default: { color: undefined },
     alias: { y: "yes", h: "help", v: "version" },
@@ -153,6 +163,23 @@ async function main(): Promise<void> {
 
   const [command, slug] = args._;
 
+  if (command === "check") {
+    await checkCommand({
+      env: args.env,
+      structure: args.structure,
+      lint: args.lint,
+      fix: args.fix,
+      json: args.json,
+      format: args.format,
+      quiet: args.quiet,
+      color: args.color,
+      yes: args.yes,
+    });
+    return;
+  }
+
+  // `lint` stays a first-class command with its own strict "zero .mdx → exit 1"
+  // guard; `check --lint` runs the same rules inside the preflight envelope.
   if (command === "lint") {
     await lintCommand({
       format: args.format,

@@ -9,6 +9,20 @@ import { z } from "astro/zod";
 import type { NimbusConfig } from "../types.js";
 import { withStrictKeys } from "./strict-keys.js";
 
+// `new URL("https:example.com")` does NOT throw (protocol `https:`, host
+// `example.com`), so a bare `.url()`/`new URL()` check waves through a missing
+// `//`. Require the `://` authority and an http(s) scheme with a host so a
+// typo can't silently ship a broken canonical origin.
+export function isAbsoluteHttpUrl(value: string): boolean {
+  if (!/^https?:\/\//i.test(value)) return false;
+  try {
+    const u = new URL(value);
+    return (u.protocol === "https:" || u.protocol === "http:") && u.host.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // Head elements: full set valid as direct children of `<head>`. Mirrors the
 // frontmatter `head` schema in `schemas.ts` and the `HeadElement` type
 // surface — the three sources need to agree so a tag accepted in
@@ -158,7 +172,12 @@ const REMOVED_CONFIG_KEYS: Record<string, string> = {
 
 const nimbusConfigSchema = withStrictKeys(
   z.object({
-    site: z.string().url({ message: '"site" must be a valid URL' }),
+    site: z
+      .string()
+      .refine(isAbsoluteHttpUrl, {
+        message:
+          '"site" must be an absolute http(s) URL with a host, e.g. "https://docs.example.com" (did you forget the "//"?)',
+      }),
     title: z.string(),
     description: z.string().optional(),
     locale: z.string().default("en"),
