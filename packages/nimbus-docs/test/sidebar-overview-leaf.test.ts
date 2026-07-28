@@ -8,8 +8,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { applyOverviewLeaf, buildSidebarTree, flattenSidebar } from "../src/_internal/sidebar.js";
+import {
+  applyOverviewLeaf,
+  buildSidebarTree,
+  flattenSidebar,
+  scopeToCurrentSection,
+} from "../src/_internal/sidebar.js";
 import type { SidebarItem } from "../src/types.js";
+
+const INERT = "\u0000__structural__";
 
 function group(over: Partial<Extract<SidebarItem, { type: "group" }>>): SidebarItem {
   return { type: "group", label: "G", order: 0, children: [], ...over };
@@ -283,4 +290,160 @@ test("idempotent: applying twice equals applying once", () => {
   const once = applyOverviewLeaf(tree, "dns", "Overview");
   const twice = applyOverviewLeaf(once, "dns", "Overview");
   assert.deepEqual(twice, once);
+});
+
+// --- pin guard: section-content edge cases --------------------------------
+
+test("pin guard: a descendant nested inside a group still counts as section content", () => {
+  const tree = [
+    link({ label: "DNS", href: "/dns/", order: 2 }),
+    group({ label: "Tools", children: [link({ label: "A", href: "/dns/tools/a/" })] }),
+  ];
+  const out = applyOverviewLeaf(tree, "dns", "Overview");
+  assert.equal(out[0]!.label, "Overview", "nested descendant makes /dns/ a real section root");
+  assert.equal((out[0] as any).href, "/dns/");
+});
+
+test("pin guard: a sibling page in another section does not trigger a pin", () => {
+  const tree = [
+    link({ label: "Installation", href: "/installation/", order: 1 }),
+    link({ label: "Guides", href: "/guides/intro/", order: 2 }),
+  ];
+  const out = applyOverviewLeaf(tree, "installation", "Overview");
+  assert.deepEqual(
+    out.map((i) => [i.label, (i as any).href]),
+    [
+      ["Installation", "/installation/"],
+      ["Guides", "/guides/intro/"],
+    ],
+  );
+});
+
+test("pin guard: a slug that is a prefix of another section is not pinned by its pages", () => {
+  // "install" must not be treated as a section root just because
+  // "installation/..." pages share a string prefix.
+  const tree = [
+    link({ label: "Install", href: "/install/", order: 0 }),
+    link({ label: "Installation setup", href: "/installation/setup/", order: 1 }),
+  ];
+  const out = applyOverviewLeaf(tree, "install", "Overview");
+  assert.deepEqual(out.map((i) => i.label), ["Install", "Installation setup"]);
+});
+
+test("pin guard: a lone standalone section page is left untouched", () => {
+  const tree = [link({ label: "DNS", href: "/dns/", order: 0 })];
+  const out = applyOverviewLeaf(tree, "dns", "Overview");
+  assert.deepEqual(
+    out.map((i) => [i.label, (i as any).href]),
+    [["DNS", "/dns/"]],
+  );
+});
+
+test("pin guard: section root and descendant match regardless of trailing slash", () => {
+  const tree = [
+    link({ label: "DNS", href: "/dns", order: 0 }),
+    link({ label: "A", href: "/dns/a/", order: 1 }),
+  ];
+  const out = applyOverviewLeaf(tree, "dns", "Overview");
+  assert.equal(out[0]!.label, "Overview");
+  assert.equal((out[0] as any).href, "/dns");
+});
+
+// --- end-to-end (www shape): flat top-level pages + a nested index group ---
+
+test("e2e (www shape): on a standalone page, flat top-level keeps order and the nested index still lifts", () => {
+  const entries = [
+    { id: "get-started", data: { title: "Get started", sidebar: { order: 0 } } },
+    { id: "installation", data: { title: "Installation", sidebar: { order: 1 } } },
+    { id: "philosophy", data: { title: "Philosophy", sidebar: { order: 2 } } },
+    { id: "writing/pages-and-routing", data: { title: "Pages and routing", sidebar: { order: 1 } } },
+    { id: "writing/recipes", data: { title: "Content types", sidebar: { order: 8, label: "Introduction" } } },
+    { id: "writing/recipes/overview", data: { title: "Overview", sidebar: { order: 1 } } },
+  ] as any;
+  const config = {
+    items: [
+      "get-started",
+      "installation",
+      "philosophy",
+      { label: "Writing", autogenerate: { directory: "writing" } },
+    ],
+  } as any;
+  const tree = buildSidebarTree({ docs: entries }, "docs", "/installation/", config);
+  const out = applyOverviewLeaf(tree, "installation", "Overview");
+
+  assert.deepEqual(
+    out.map((i) => i.label),
+    ["Get started", "Installation", "Philosophy", "Writing"],
+    "flat top-level keeps config order; nothing renamed Overview",
+  );
+
+  const writing = out.find(
+    (i): i is Extract<SidebarItem, { type: "group" }> => i.type === "group" && i.label === "Writing",
+  )!;
+  const recipes = writing.children.find(
+    (i): i is Extract<SidebarItem, { type: "group" }> =>
+      i.type === "group" && i.label === "Content types",
+  )!;
+  assert.equal(recipes.indexHref, undefined, "recipes header demoted to disclosure");
+  assert.equal(recipes.children[0]!.label, "Introduction", "recipes index lifted as leading leaf");
+  assert.equal((recipes.children[0] as any).href, "/writing/recipes/");
+});
+
+test("e2e (www shape): on a recipes page, the group section is never pinned and the leaf is current", () => {
+  const entries = [
+    { id: "installation", data: { title: "Installation", sidebar: { order: 1 } } },
+    { id: "writing/recipes", data: { title: "Content types", sidebar: { order: 8, label: "Introduction" } } },
+    { id: "writing/recipes/overview", data: { title: "Overview", sidebar: { order: 1 } } },
+  ] as any;
+  const config = {
+    items: ["installation", { label: "Writing", autogenerate: { directory: "writing" } }],
+  } as any;
+  const tree = buildSidebarTree({ docs: entries }, "docs", "/writing/recipes/", config);
+  const out = applyOverviewLeaf(tree, "writing", "Overview");
+
+  assert.deepEqual(
+    out.map((i) => i.label),
+    ["Installation", "Writing"],
+    "no top-level reorder — Writing is a group, not a section-root link",
+  );
+  const writing = out.find(
+    (i): i is Extract<SidebarItem, { type: "group" }> => i.type === "group" && i.label === "Writing",
+  )!;
+  const recipes = writing.children.find(
+    (i): i is Extract<SidebarItem, { type: "group" }> =>
+      i.type === "group" && i.label === "Content types",
+  )!;
+  assert.equal(recipes.children[0]!.label, "Introduction");
+  assert.equal((recipes.children[0] as any).isCurrent, true, "leaf reflects the current page");
+});
+
+// --- overview-leaf composed with scope=section (real getSidebar pipeline order) ---
+
+const scopedFixture = [
+  { id: "guide", data: { title: "Guide" } }, // section landing (index)
+  { id: "guide/intro", data: { title: "Intro", sidebar: { order: 1 } } },
+  { id: "guide/deploy", data: { title: "Deploy", sidebar: { order: 2 } } },
+  { id: "reference/api", data: { title: "API", sidebar: { order: 1 } } }, // index-less section
+];
+
+test("scope + overview-leaf: a scoped section rail pins its landing as Overview (pin fires end-to-end)", () => {
+  const structural = buildSidebarTree({ docs: scopedFixture } as any, "docs", INERT);
+  const scoped = scopeToCurrentSection(structural, "/guide/intro/");
+  const out = applyOverviewLeaf(scoped, "guide", "Overview");
+  assert.equal(out[0]!.label, "Overview", "real scoped section landing pinned + relabelled");
+  assert.equal((out[0] as any).href, "/guide/");
+  assert.deepEqual(
+    out.slice(1).map((i) => i.label),
+    ["Intro", "Deploy"],
+    "section children follow the pinned landing in order",
+  );
+});
+
+test("scope + overview-leaf: an index-less scoped section is not pinned (no spurious Overview)", () => {
+  const structural = buildSidebarTree({ docs: scopedFixture } as any, "docs", INERT);
+  const scoped = scopeToCurrentSection(structural, "/reference/api/");
+  const before = scoped.map((i) => i.label);
+  const out = applyOverviewLeaf(scoped, "reference", "Overview");
+  assert.deepEqual(out.map((i) => i.label), before, "no reorder for an index-less section");
+  assert.ok(!out.some((i) => i.label === "Overview"), "no landing to pin → no Overview row");
 });
