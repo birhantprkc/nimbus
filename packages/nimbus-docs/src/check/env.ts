@@ -1,35 +1,36 @@
 /**
- * The **env** category: is the machine + project set up to build at all?
- * Node floor · config locatable · `site` not a placeholder · pagefind present
- * when search is on · wrangler present on a Cloudflare scaffold. Build-free:
- * filesystem + `process.versions` + the statically-parsed config only.
+ * The **env** category: is the machine + project set up to build a correct site
+ * at all? Node floor · config locatable · `site` not a placeholder · pagefind
+ * when search is on · wrangler on a Cloudflare scaffold. Build-free: filesystem
+ * + `process.versions` + the statically-parsed config only. env's core always
+ * runs, so it's always `evaluated`; a config we can't read statically becomes a
+ * `config-not-evaluated` note (not a silent skip), which drives `readiness:
+ * unknown`.
  */
 
 import type { ConfigParseResult } from "../_internal/parse-nimbus-config.js";
-import type { CheckFinding } from "./finding.js";
+import type { CheckFinding, Note, ScopeReport } from "./finding.js";
 import { lineOf, relFile } from "./loc.js";
 import { depInstalled, fileExists, hasPackageJson } from "./probe.js";
 
-// Mirror of package.json `engines.node` — the bundled CLI can't read its own
-// package.json at runtime. Keep in sync.
 const MIN_NODE = "22.12.0";
 
 const SITE_PLACEHOLDERS = new Set(["https://example.com", "CHANGE_ME"]);
 
-export function checkEnv(cwd: string, parsed: ConfigParseResult): CheckFinding[] {
+export function checkEnv(cwd: string, parsed: ConfigParseResult): ScopeReport {
   const findings: CheckFinding[] = [];
+  const notes: Note[] = [];
 
   checkNodeVersion(findings);
   checkPackageJson(cwd, findings);
-  checkConfigLocatable(findings, parsed);
+  checkConfigLocatable(findings, notes, parsed);
   checkSitePlaceholder(findings, parsed);
-  // No package.json ⇒ no node_modules; the dep checks would only add noise on
-  // top of `no-package-json`, whose remedy is "run from the project root".
-  if (!hasPackageJson(cwd)) return findings;
-  checkPagefind(cwd, findings, parsed);
-  checkWrangler(cwd, findings);
+  if (hasPackageJson(cwd)) {
+    checkPagefind(cwd, findings, parsed);
+    checkWrangler(cwd, findings);
+  }
 
-  return findings;
+  return { scope: "env", findings, notes, evaluated: true };
 }
 
 function checkNodeVersion(findings: CheckFinding[]): void {
@@ -45,8 +46,6 @@ function checkNodeVersion(findings: CheckFinding[]): void {
   }
 }
 
-// No package.json here means the wrong cwd: a build would fail and a dep-install
-// fix would resolve against a parent project. Flag it before anything tries.
 function checkPackageJson(cwd: string, findings: CheckFinding[]): void {
   if (hasPackageJson(cwd)) return;
   findings.push({
@@ -59,19 +58,24 @@ function checkPackageJson(cwd: string, findings: CheckFinding[]): void {
   });
 }
 
-// A missing/unreadable config is an env blocker; `no-object` (computed config)
-// degrades to a warning — the config exists, it's just not statically legible.
 function checkConfigLocatable(
   findings: CheckFinding[],
+  notes: Note[],
   parsed: ConfigParseResult,
 ): void {
   if (parsed.ok) return;
-  const severity: CheckFinding["severity"] =
-    parsed.reason === "no-object" ? "warn" : "error";
+  if (parsed.reason === "no-object") {
+    notes.push({
+      code: "nimbus/config-not-evaluated",
+      reason: `${parsed.detail} — \`site\` and \`pagefind\` can't be read statically; a build validates the config.`,
+      requiresBuild: true,
+    });
+    return;
+  }
   findings.push({
     scope: "env",
     code: `nimbus/config-${parsed.reason}`,
-    severity,
+    severity: "error",
     ...(parsed.file ? { file: relFile(parsed.file) } : {}),
     message: parsed.detail,
     fixable: false,
@@ -94,28 +98,30 @@ function checkSitePlaceholder(
     file: relFile(parsed.location.file),
     ...(span ? { line: lineOf(parsed.location.source, span.keyStart) } : {}),
     message: `site is still "${site}" → breaks canonical URLs, OG, sitemap, and llms.txt.`,
-    // Fixable only when there's a literal span to rewrite; `requiresInput`
-    // because the real URL can't be invented headless.
     fixable: span !== undefined,
-    fix: {
-      kind: "set-config",
-      path: "site",
-      requiresInput: true,
-      suggestion: "set `site` to your production URL",
-    },
+    ...(span
+      ? {
+          fix: {
+            kind: "set-config" as const,
+            path: "site",
+            requiresInput: true,
+            suggestion: "set `site` to your production URL",
+          },
+        }
+      : {}),
   });
 }
 
-// Search defaults on. Skip when disabled or when `search` couldn't be resolved
-// statically (don't false-positive on an unknown).
 function checkPagefind(
   cwd: string,
   findings: CheckFinding[],
   parsed: ConfigParseResult,
 ): void {
   if (!parsed.ok) return;
-  if (parsed.config.search === false) return;
+  const search = parsed.config.search;
+  if (search === false) return;
   if (parsed.unresolved.includes("search")) return;
+  if (usesCustomSearchProvider(search)) return;
 
   if (depInstalled(cwd, "pagefind")) return;
   findings.push({
@@ -134,10 +140,18 @@ function checkPagefind(
   });
 }
 
+/** `search: { provider: "custom" }` ships its own index — pagefind isn't required. */
+function usesCustomSearchProvider(search: unknown): boolean {
+  return (
+    typeof search === "object" &&
+    search !== null &&
+    "provider" in search &&
+    (search as { provider?: unknown }).provider === "custom"
+  );
+}
+
 const WRANGLER_CONFIGS = ["wrangler.jsonc", "wrangler.json", "wrangler.toml"];
 
-// Warning, not error: missing wrangler breaks `deploy`, not the build, so it
-// must not default-fail the CI of anyone who deploys wrangler-less.
 function checkWrangler(cwd: string, findings: CheckFinding[]): void {
   const isCloudflare = WRANGLER_CONFIGS.some((f) => fileExists(cwd, f));
   if (!isCloudflare) return;
@@ -158,7 +172,6 @@ function checkWrangler(cwd: string, findings: CheckFinding[]): void {
   });
 }
 
-// Dotted numeric compare (`22.12.0` vs `20.11.1`); suffixes ignored. <0/0/>0.
 function compareSemver(a: string, b: string): number {
   const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
   const pb = b.split(".").map((n) => parseInt(n, 10) || 0);

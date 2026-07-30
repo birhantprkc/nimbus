@@ -237,12 +237,27 @@ export async function initCommand(flags: InitFlags): Promise<void> {
 async function reportReadiness(cwd: string): Promise<void> {
   try {
     const { runChecks } = await import("../check/index.js");
-    const result = await runChecks(cwd, { env: true, structure: false, authoring: false });
-    const blockers = result.findings.filter((f) => f.severity === "error");
-    if (blockers.length === 0) {
-      p.outro(`✓ set up — run \`npm run build\`, or \`${invocation("check")}\` anytime`);
+    const result = await runChecks(cwd, {
+      env: true,
+      structure: false,
+      authoring: false,
+      types: false,
+    });
+    const env = result.scopes.find((s) => s.scope === "env");
+    const blockers = env?.findings.filter((f) => f.severity === "error") ?? [];
+
+    if (env?.status === "passed" && blockers.length === 0) {
+      const gap = env.notes[0];
+      if (gap) {
+        p.outro(
+          `Set up, but env couldn't be fully verified: ${gap.reason} Run \`${invocation("check")}\` after a build.`,
+        );
+      } else {
+        p.outro(`✓ set up — run \`npm run build\`, or \`${invocation("check")}\` anytime`);
+      }
       return;
     }
+
     for (const f of blockers) {
       const loc = f.file ? ` (${f.file}${f.line ? `:${f.line}` : ""})` : "";
       p.log.warn(`${f.message}${loc}`);

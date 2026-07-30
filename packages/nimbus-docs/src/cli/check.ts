@@ -1,11 +1,11 @@
 /**
- * `nimbus-docs check` — one build-free preflight (env + structure + authoring).
- * Exit: 0 clean · 1 error-severity findings · 2 usage.
+ * `nimbus-docs check` — one build-free preflight (env + structure + authoring
+ * + types). Exit: 0 clean · 1 error-severity findings · 2 usage.
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type StdioOptions } from "node:child_process";
 
 import * as p from "@clack/prompts";
 
@@ -29,6 +29,7 @@ export interface CheckCliFlags {
   env?: boolean;
   structure?: boolean;
   lint?: boolean;
+  types?: boolean;
   fix?: boolean;
   json?: boolean;
   format?: string;
@@ -68,6 +69,7 @@ export async function checkCommand(flags: CheckCliFlags): Promise<void> {
       await applyFixes(cwd, result, {
         interactive,
         yes: flags.yes === true,
+        wantJson,
         scopes,
         signal: ac.signal,
       });
@@ -94,18 +96,20 @@ export async function checkCommand(flags: CheckCliFlags): Promise<void> {
 }
 
 export function resolveScopes(flags: CheckCliFlags): CheckScopes {
-  const any = flags.env || flags.structure || flags.lint;
+  const any = flags.env || flags.structure || flags.lint || flags.types;
   if (!any) return ALL_SCOPES;
   return {
     env: flags.env === true,
     structure: flags.structure === true,
     authoring: flags.lint === true,
+    types: flags.types === true,
   };
 }
 
 interface FixContext {
   interactive: boolean;
   yes: boolean;
+  wantJson: boolean;
   scopes: CheckScopes;
   signal: AbortSignal;
 }
@@ -186,9 +190,6 @@ async function fixInstallDep(
 ): Promise<void> {
   if (!pkg) return;
 
-  // Never run an installer without a package.json here: npm/pnpm would walk up
-  // and mutate a parent project. The `nimbus/no-package-json` finding already
-  // reports the real problem.
   if (!hasPackageJson(cwd)) {
     if (ctx.interactive) {
       p.log.warn(
@@ -212,13 +213,13 @@ async function fixInstallDep(
 
   const spin = ctx.interactive ? p.spinner() : null;
   spin?.start(`Installing ${pkg}`);
-  const res = spawnSync(bin, args, {
-    cwd,
-    stdio: ctx.interactive ? "ignore" : "inherit",
-  });
-  // Trust the package's presence, not just the exit code: an installer can exit
-  // 0 having resolved against the wrong project. Only claim success if `check`
-  // can now see it — otherwise the next run would contradict us.
+  // `--json` mode: keep installer output off our stdout (it carries the payload).
+  const stdio: StdioOptions = ctx.interactive
+    ? "ignore"
+    : ctx.wantJson
+      ? ["ignore", "ignore", "inherit"]
+      : "inherit";
+  const res = spawnSync(bin, args, { cwd, stdio });
   if (res.status === 0 && depInstalled(cwd, pkg)) {
     spin?.stop(`Installed ${pkg}`);
     applied.push(`installed ${pkg}${dev ? " (dev)" : ""}`);
@@ -250,7 +251,6 @@ function writeFileAtomic(file: string, content: string): void {
     try {
       fs.unlinkSync(tmp);
     } catch {
-      /* best-effort */
     }
     throw err;
   }

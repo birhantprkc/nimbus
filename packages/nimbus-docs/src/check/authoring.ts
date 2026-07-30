@@ -3,6 +3,11 @@
  * `check` envelope — same content dirs, same `.nimbus/lint.json` severities,
  * same rules, each `Diagnostic` mapped through `fromDiagnostic`. Unlike `lint`,
  * a zero-`.mdx` project is NOT an error: a config-only `check` must still pass.
+ *
+ * The core rules always run (so the scope is always `evaluated`). Coverage that
+ * `astro build` materializes — opt-in rule enablement (`.nimbus/lint.json`) and
+ * `internal-link`'s route truth (`.nimbus/routes.json`) — becomes a `note` when
+ * absent, never a warning and never a silent false-green pass.
  */
 
 import fs from "node:fs";
@@ -16,15 +21,14 @@ import {
   type CollectionsConfig,
   type RulesConfig,
 } from "../lint/index.js";
-import { fromDiagnostic, type CheckFinding } from "./finding.js";
+import { fromDiagnostic, type CheckFinding, type Note, type ScopeReport } from "./finding.js";
 
-export function checkAuthoring(cwd: string): CheckFinding[] {
+export function checkAuthoring(cwd: string): ScopeReport {
   const findings: CheckFinding[] = [];
+  const notes: Note[] = [];
+  const hasLintJson = fs.existsSync(path.join(cwd, ".nimbus", "lint.json"));
   const { config, error } = loadMaterializedConfig(cwd);
 
-  // A present-but-broken `.nimbus/lint.json` is a real error, not a silent "run
-  // zero rules": defaulting to `{}` would make every opt-in rule resolve `off`
-  // and print a false-green `Authoring ✓ ok`. Surface it; the run exits 1.
   if (error) {
     findings.push({
       scope: "authoring",
@@ -37,10 +41,66 @@ export function checkAuthoring(cwd: string): CheckFinding[] {
   }
 
   const files = findMdxFiles([path.join(cwd, "src", "content")]);
-  if (files.length === 0) return findings; // config-only project — not a failure
+  if (files.length === 0) {
+    return { scope: "authoring", findings, notes, evaluated: true };
+  }
 
-  const diagnostics = lintPaths(files, cwd, config);
-  return [...findings, ...diagnostics.map(fromDiagnostic)];
+  let effective = config;
+  if (!hasLintJson) {
+    notes.push({
+      code: "nimbus/authoring-optin-skipped",
+      reason:
+        "opt-in authoring rules not evaluated — their enablement is materialized by `astro build` into `.nimbus/lint.json`, which doesn't exist yet. Core rules still ran.",
+      requiresBuild: true,
+    });
+  } else if (
+    !error &&
+    internalLinkEnabled(config) &&
+    !fs.existsSync(path.join(cwd, ".nimbus", "routes.json"))
+  ) {
+    notes.push({
+      code: "nimbus/internal-link-skipped",
+      reason:
+        "link checking skipped — `nimbus/internal-link` resolves against the route map `astro build` materializes into `.nimbus/routes.json`, which doesn't exist yet. Other authoring rules still ran.",
+      requiresBuild: true,
+    });
+    // Noted structurally above — disable the rule so it doesn't also run and
+    // write its own skip warning to stderr.
+    effective = withRuleDisabled(config, "nimbus/internal-link");
+  }
+
+  for (const d of lintPaths(files, cwd, effective)) findings.push(fromDiagnostic(d));
+  return { scope: "authoring", findings, notes, evaluated: true };
+}
+
+function withRuleDisabled(
+  config: MaterializedConfig,
+  code: keyof RulesConfig,
+): MaterializedConfig {
+  const collections: CollectionsConfig = {};
+  for (const [name, collection] of Object.entries(config.collections)) {
+    collections[name] = collection.rules
+      ? { ...collection, rules: { ...collection.rules, [code]: "off" } }
+      : collection;
+  }
+  return {
+    ...config,
+    rules: { ...config.rules, [code]: "off" },
+    collections,
+  };
+}
+
+function internalLinkEnabled(config: MaterializedConfig): boolean {
+  const code = "nimbus/internal-link";
+  const settings: unknown[] = [(config.rules as Record<string, unknown>)[code]];
+  for (const collection of Object.values(config.collections)) {
+    const rules = collection.rules as Record<string, unknown> | undefined;
+    if (rules) settings.push(rules[code]);
+  }
+  return settings.some((setting) => {
+    const severity = Array.isArray(setting) ? setting[0] : setting;
+    return severity === "error" || severity === "warn";
+  });
 }
 
 export interface MaterializedConfig {

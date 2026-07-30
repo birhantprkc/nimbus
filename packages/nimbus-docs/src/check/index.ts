@@ -8,17 +8,26 @@ export {
   ALL_SCOPES,
   type CheckScopes,
   type CheckResult,
+  type ScopeResult,
 } from "./run.js";
 export {
   summarize,
   exitCodeFor,
   sortFindings,
   fromDiagnostic,
+  deriveScopeStatus,
+  deriveReadiness,
+  deriveTopStatus,
   type CheckFinding,
   type CheckFix,
   type CheckScope,
   type CheckSeverity,
   type CheckSummary,
+  type Note,
+  type ScopeReport,
+  type ScopeStatus,
+  type TopStatus,
+  type Readiness,
 } from "./finding.js";
 export {
   formatCheckJson,

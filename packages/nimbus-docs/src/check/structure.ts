@@ -5,8 +5,9 @@
  *   - config Zod       → `validateNimbusConfig`
  *   - duplicate routes → `findDuplicateRoutes`
  *   - MDX components   → `validateMdxContent`
- * Internal-link resolution is left to the authoring `nimbus/internal-link`
- * rule (one implementation), not duplicated here.
+ * Sub-checks it can't run statically (a computed config field, a missing
+ * `components.ts`) are `notes`, not warnings. Internal-link resolution is left
+ * to the authoring `nimbus/internal-link` rule (one implementation), not here.
  */
 
 import path from "node:path";
@@ -28,55 +29,45 @@ import {
   findDuplicateRoutes,
   type RouteOwner,
 } from "../lint/site-model.js";
-import type { CheckFinding } from "./finding.js";
+import type { CheckFinding, Note, ScopeReport } from "./finding.js";
 import { lineOf, relFile } from "./loc.js";
 
 export async function checkStructure(
   cwd: string,
   parsed: ConfigParseResult,
-): Promise<CheckFinding[]> {
+): Promise<ScopeReport> {
   const findings: CheckFinding[] = [];
+  const notes: Note[] = [];
 
-  checkConfigZod(findings, parsed);
+  checkConfigZod(findings, notes, parsed);
   await checkDuplicateRoutes(cwd, findings, parsed);
-  await checkMdxComponents(cwd, findings);
+  await checkMdxComponents(cwd, findings, notes);
 
-  return findings;
+  return { scope: "structure", findings, notes, evaluated: true };
 }
 
 function checkConfigZod(
   findings: CheckFinding[],
+  notes: Note[],
   parsed: ConfigParseResult,
 ): void {
-  if (!parsed.ok) return; // env already reported the file-level failure
+  if (!parsed.ok) return;
 
   const file = relFile(parsed.location.file);
   const line = lineOf(parsed.location.source, parsed.location.objectStart);
 
-  // A partially-dynamic config can't be fully Zod-validated statically: warn
-  // about what's unresolved and defer that verdict to a build.
   const hasSpread = parsed.unresolved.includes("...spread");
   if (parsed.unresolved.length > 0) {
     const fields = parsed.unresolved
       .map((u) => (u === "...spread" ? "a spread (`...`)" : `\`${u}\``))
       .join(", ");
-    findings.push({
-      scope: "structure",
+    notes.push({
       code: "nimbus/config-unresolved",
-      severity: "warn",
-      file,
-      line,
-      message:
-        `Config has computed field(s) this build-free check can't evaluate: ${fields}. ` +
-        `Run a build for full config validation.`,
-      fixable: false,
+      reason: `computed config field(s) can't be evaluated statically: ${fields}. A build validates their real values.`,
+      requiresBuild: true,
     });
   }
 
-  // Validate the fields we can see even in a mixed config. Inject a valid
-  // placeholder for any required field (site/title) that's unresolved or maybe
-  // spread-supplied — so we don't spuriously error on the omission while still
-  // catching a genuinely-invalid literal (AC#4 stays honest for mixed configs).
   const probe: Record<string, unknown> = { ...parsed.config };
   if (probe.site === undefined && (hasSpread || parsed.unresolved.includes("site"))) {
     probe.site = "https://nimbus.placeholder.invalid";
@@ -107,7 +98,7 @@ async function checkDuplicateRoutes(
 ): Promise<void> {
   const srcDir = path.join(cwd, "src");
   const contentRoot = path.join(srcDir, "content");
-  if (!existsSync(contentRoot)) return; // no content yet — nothing to collide
+  if (!existsSync(contentRoot)) return;
 
   const contentConfigPath = path.join(srcDir, "content.config.ts");
   const rawCollections = await parseContentCollections(contentConfigPath);
@@ -172,6 +163,7 @@ async function checkDuplicateRoutes(
 async function checkMdxComponents(
   cwd: string,
   findings: CheckFinding[],
+  notes: Note[],
 ): Promise<void> {
   const srcDir = path.join(cwd, "src");
   const contentRoot = path.join(srcDir, "content");
@@ -180,14 +172,10 @@ async function checkMdxComponents(
   const componentsPath = path.join(srcDir, "components.ts");
   const globals = await parseComponentsRegistry(componentsPath);
   if (globals === null) {
-    findings.push({
-      scope: "structure",
+    notes.push({
       code: "nimbus/components-registry-missing",
-      severity: "warn",
-      file: "src/components.ts",
-      message:
+      reason:
         "src/components.ts is missing or doesn't export a parseable `components` object — MDX component resolution can't be checked. Create it with `export const components = { … };`.",
-      fixable: false,
     });
     return;
   }

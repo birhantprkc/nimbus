@@ -61,12 +61,15 @@ function writeNimbusJson(target: string, options: ScaffoldOptions): void {
 }
 
 // Entries that must never survive into a scaffolded project, whether the
-// source was a giget download or a local `--template-dir`.
+// source was a giget download or a local `--template-dir`. `.nimbus` is
+// gitignored build output (lint.json / routes.json) — defense-in-depth for any
+// tarball synced before the generator learned to strip it.
 const EXCLUDED_TEMPLATE_ENTRIES = new Set([
   "node_modules",
   ".astro",
   "dist",
   "pnpm-lock.yaml",
+  ".nimbus",
 ]);
 
 const LOCKFILES_BY_PACKAGE_MANAGER = {

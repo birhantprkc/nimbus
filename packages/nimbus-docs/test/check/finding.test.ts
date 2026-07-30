@@ -6,7 +6,11 @@ import {
   exitCodeFor,
   sortFindings,
   fromDiagnostic,
+  deriveScopeStatus,
+  deriveReadiness,
+  deriveTopStatus,
   type CheckFinding,
+  type ScopeReport,
 } from "../../src/check/finding.js";
 import type { Diagnostic } from "../../src/lint/diagnostic.js";
 
@@ -21,22 +25,130 @@ function finding(over: Partial<CheckFinding>): CheckFinding {
   };
 }
 
-test("summarize counts errors, warnings, fixable", () => {
+function report(over: Partial<ScopeReport>): ScopeReport {
+  return { scope: "env", findings: [], notes: [], evaluated: true, ...over };
+}
+
+test("summarize counts errors, warnings, notes, fixable", () => {
   const s = summarize(
     [
       finding({ severity: "error", fixable: true }),
       finding({ severity: "warn" }),
       finding({ severity: "error" }),
     ],
+    2,
     123,
   );
-  assert.deepEqual(s, { errors: 2, warnings: 1, fixable: 1, durationMs: 123 });
+  assert.deepEqual(s, { errors: 2, warnings: 1, notes: 2, fixable: 1, durationMs: 123 });
 });
 
 test("exit code is 1 only when errors exist; warnings keep 0", () => {
-  assert.equal(exitCodeFor(summarize([finding({ severity: "warn" })], 0)), 0);
-  assert.equal(exitCodeFor(summarize([finding({ severity: "error" })], 0)), 1);
-  assert.equal(exitCodeFor(summarize([], 0)), 0);
+  assert.equal(exitCodeFor(summarize([finding({ severity: "warn" })], 0, 0)), 0);
+  assert.equal(exitCodeFor(summarize([finding({ severity: "error" })], 0, 0)), 1);
+  assert.equal(exitCodeFor(summarize([], 0, 0)), 0);
+});
+
+test("deriveScopeStatus: clean-evaluated is passed, not not_evaluated (AC #12)", () => {
+  assert.equal(deriveScopeStatus(report({ evaluated: true })), "passed");
+  assert.equal(deriveScopeStatus(report({ evaluated: false })), "not_evaluated");
+  assert.equal(
+    deriveScopeStatus(report({ findings: [finding({ severity: "error" })] })),
+    "failed",
+  );
+  assert.equal(
+    deriveScopeStatus(report({ findings: [finding({ severity: "warn" })] })),
+    "passed",
+    "a warn-only scope is passed with advisory lines",
+  );
+  assert.equal(
+    deriveScopeStatus(report({ notes: [{ code: "n", reason: "r" }] })),
+    "passed",
+    "a note rides on a passed scope; it is not a status",
+  );
+});
+
+test("deriveReadiness derives from the checks the build gates on", () => {
+  const env = report({ scope: "env" });
+  const structure = report({ scope: "structure" });
+  const types = report({ scope: "types", evaluated: false });
+
+  assert.equal(
+    deriveReadiness([env, structure, types]),
+    "buildable",
+    "a not_evaluated types scope must not move readiness off buildable (AC #4)",
+  );
+  assert.equal(
+    deriveReadiness([report({ scope: "env", findings: [finding({ severity: "error" })] }), structure]),
+    "blocked",
+  );
+  assert.equal(
+    deriveReadiness([report({ scope: "env", notes: [{ code: "n", reason: "r" }] }), structure]),
+    "unknown",
+    "an env note → couldn't fully verify",
+  );
+  assert.equal(
+    deriveReadiness([report({ scope: "structure", notes: [{ code: "n", reason: "r" }] }), env]),
+    "unknown",
+    "a structure note → couldn't fully verify (Scenario E)",
+  );
+});
+
+// A build validator (`kind: "build"`) is emitted through the authoring lint
+// path, so scope alone would miss it and let readiness lie "buildable" for a
+// project `astro build` can't compile. Readiness keys off the code, not scope.
+test("deriveReadiness: a build-validator error in the authoring scope → blocked", () => {
+  const env = report({ scope: "env" });
+  const structure = report({ scope: "structure" });
+
+  assert.equal(
+    deriveReadiness([
+      env,
+      structure,
+      report({
+        scope: "authoring",
+        findings: [finding({ scope: "authoring", code: "nimbus/mdx-syntax", severity: "error" })],
+      }),
+    ]),
+    "blocked",
+    "malformed MDX fails the build even though it's flagged in the authoring scope",
+  );
+
+  assert.equal(
+    deriveReadiness([
+      env,
+      structure,
+      report({
+        scope: "authoring",
+        findings: [finding({ scope: "authoring", code: "nimbus/internal-link", severity: "error" })],
+      }),
+    ]),
+    "buildable",
+    "a non-build authoring rule set to error renders fine — it doesn't block the build",
+  );
+
+  assert.equal(
+    deriveReadiness([
+      env,
+      structure,
+      report({
+        scope: "types",
+        findings: [finding({ scope: "types", code: "ts/2307", severity: "error" })],
+      }),
+    ]),
+    "buildable",
+    "astro build never runs tsc — a type error is correctness, not buildability (AC #4)",
+  );
+});
+
+test("deriveTopStatus: failed on any error, partial on a gap, else passed", () => {
+  assert.equal(
+    deriveTopStatus([report({ findings: [finding({ severity: "error", scope: "types" })] })]),
+    "failed",
+    "a post-build type error is failed (AC #4)",
+  );
+  assert.equal(deriveTopStatus([report({ evaluated: false })]), "partial");
+  assert.equal(deriveTopStatus([report({ notes: [{ code: "n", reason: "r" }] })]), "partial");
+  assert.equal(deriveTopStatus([report({}), report({ scope: "structure" })]), "passed");
 });
 
 test("sortFindings orders by scope, file, line, column, code", () => {

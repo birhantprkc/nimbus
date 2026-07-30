@@ -86,6 +86,7 @@ interface CliArgs {
   env: boolean;
   structure: boolean;
   lint: boolean;
+  types: boolean;
   json: boolean;
   type?: string;
   format?: string;
@@ -101,7 +102,7 @@ const HELP = `
     list [--type ui|lib|feature]   List available registry items
     add                            Same as \`list\`
     add <slug>                     Install a component or hand off a feature
-    check                          Build-free preflight: env + structure + authoring (--fix, --json)
+    check                          Build-free preflight: env + structure + authoring + types (--fix, --json)
     init                           Create the committed nimbus.json record (adopt an existing project)
     outdated                       Show what's behind upstream (starter files + registry components)
     diff [file]                    Show upstream/your changes to starter files (read-only)
@@ -117,7 +118,8 @@ const HELP = `
     --print                        Feature: print markdown to stdout (skip agent detect)
     --force                        \`init\`: rebuild an existing nimbus.json
     --root <dir>                   \`init\`: src dir to scan (monorepo; default src)
-    --env, --structure, --lint     \`check\`: run only the named categories (default: all three)
+    --env, --structure, --lint, --types
+                                   \`check\`: run only the named categories (default: all)
     --type <ui|lib|feature>        \`list\`: filter by type
     --format <json>                \`lint\`/\`check\`: machine-readable output
     --json                         \`check\`: machine-readable output (alias for --format=json)
@@ -130,7 +132,7 @@ const HELP = `
   Examples (run with your package manager — see Usage above):
     nimbus-docs add dialog                              # component: resolve + install
     nimbus-docs add card --overwrite                    # re-install over your copy (review with git)
-    nimbus-docs check                                   # build-free preflight (env + structure + authoring)
+    nimbus-docs check                                   # build-free preflight (env + structure + authoring + types)
     nimbus-docs check --json                            # agent-readable findings + fixes
     nimbus-docs check --fix                             # apply safe fixes, prompt for the rest
     nimbus-docs outdated                                # what's behind upstream (starter + registry)
@@ -138,11 +140,21 @@ const HELP = `
     nimbus-docs add 404-page --print | claude           # explicit pipe to claude
     nimbus-docs lint                                    # pretty output, exit non-zero on error
     nimbus-docs lint --format=json                      # agent-readable diagnostics
+
+  check output (agents & CI):
+    Three top-level signals. \`status\` (passed|failed|partial) and \`readiness\`
+    (buildable|blocked|unknown) are primary; \`ok\` (=== no errors) is back-compat.
+    Exit is 1 only when \`status\` is "failed" — \`partial\` and \`readiness\` never
+    move it. A scope that can't be evaluated yet (pre-build) is a note under
+    \`scopes[].notes[]\` — never a finding, never carrying a fix — so an agent's
+    fix loop terminates on:  status !== "failed" && summary.fixable === 0
+    Build-free readiness gate:   nimbus-docs check
+    Full coverage (types+links): <your build> && nimbus-docs check
 `;
 
 async function main(): Promise<void> {
   const args = mri(process.argv.slice(2), {
-    boolean: ["yes", "print", "help", "version", "quiet", "color", "fix", "force", "overwrite", "all", "apply", "env", "structure", "lint", "json"],
+    boolean: ["yes", "print", "help", "version", "quiet", "color", "fix", "force", "overwrite", "all", "apply", "env", "structure", "lint", "types", "json"],
     string: ["type", "format", "rule", "root", "to", "template-dir"],
     default: { color: undefined },
     alias: { y: "yes", h: "help", v: "version" },
@@ -168,6 +180,7 @@ async function main(): Promise<void> {
       env: args.env,
       structure: args.structure,
       lint: args.lint,
+      types: args.types,
       fix: args.fix,
       json: args.json,
       format: args.format,
