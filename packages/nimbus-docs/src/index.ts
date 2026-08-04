@@ -73,7 +73,6 @@ import type {
   SidebarTransform,
   TOCItem,
   VersionAlternateRecord,
-  VersionPageRef,
   VersionStatus,
 } from "./types.js";
 

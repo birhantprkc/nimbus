@@ -65,6 +65,19 @@ function makeCwd(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nimbus-cwd-"));
 }
 
+function makeGeneratedTemplates(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nimbus-generated-"));
+  for (const variant of ["template", "template-empty"]) {
+    const tmpl = makeTemplate();
+    try {
+      fs.cpSync(tmpl, path.join(root, variant), { recursive: true });
+    } finally {
+      cleanup(tmpl);
+    }
+  }
+  return root;
+}
+
 /**
  * Inject a network-free template source via the `fetchTemplate` seam: copy the
  * fixture dir into the scaffold target, exactly as the real giget/--template-dir
@@ -156,6 +169,43 @@ test("strips stale .nimbus build output so it never reaches the project", async 
     );
   } finally {
     cleanup(cwd, tmpl);
+  }
+});
+
+test("preview mode scaffolds bundled templates and records preview provenance", async () => {
+  const cwd = makeCwd();
+  const templates = makeGeneratedTemplates();
+  try {
+    await scaffold(
+      { ...BASE_OPTIONS, dir: "my-docs" },
+      { cwd, previewMode: true, previewPr: "42", previewTemplatesDir: templates },
+    );
+
+    const nimbus = JSON.parse(
+      fs.readFileSync(path.join(cwd, "my-docs", "nimbus.json"), "utf8"),
+    );
+    assert.equal(nimbus.templatesTag, null);
+    assert.deepEqual(nimbus.preview, { pr: "42", templates: "bundled" });
+  } finally {
+    cleanup(cwd, templates);
+  }
+});
+
+test("preview mode fails loud when bundled templates are missing", async () => {
+  const cwd = makeCwd();
+  const templates = fs.mkdtempSync(path.join(os.tmpdir(), "nimbus-generated-empty-"));
+  try {
+    await assert.rejects(
+      scaffold(
+        { ...BASE_OPTIONS, dir: "my-docs" },
+        { cwd, previewMode: true, previewPr: "42", previewTemplatesDir: templates },
+      ),
+      (err: unknown) =>
+        err instanceof ScaffoldError && /missing bundled templates/.test(err.message),
+    );
+    assert.equal(fs.existsSync(path.join(cwd, "my-docs")), false);
+  } finally {
+    cleanup(cwd, templates);
   }
 });
 

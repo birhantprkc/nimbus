@@ -144,7 +144,6 @@ export function useDiagramOrDefault(hookName: string): DiagramContextValue {
     !WARNED.has(hookName)
   ) {
     WARNED.add(hookName);
-    // eslint-disable-next-line no-console
     console.warn(
       `[nimbus-docs/react] ${hookName} called outside a <Diagram> wrapper. ` +
         "Defaults: playing=true, visible=true, reducedMotion=false. " +
@@ -213,7 +212,6 @@ class DiagramErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
     if (typeof process !== "undefined" && process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
       console.error("[nimbus-docs/react] Diagram render error:", error, info);
     }
   }

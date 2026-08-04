@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -121,10 +120,9 @@ export function useMeasure<T extends HTMLElement | SVGElement, R = DOMRectReadOn
   );
 
   // Re-sample when caller-supplied deps change.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     sampleRef.current();
-  }, deps);
+  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { rect, selected };
 }
