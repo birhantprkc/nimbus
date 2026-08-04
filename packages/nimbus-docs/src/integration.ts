@@ -246,6 +246,12 @@ export interface NimbusIntegrationOptions {
   collections?: CollectionsConfig;
 }
 
+export function resolveMdxOptions(
+  options: Parameters<typeof mdx>[0] | undefined,
+): Parameters<typeof mdx>[0] {
+  return { optimize: true, ...options };
+}
+
 export function nimbus(
   rawConfig: NimbusConfig,
   options: NimbusIntegrationOptions = {},
@@ -506,17 +512,7 @@ export function nimbus(
         }
 
         // MDX is always added; sitemap only when `site` is configured.
-        // TODO(build-memory): make `optimize: true` the default here
-        // (`mdx({ optimize: true, ...options.mdx })`). On large content sets
-        // (verified on cloudflare-docs, ~8,458 pages) the un-optimized MDX
-        // emits one `_components.tag(...)` call per element; Rollup retains
-        // every page's full AST simultaneously during the SSR bundle and the
-        // cold build OOMs at an 8 GB heap (needed ~14-16 GB). `optimize`
-        // collapses static runs into `set:html` and the build fits 8 GB. Held
-        // off as a silent default only because @astrojs/mdx keeps it off for
-        // rare component-interleaving edge cases — validate render parity
-        // across the starter's component set before flipping it for everyone.
-        integrationsToAdd.push(mdx(options.mdx ?? {}));
+        integrationsToAdd.push(mdx(resolveMdxOptions(options.mdx)));
         const wantSitemap = options.sitemap !== false && Boolean(config.site);
         const sitemapOpts =
           typeof options.sitemap === "object" ? options.sitemap : undefined;
