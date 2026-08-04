@@ -2,6 +2,7 @@ import * as p from "@clack/prompts";
 import { spawn } from "node:child_process";
 import { cpSync, existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { downloadTemplate } from "giget";
 import { applyDeployTarget } from "./transformers/deploy.js";
 import { updatePackageJson } from "./transformers/package.js";
@@ -11,6 +12,11 @@ import { updatePackageJson } from "./transformers/package.js";
 // `@cloudflare/create-nimbus-docs@0.5.0` always fetches the `templates-v0.5.0` tag —
 // reproducibly, forever. Never a branch (never `#templates`, never `#main`).
 declare const __APP_VERSION__: string;
+declare const __PREVIEW__: boolean;
+declare const __PREVIEW_PR__: string | null;
+
+const IS_PREVIEW = typeof __PREVIEW__ !== "undefined" && __PREVIEW__;
+const PREVIEW_PR = typeof __PREVIEW_PR__ === "undefined" ? null : __PREVIEW_PR__;
 
 // Templates ship from an orphan `templates` branch, tagged
 // `templates-v<version>`; giget fetches the variant subdir at that tag.
@@ -35,7 +41,11 @@ const DEFAULT_REGISTRY_URL = "https://nimbus-docs.com/registry";
  * surface `add`/`init` read and append to. Survives a clone (git-tracked, not
  * `.nimbus/` scratch).
  */
-function writeNimbusJson(target: string, options: ScaffoldOptions): void {
+function writeNimbusJson(
+  target: string,
+  options: ScaffoldOptions,
+  preview: PreviewProvenance | null,
+): void {
   // tsdown inlines __APP_VERSION__ at build; guard so the source also runs
   // under tsx (tests), where the injected constant is undefined.
   const version =
@@ -43,9 +53,10 @@ function writeNimbusJson(target: string, options: ScaffoldOptions): void {
   const record = {
     $schema: "https://nimbus-docs.com/schema/nimbus.json",
     version,
-    templatesTag: `templates-v${version}`,
+    templatesTag: preview ? null : `templates-v${version}`,
     variant: options.content,
     registry: DEFAULT_REGISTRY_URL,
+    ...(preview ? { preview } : {}),
     install: {
       // src dir `add` writes registry files against; point at a nested package
       // for the monorepo case. `aliases` mirror the tsconfig import map.
@@ -112,12 +123,20 @@ export class ScaffoldError extends Error {
 /** Injectable seams for tests — real runs use the process cwd and giget. */
 export interface ScaffoldInternals {
   cwd?: string;
+  previewMode?: boolean;
+  previewPr?: string | null;
+  previewTemplatesDir?: string;
   /**
    * Override the template-fetch step. Tests inject a function that populates
    * `target` from a fixture so they never touch the network. Real runs use
    * giget (network) or the local `--template-dir` copy.
    */
   fetchTemplate?: (target: string, options: ScaffoldOptions) => Promise<void>;
+}
+
+interface PreviewProvenance {
+  pr: string | null;
+  templates: "bundled";
 }
 
 export async function scaffold(
@@ -159,7 +178,11 @@ export async function scaffold(
     throw new ScaffoldError(`Directory "${dir}" already exists.`);
   }
 
-  const fetchTemplate = internals.fetchTemplate ?? realFetchTemplate;
+  const fetchTemplate =
+    internals.fetchTemplate ??
+    ((target: string, options: ScaffoldOptions) =>
+      realFetchTemplate(target, options, internals));
+  const preview = previewProvenance(internals);
 
   const s = p.spinner();
 
@@ -177,7 +200,7 @@ export async function scaffold(
     normalizePackageManagerFiles(target, packageManager);
     await applyDeployTarget(target, deploy);
     await updatePackageJson(target, { name: basename(dir), deploy });
-    writeNimbusJson(target, options);
+    writeNimbusJson(target, options, preview);
     s.stop("Project configured.");
   } catch (err) {
     s.stop("Failed.");
@@ -236,6 +259,7 @@ export async function scaffold(
 async function realFetchTemplate(
   target: string,
   options: ScaffoldOptions,
+  internals: ScaffoldInternals = {},
 ): Promise<void> {
   const variant = VARIANT_BY_CONTENT[options.content];
 
@@ -244,7 +268,37 @@ async function realFetchTemplate(
     return;
   }
 
+  if (isPreviewMode(internals)) {
+    copyBundledPreviewTemplate(target, previewTemplatesDir(internals), variant);
+    return;
+  }
+
   await downloadFromTemplatesRepo(target, variant);
+}
+
+function isPreviewMode(internals: ScaffoldInternals): boolean {
+  return internals.previewMode ?? IS_PREVIEW;
+}
+
+function previewProvenance(internals: ScaffoldInternals): PreviewProvenance | null {
+  if (!isPreviewMode(internals)) return null;
+  return {
+    pr: internals.previewPr ?? PREVIEW_PR,
+    templates: "bundled",
+  };
+}
+
+function previewTemplatesDir(internals: ScaffoldInternals): string {
+  return internals.previewTemplatesDir ?? fileURLToPath(new URL("./templates", import.meta.url));
+}
+
+function copyBundledPreviewTemplate(target: string, templatesDir: string, variant: string) {
+  if (!existsSync(join(templatesDir, variant, "package.json"))) {
+    throw new ScaffoldError(
+      `Preview build is missing bundled templates for "${variant}" — the build hook did not emit dist/templates/${variant}/package.json.`,
+    );
+  }
+  copyLocalTemplate(target, templatesDir, variant);
 }
 
 /** Resolve a `--template-dir` value to the concrete directory to copy. */
