@@ -154,7 +154,7 @@ export async function installComponents(
           `Installed ${newDeps.length} dep${newDeps.length === 1 ? "" : "s"}.`,
         );
         report.npmDepsInstalled = newDeps;
-      } catch (err) {
+      } catch {
         spinner.stop("Dependency install failed.");
         p.log.warn(
           `Could not install ${newDeps.join(", ")}. Run \`${bin} ${args.join(" ")}\` manually.`,

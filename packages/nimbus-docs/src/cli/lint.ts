@@ -28,7 +28,6 @@ import {
   validateLintOptions,
   type CollectionsConfig,
   type Diagnostic,
-  type RuleCode,
   type RulesConfig,
 } from "../lint/index.js";
 

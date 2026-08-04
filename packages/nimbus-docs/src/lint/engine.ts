@@ -16,7 +16,7 @@ import {
   type CollectionsConfig,
   type RulesConfig,
 } from "./config.js";
-import type { Diagnostic, RuleCode, Severity } from "./diagnostic.js";
+import type { Diagnostic, Severity } from "./diagnostic.js";
 import { collectDisables, isDisabled } from "./disables.js";
 import { applyFixes } from "./fix.js";
 import { parseSource, type ParsedFile } from "./parse.js";
