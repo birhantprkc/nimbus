@@ -120,6 +120,45 @@ test("happy path writes and transforms the project", async () => {
   }
 });
 
+test("strips stale .nimbus build output so it never reaches the project", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  try {
+    // A tarball synced before the generator learned to strip `.nimbus` can
+    // carry stale lint/route materialization. It must never survive into a
+    // scaffolded project, or `nimbus-docs check` would read another site's
+    // build artifacts. Exercise the real `--template-dir` copy path, and pin
+    // BOTH strip mechanisms: the top-level entry is swept by
+    // `normalizePackageManagerFiles`, but a NESTED `.nimbus` is only excluded
+    // by the copy filter's per-segment `shouldCopyTemplatePath`.
+    fs.mkdirSync(path.join(tmpl, ".nimbus"));
+    fs.writeFileSync(path.join(tmpl, ".nimbus", "lint.json"), `{"rules":{}}`);
+    fs.writeFileSync(path.join(tmpl, ".nimbus", "routes.json"), `{"routes":[]}`);
+    fs.mkdirSync(path.join(tmpl, "src", ".nimbus"), { recursive: true });
+    fs.writeFileSync(path.join(tmpl, "src", ".nimbus", "lint.json"), `{"rules":{}}`);
+
+    await scaffold({ ...BASE_OPTIONS, dir: "my-docs", templateDir: tmpl }, { cwd });
+
+    const target = path.join(cwd, "my-docs");
+    assert.ok(
+      fs.existsSync(path.join(target, "package.json")),
+      "project still scaffolded",
+    );
+    assert.equal(
+      fs.existsSync(path.join(target, ".nimbus")),
+      false,
+      "stale top-level .nimbus stripped from the scaffolded project",
+    );
+    assert.equal(
+      fs.existsSync(path.join(target, "src", ".nimbus")),
+      false,
+      "stale nested .nimbus stripped by the copy filter",
+    );
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
 test("cloudflare target declines workerd's build script alongside wrangler", async () => {
   const cwd = makeCwd();
   const tmpl = makeTemplate();

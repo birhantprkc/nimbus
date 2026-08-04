@@ -222,9 +222,50 @@ export async function initCommand(flags: InitFlags): Promise<void> {
   if (stats.unverified) parts.push(`${stats.unverified} unverified (offline)`);
   if (stats.handAuthored) parts.push(`${stats.handAuthored} hand-authored (not in any registry)`);
   p.log.info(parts.join("\n  "));
-  p.outro(
+  p.log.info(
     "Starter provenance (version, templatesTag, variant) couldn't be recovered from the " +
       "repo — set them by hand in nimbus.json if you know the create-nimbus-docs version " +
       "you scaffolded with. Commit nimbus.json so upgrades can track what you own.",
   );
+
+  await reportReadiness(cwd);
+}
+
+// AC #6 "comes to the user": init ends by running the env category so a fresh
+// scaffold hears about `site: CHANGE_ME` here, not only on demand. Wrapped so a
+// readiness hiccup never fails an otherwise-successful init.
+async function reportReadiness(cwd: string): Promise<void> {
+  try {
+    const { runChecks } = await import("../check/index.js");
+    const result = await runChecks(cwd, {
+      env: true,
+      structure: false,
+      authoring: false,
+      types: false,
+    });
+    const env = result.scopes.find((s) => s.scope === "env");
+    const blockers = env?.findings.filter((f) => f.severity === "error") ?? [];
+
+    if (env?.status === "passed" && blockers.length === 0) {
+      const gap = env.notes[0];
+      if (gap) {
+        p.outro(
+          `Set up, but env couldn't be fully verified: ${gap.reason} Run \`${invocation("check")}\` after a build.`,
+        );
+      } else {
+        p.outro(`✓ set up — run \`npm run build\`, or \`${invocation("check")}\` anytime`);
+      }
+      return;
+    }
+
+    for (const f of blockers) {
+      const loc = f.file ? ` (${f.file}${f.line ? `:${f.line}` : ""})` : "";
+      p.log.warn(`${f.message}${loc}`);
+    }
+    p.outro(
+      `Run \`${invocation("check")}\` for the full report, or \`${invocation("check --fix")}\` to fix what's safe.`,
+    );
+  } catch {
+    p.outro(`✓ set up — run \`npm run build\`, or \`${invocation("check")}\` anytime`);
+  }
 }
