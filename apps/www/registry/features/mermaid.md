@@ -295,7 +295,7 @@ pre.mermaid[data-processed] svg {
 	max-width: 100%;
 	height: auto;
 	display: block;
-	margin: 0;
+	margin: 0 auto;
 	padding: 0;
 	vertical-align: top;
 }
@@ -315,6 +315,7 @@ If the user's site does NOT use `ClientRouter`, replace the final `document.addE
 ```ts
 let diagrams: HTMLPreElement[] = [];
 const captured = new WeakSet<HTMLPreElement>();
+const diagramPadding = 8;
 
 // Full-screen expand dialog (lazy — only created when needed)
 let dialog: HTMLDialogElement | null = null;
@@ -482,6 +483,50 @@ function wrapDiagram(diagram: HTMLPreElement) {
 	container.appendChild(expandBtn);
 }
 
+// On some browser/OS combinations Mermaid retains the oversized (~2000×2000)
+// foreignObject it uses to measure HTML labels, leaving a view box far larger
+// than the drawing so the diagram renders tiny. Refit only a view box that is
+// disproportionately large versus the actual rendered bounds; leave sane ones
+// (including their intentional padding) untouched.
+function fitSvgToContents(svg: SVGSVGElement): void {
+	let bounds: DOMRect;
+	try {
+		bounds = svg.getBBox();
+	} catch {
+		return;
+	}
+
+	if (
+		![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) ||
+		bounds.width <= 0 ||
+		bounds.height <= 0
+	) {
+		return;
+	}
+
+	const width = bounds.width + diagramPadding * 2;
+	const height = bounds.height + diagramPadding * 2;
+	const viewBox = svg
+		.getAttribute("viewBox")
+		?.trim()
+		.split(/[\s,]+/)
+		.map(Number);
+	if (
+		viewBox?.length === 4 &&
+		viewBox.every(Number.isFinite) &&
+		viewBox[2] <= width * 2 &&
+		viewBox[3] <= height * 2
+	) {
+		return;
+	}
+
+	svg.setAttribute(
+		"viewBox",
+		`${bounds.x - diagramPadding} ${bounds.y - diagramPadding} ${width} ${height}`,
+	);
+	svg.style.maxWidth = `${width}px`;
+}
+
 async function render() {
 	diagrams.forEach(captureDiagramSource);
 
@@ -572,6 +617,8 @@ async function render() {
 			diagram.removeAttribute("data-error");
 
 			wrapDiagram(diagram);
+			const svgElement = diagram.querySelector("svg");
+			if (svgElement) fitSvgToContents(svgElement);
 			diagram.setAttribute("data-processed", "true");
 		} catch (e) {
 			showRenderError(diagram);
@@ -660,3 +707,4 @@ Run the user's dev server and open a page containing a diagram. Confirm:
 - **Theme toggle doesn't update diagrams** — the site's toggle isn't setting `data-mode` on `<html>`. Point the `MutationObserver` at whatever element carries the mode attribute.
 - **Mermaid throws a color-parse error** — an unsupported value reached `themeVariables`. Keep colors passed to Mermaid as hex, `rgb(a)`, or `hsl(a)` values; do not pass CSS variables or modern color functions directly.
 - **Diagrams duplicated or missing after navigation** — the site uses `ClientRouter` but the script runs `setup()` at module load, or vice versa. Match the bootstrap to the router as described above.
+- **A diagram renders tiny, especially in the expanded view** — on some browser/OS combinations Mermaid keeps the oversized (~2000×2000) `foreignObject` it uses to measure HTML labels, leaving a `viewBox` far larger than the drawing. `fitSvgToContents` refits any view box more than 2× the rendered bounds after each render; if you removed it or render diagrams through a different path, re-add the call after `mermaid.render`.
