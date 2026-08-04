@@ -1,5 +1,19 @@
 # @cloudflare/create-nimbus-docs
 
+## 0.6.4
+
+### Patch Changes
+
+- [#64](https://github.com/cloudflare/nimbus/pull/64) [`d551fa2`](https://github.com/cloudflare/nimbus/commit/d551fa23ca3031b599654210da82a4f75685a680) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Stop shipping the `.nimbus/` build directory into scaffolded projects
+
+  `.nimbus/` holds build artifacts materialized by `astro build` (`routes.json`, `lint.json`). It had leaked into the starter source and was being copied into new projects, so a freshly scaffolded app carried stale route and lint truth from the template rather than its own. `.nimbus` is now excluded by both the template-copy script and the runtime scaffolder, and removed from the starter source; a new project starts with no build artifacts and generates its own on first build.
+
+- [#64](https://github.com/cloudflare/nimbus/pull/64) [`e1e4e8d`](https://github.com/cloudflare/nimbus/commit/e1e4e8d313952ffb197eb31f0a63983e93d20adc) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Point the scaffolded AGENT.md at `nimbus-docs check`
+
+  The generated `AGENT.md` now documents the one-command model: a "Check it builds" row in the actions table (env + structure + authoring + types), and an "Audit this site" section that leads with `nimbus-docs check --json` before the manual walk of what `check` doesn't cover yet (route-file existence, registry hygiene, AI surface, post-build search, Cloudflare config).
+
+  It teaches an agent the honest result contract: the primary signals are `status` (passed|failed|partial) and `readiness` (buildable|blocked|unknown), with `ok` kept only for back-compat; a check that couldn't be evaluated yet (e.g. types before a build) is a `note` under `scopes[].notes[]` — never a finding, never a `fix` — so the fix loop terminates on `status !== "failed" && summary.fixable === 0` rather than spinning on a coverage gap it cannot repair.
+
 ## 0.6.3
 
 ### Patch Changes
