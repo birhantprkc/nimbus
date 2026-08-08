@@ -11,6 +11,7 @@ export default defineConfig({
     content: "src/content.ts",
     schemas: "src/schemas.ts",
     types: "src/types.ts",
+    server: "src/server.ts",
     client: "src/client/index.ts",
     markdown: "src/markdown/index.ts",
     react: "src/react/index.ts",

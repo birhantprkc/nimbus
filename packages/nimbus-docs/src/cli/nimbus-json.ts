@@ -52,6 +52,12 @@ const nimbusJsonSchema = z
     registry: z.string().optional(),
     // `init` sets this when it rebuilt a record it couldn't fully recover.
     reconstructed: z.boolean().optional(),
+    // Provenance for the server-output opt-in (`add adapter-*`). Not the source
+    // of truth for render mode — that's the committed footprint (deps + config).
+    serverOutput: z
+      .object({ adapter: z.string() })
+      .passthrough()
+      .optional(),
     install: z
       .object({
         root: z.string().optional(),

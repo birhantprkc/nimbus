@@ -206,6 +206,9 @@ const nimbusConfigSchema = withStrictKeys(
     features: featuresSchema,
     search: searchSchema,
     versions: versionsSchema,
+    gated: z
+      .array(z.string({ error: '"gated" entries must be glob strings' }))
+      .default([]),
   }),
   {
     removedKeys: REMOVED_CONFIG_KEYS,

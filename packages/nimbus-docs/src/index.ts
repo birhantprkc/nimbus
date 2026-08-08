@@ -18,10 +18,18 @@ import {
 import { loadCollectionOrWarn } from "./_internal/load-collection.js";
 import { runtimeWarn } from "./_internal/runtime-warn.js";
 import {
+  getVisibleEntry,
   getVisibleEntries,
   getVisibleEntriesByCollection,
   clearContentCaches,
 } from "./_internal/content.js";
+import {
+  audienceCacheKey,
+  clearProjectionCache,
+  isGatedFor,
+  resolveAudience,
+  type ProjectionContext,
+} from "./_internal/projection.js";
 import {
   applyOverviewLeaf,
   buildSidebarTree,
@@ -149,7 +157,7 @@ export { defaultCodeTransformers } from "./_internal/code-transformers.js";
  * Returns `CollectionEntry<string>[]` so cross-collection traversal
  * doesn't need per-name type narrowing.
  */
-export { getVisibleEntries };
+export { getVisibleEntry, getVisibleEntries };
 
 // ---------------------------------------------------------------------------
 // Agent-facing indexing
@@ -264,13 +272,20 @@ export interface IndexedTopLevel {
  * the collection: hand-rolled `defineCollection({ loader, schema })`
  * collections work without modification.
  */
-// Cached across pages (dev too); the dev server clears it on content change
-// via `clearNavCaches`.
-let indexedEntriesCache: IndexedEntry[] | undefined;
+// Cached across pages (dev too); cleared on content change. Partitioned by
+// audience key so a per-identity projection can't poison the public cache.
+const indexedEntriesCache = new Map<string, IndexedEntry[]>();
 
-export async function getIndexedEntries(): Promise<IndexedEntry[]> {
-  if (indexedEntriesCache) return indexedEntriesCache;
+export async function getIndexedEntries(
+  ctx?: ProjectionContext,
+): Promise<IndexedEntry[]> {
+  const audience = resolveAudience(ctx);
+  const cacheKey = audienceCacheKey(audience);
+  const cached = indexedEntriesCache.get(cacheKey);
+  if (cached) return cached;
   const { getCollection } = await import("astro:content");
+  const nimbusConfig = await loadNimbusConfig();
+  const gatedGlobs = nimbusConfig.gated ?? [];
   const collectionNames = await loadIndexedCollections();
   // Fall back to the primary collection name if the build-time parse
   // came up empty. Belt-and-braces: the integration also defaults to
@@ -290,6 +305,7 @@ export async function getIndexedEntries(): Promise<IndexedEntry[]> {
     for (const entry of entries) {
       const data = (entry.data ?? {}) as Record<string, unknown>;
       if (data.draft === true) continue;
+      if (isGatedFor(entry.id, gatedGlobs, audience)) continue;
 
       const title =
         typeof data.title === "string" && data.title.length > 0
@@ -333,7 +349,7 @@ export async function getIndexedEntries(): Promise<IndexedEntry[]> {
       });
     }
   }
-  indexedEntriesCache = indexed;
+  indexedEntriesCache.set(cacheKey, indexed);
   return indexed;
 }
 
@@ -566,8 +582,9 @@ const structuralTreeCache = new Map<string, SidebarItem[]>();
 /** Drop all nav caches (dev content-change invalidation). */
 export function clearNavCaches(): void {
   structuralTreeCache.clear();
-  indexedEntriesCache = undefined;
+  indexedEntriesCache.clear();
   clearValidInternalLinksCache();
+  clearProjectionCache();
   clearContentCaches();
 }
 
@@ -973,12 +990,12 @@ export async function getDocsPageProps(
         "(or passes an entry via custom getStaticPaths).",
     );
   }
-  const { render, getEntry } = await import("astro:content");
+  const { render } = await import("astro:content");
   const { Content, headings } = await render(entry);
   const merged = await mergePartialHeadings(
     entry.body,
     headings,
-    getEntry as (collection: string, id: string) => Promise<unknown>,
+    getVisibleEntry as (collection: string, id: string) => Promise<unknown>,
     render as (entry: unknown) => Promise<{ headings: typeof headings }>,
     options?.partialHeadings,
   );
@@ -1069,12 +1086,12 @@ export async function getCollectionPageProps<C extends string>(
         "Ensure your route uses `getStaticPaths = getCollectionStaticPaths(<collection>)`.",
     );
   }
-  const { render, getEntry } = await import("astro:content");
+  const { render } = await import("astro:content");
   const { Content, headings } = await render(entry);
   const merged = await mergePartialHeadings(
     entry.body,
     headings,
-    getEntry as (collection: string, id: string) => Promise<unknown>,
+    getVisibleEntry as (collection: string, id: string) => Promise<unknown>,
     render as (entry: unknown) => Promise<{ headings: typeof headings }>,
     options?.partialHeadings,
   );

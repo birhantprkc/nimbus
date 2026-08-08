@@ -21,9 +21,13 @@
  * installing a slug — override via `NIMBUS_REGISTRY_URL` for local dev.
  */
 
+import { spawn } from "node:child_process";
+
 import mri from "mri";
 import * as p from "@clack/prompts";
 
+import { ADAPTER_IDS, type AdapterId } from "../_internal/adapters.js";
+import { installAdapter } from "./adapter.js";
 import { BUNDLED_INDEX } from "./_registry.generated.js";
 import { checkCommand } from "./check.js";
 import { installComponents } from "./component.js";
@@ -37,7 +41,13 @@ import {
   resolveWriteRoot,
   writeNimbusJson,
 } from "./nimbus-json.js";
-import { CLI_PACKAGE, invocation } from "./pm.js";
+import {
+  addCommand as pmAddCommand,
+  CLI_PACKAGE,
+  detectPackageManager,
+  invocation,
+  quoteForDisplay,
+} from "./pm.js";
 import {
   getIndexEntry,
   listEntries,
@@ -93,6 +103,7 @@ interface CliArgs {
   rule?: string;
   root?: string;
   to?: string;
+  adapter?: string;
   "template-dir"?: string;
   color?: boolean;
 }
@@ -102,6 +113,10 @@ const HELP = `
     list [--type ui|lib|feature]   List available registry items
     add                            Same as \`list\`
     add <slug>                     Install a component or hand off a feature
+    add server-output --adapter <vercel|node|netlify|cloudflare>
+                                   Opt into server output: flip \`output\` to "server" + wire the adapter
+    add adapter-<vercel|node|netlify|cloudflare>
+                                   Alias for server-output adapter installs
     check                          Build-free preflight: env + structure + authoring + types (--fix, --json)
     init                           Create the committed nimbus.json record (adopt an existing project)
     outdated                       Show what's behind upstream (starter files + registry components)
@@ -155,7 +170,7 @@ const HELP = `
 async function main(): Promise<void> {
   const args = mri(process.argv.slice(2), {
     boolean: ["yes", "print", "help", "version", "quiet", "color", "fix", "force", "overwrite", "all", "apply", "env", "structure", "lint", "types", "json"],
-    string: ["type", "format", "rule", "root", "to", "template-dir"],
+    string: ["type", "format", "rule", "root", "to", "adapter", "template-dir"],
     default: { color: undefined },
     alias: { y: "yes", h: "help", v: "version" },
   }) as unknown as CliArgs;
@@ -235,6 +250,7 @@ async function main(): Promise<void> {
       yes: args.yes,
       print: args.print,
       overwrite: args.overwrite,
+      adapter: args.adapter,
     });
     return;
   }
@@ -312,10 +328,36 @@ function listCommand(typeFilter: string | undefined): void {
 // `nimbus-docs add <slug>`
 // ---------------------------------------------------------------------------
 
+// `adapter-vercel` / `-node` / `-netlify` / `-cloudflare` are the server-output
+// opt-in slugs. They aren't registry items — they run the marker-anchored
+// installer directly (server-output ticket AC#1).
+const ADAPTER_SLUGS: Record<string, AdapterId> = Object.fromEntries(
+  ADAPTER_IDS.map((id) => [`adapter-${id}`, id]),
+);
+
 async function addCommand(
   slug: string,
-  flags: { yes: boolean; print: boolean; overwrite: boolean },
+  flags: { yes: boolean; print: boolean; overwrite: boolean; adapter?: string },
 ): Promise<void> {
+  if (slug === "server-output") {
+    const adapterId = parseAdapterFlag(flags.adapter);
+    if (!adapterId) {
+      p.log.error(
+        `\`server-output\` requires \`--adapter <${ADAPTER_IDS.join("|")}>\`. ` +
+          `Example: \`${invocation("add server-output --adapter vercel")}\``,
+      );
+      process.exit(1);
+    }
+    await runAdapterInstall(adapterId, `server-output --adapter ${adapterId}`);
+    return;
+  }
+
+  const adapterId = ADAPTER_SLUGS[slug];
+  if (adapterId) {
+    await runAdapterInstall(adapterId, `adapter-${adapterId}`);
+    return;
+  }
+
   const entry = getIndexEntry(slug);
   if (!entry) {
     p.log.error(
@@ -427,6 +469,77 @@ async function addCommand(
   } else {
     p.outro(lines.join("\n"));
   }
+}
+
+function parseAdapterFlag(value: string | undefined): AdapterId | null {
+  return ADAPTER_IDS.includes(value as AdapterId) ? (value as AdapterId) : null;
+}
+
+// ---------------------------------------------------------------------------
+// `nimbus-docs add adapter-<id>` — server-output opt-in
+// ---------------------------------------------------------------------------
+
+async function runAdapterInstall(adapter: AdapterId, label: string): Promise<void> {
+  const cwd = process.cwd();
+  p.intro(`nimbus-docs add ${label}`);
+
+  const spinner = p.spinner();
+  const outcome = await installAdapter(adapter, {
+    cwd,
+    installDeps: async (deps, at) => {
+      const pm = detectPackageManager(at);
+      const { bin, args } = pmAddCommand(pm, deps);
+      const display = `${bin} ${args.map(quoteForDisplay).join(" ")}`;
+      spinner.start(display);
+      try {
+        await spawnInstall(bin, args, at);
+        spinner.stop(`Installed ${deps.length} dep${deps.length === 1 ? "" : "s"}.`);
+        return { ok: true };
+      } catch {
+        spinner.stop("Dependency install failed.");
+        return {
+          ok: false,
+          message: `Couldn't install ${deps.join(", ")}. Run \`${display}\` manually, then re-run.`,
+        };
+      }
+    },
+  });
+
+  if (outcome.status === "error") {
+    p.log.error(outcome.message);
+    process.exit(1);
+  }
+
+  for (const warning of outcome.warnings) p.log.warn(warning);
+
+  if (outcome.status === "noop") {
+    const note =
+      outcome.depsInstalled.length > 0
+        ? ` Installed ${outcome.depsInstalled.join(", ")}.`
+        : " Nothing to do.";
+    p.outro(`${adapter} is already wired in ${outcome.configPath}.${note}`);
+    return;
+  }
+
+  const lines = [`✓ Wired ${adapter} in ${outcome.configPath} (output: server)`];
+  if (outcome.depsInstalled.length > 0) {
+    lines.push(`+ Installed ${outcome.depsInstalled.join(", ")}`);
+  }
+  lines.push(
+    "Public doc pages stay prerendered — the adapter only enables on-demand routes.",
+    `Verify with a build, then \`${invocation("check")}\`.`,
+  );
+  p.outro(lines.join("\n"));
+}
+
+function spawnInstall(bin: string, args: string[], cwd: string): Promise<void> {
+  return new Promise((resolveP, rejectP) => {
+    const child = spawn(bin, args, { cwd, stdio: ["ignore", "ignore", "inherit"] });
+    child.on("close", (code) =>
+      code === 0 ? resolveP() : rejectP(new Error(`${bin} exited ${code}`)),
+    );
+    child.on("error", rejectP);
+  });
 }
 
 // ---------------------------------------------------------------------------

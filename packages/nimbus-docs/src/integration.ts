@@ -44,6 +44,11 @@ import type {
 } from "satteri";
 import sitemap from "@astrojs/sitemap";
 import { admonitionPlugin } from "./_internal/admonition-vite-plugin.js";
+import {
+  analyzeBuild,
+  formatInvariantFailure,
+  type ResolvedRouteLike,
+} from "./_internal/build-report.js";
 import { parseComponentsRegistry } from "./_internal/parse-components-registry.js";
 import {
   validateLintOptions,
@@ -83,6 +88,8 @@ import {
   shouldClassShikiTokens,
 } from "./_internal/code-style-registry.js";
 import type { SitemapSerialize } from "./_internal/sitemap-types.js";
+import { isGatedFor, PUBLIC_AUDIENCE } from "./_internal/projection.js";
+import { collectionMountPrefix } from "./_internal/collection-mount.js";
 import { scanVersionFrontmatter } from "./_internal/scan-version-frontmatter.js";
 import {
   buildVersionAlternates,
@@ -269,6 +276,11 @@ export function nimbus(
   // what `base` Astro is using.
   let projectRootForBuild = "";
   let astroBaseForBuild = "";
+  // Captured at config:done / routes:resolved, consumed by the build:done
+  // prerender-invariant reporter (AC#2/#13).
+  let outputModeForBuild: "static" | "server" = "static";
+  let adapterNameForBuild: string | null = null;
+  let resolvedRoutesForBuild: ResolvedRouteLike[] = [];
 
   return {
     name: "@cloudflare/nimbus-docs",
@@ -345,6 +357,12 @@ export function nimbus(
         // — Astro itself tells us which URLs the site serves).
         projectRootForBuild = projectRoot;
         astroBaseForBuild = astroConfig.base ?? "";
+
+        // Reset here (build cycle's first hook, before `routes:resolved` fills
+        // it) — NOT `build:start`, which fires after `routes:resolved` and would
+        // wipe the capture. Also clears stale routes from a prior build that
+        // failed between `routes:resolved` and `build:done`.
+        resolvedRoutesForBuild = [];
 
         // Scan every code-fence language used in `src/content/**/*.{mdx,md}`
         // so Shiki eager-loads grammars at startup. This makes cold-build
@@ -499,10 +517,19 @@ export function nimbus(
             hidden: config.versions.hidden ?? [],
             all: [config.versions.current, ...(config.versions.others ?? [])],
           };
-          const versionEntries = await scanVersionFrontmatter({
+          const scannedEntries = await scanVersionFrontmatter({
             projectRoot,
             versions: resolved,
           });
+          // Apply the public projection so gated entries never surface as
+          // alternates, canonicals, redirects, or in the serialized table.
+          const gatedGlobs = config.gated ?? [];
+          const versionEntries =
+            gatedGlobs.length === 0
+              ? scannedEntries
+              : scannedEntries.filter(
+                  (entry) => !isGatedFor(entry.id, gatedGlobs, PUBLIC_AUDIENCE),
+                );
           versionAlternates = buildVersionAlternates(resolved, versionEntries);
           versionRedirects = computeMissingPageRedirects(
             resolved,
@@ -530,7 +557,14 @@ export function nimbus(
                   Parameters<typeof sitemap>[0]
                 >["serialize"],
               }),
-              ...(sitemapOpts?.customPages && { customPages: sitemapOpts.customPages }),
+              ...(sitemapOpts?.customPages && {
+                customPages: filterProjectedCustomPages(
+                  sitemapOpts.customPages,
+                  config,
+                  astroBaseForBuild,
+                  indexedCollections,
+                ),
+              }),
             }),
           );
         }
@@ -668,7 +702,9 @@ export function nimbus(
           },
         });
       },
-      "astro:config:done": ({ injectTypes }) => {
+      "astro:config:done": ({ injectTypes, config: astroConfig }) => {
+        outputModeForBuild = astroConfig.output === "server" ? "server" : "static";
+        adapterNameForBuild = astroConfig.adapter?.name ?? null;
         // TypeScript declaration for the virtual module. Written to
         // `.astro/integrations/nimbus-docs/virtual-config.d.ts` and
         // auto-referenced by the project tsconfig via Astro's generated
@@ -692,13 +728,17 @@ export function nimbus(
         clearCodeStyleRegistry();
         server.middlewares.use((req, res, next) => {
           const pathname = new URL(req.url ?? "/", "http://nimbus.local").pathname;
-          if (pathname !== assetPathWithBase(astroBaseForBuild, "_nimbus/shiki.css")) {
+          // Match by suffix so the shiki stylesheet is served regardless of
+          // how Vite's dev server presents `base` on `req.url` at a non-root
+          // base (the build serves this file statically, so it's dev-only).
+          if (!pathname.replace(/\/+$/, "").endsWith("_nimbus/shiki.css")) {
             next();
             return;
           }
           res.statusCode = 200;
           res.setHeader("content-type", "text/css; charset=utf-8");
           res.setHeader("cache-control", "no-store");
+          res.setHeader("x-nb-shiki-path", pathname);
           res.end(getCodeStyleCSS() || "/* nimbus shiki styles */\n");
         });
 
@@ -718,10 +758,19 @@ export function nimbus(
         server.watcher.on("change", invalidate);
         server.watcher.on("unlink", invalidate);
       },
-      "astro:build:start": () => {
+      "astro:build:start": async () => {
         // Reset the per-build code-style registry so Shiki token classes
         // don't leak across builds in a long-lived dev/CI process.
         clearCodeStyleRegistry();
+        const { clearNavCaches } = await import("./index.js");
+        clearNavCaches();
+      },
+      "astro:routes:resolved": ({ routes }) => {
+        resolvedRoutesForBuild = routes.map((r) => ({
+          pattern: r.pattern,
+          type: r.type,
+          isPrerendered: r.isPrerendered,
+        }));
       },
       "astro:build:done": async ({ dir, pages, logger }) => {
         // Materialize the site's route truth from Astro's emitted `pages`
@@ -741,6 +790,24 @@ export function nimbus(
           pages,
           logger,
         );
+
+        // Filled by `astro:routes:resolved`; reset at the next build's
+        // `config:setup`, so a build whose `routes:resolved` never fires trips
+        // the empty-routes guard instead of reusing stale routes.
+        const resolvedRoutes = resolvedRoutesForBuild;
+        const report = analyzeBuild({
+          outputMode: outputModeForBuild,
+          adapterName: adapterNameForBuild,
+          routes: resolvedRoutes,
+          prerenderedPageCount: pages.length,
+        });
+        logger.info(report.summaryLine);
+        if (report.fatal) {
+          throw new Error(report.fatal);
+        }
+        if (report.violations.length > 0) {
+          throw new Error(formatInvariantFailure(report.violations));
+        }
 
         const distDir = fileURLToPath(dir);
         await writeShikiStyleSheet({ distDir, logger });
@@ -851,6 +918,65 @@ function canonicalizePathname(pathname: string): string {
   if (!s.startsWith("/")) s = `/${s}`;
   if (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1);
   return s;
+}
+
+export function filterProjectedCustomPages(
+  pages: readonly string[],
+  config: NimbusConfig,
+  base: string,
+  collections: readonly string[] = [],
+): string[] {
+  const gatedGlobs = config.gated ?? [];
+  if (gatedGlobs.length === 0) return [...pages];
+
+  // Gating matches the bare, collection-relative entry id, but a URL carries
+  // the collection's mount prefix (`/blog`, a version `/v2`). Strip those
+  // leading segments so a gated non-primary-collection page can't leak into
+  // the sitemap. A leading segment is a mount only if it's a registered
+  // prefix — never guessed — so a docs page at `/blog/post` is left intact.
+  const versionInfo = config.versions ? { others: config.versions.others ?? [] } : null;
+  const mounts = new Set<string>(versionInfo?.others ?? []);
+  for (const collection of collections) {
+    const prefix = collectionMountPrefix(collection, versionInfo);
+    if (prefix) mounts.add(prefix.slice(1));
+  }
+
+  return pages.filter((page) => {
+    const pathname = new URL(page, config.site).pathname;
+    const routeId = pathnameToEntryId(pathname, mounts, base);
+    return !isGatedFor(routeId, gatedGlobs, PUBLIC_AUDIENCE);
+  });
+}
+
+function pathnameToEntryId(
+  pathname: string,
+  mountSegments: ReadonlySet<string>,
+  base: string,
+): string {
+  // Work in decoded segments throughout: entry ids are decoded
+  // (`internal pages/x`) but a URL pathname is percent-encoded, and `base` may
+  // be authored decoded (`/über`) while the pathname carries it encoded
+  // (`/%C3%BCber`). Decoding both before comparison keeps base/mount stripping
+  // and glob matching consistent. Malformed escapes pass through.
+  const decode = (parts: string[]): string[] =>
+    parts.map(decodeSegment).filter((s) => s.length > 0);
+  const split = (p: string): string[] => p.replace(/^\/+|\/+$/g, "").split("/");
+  const segments = decode(split(pathname));
+  const baseSegments = decode(split(base));
+
+  let start = 0;
+  if (baseSegments.every((seg, i) => segments[i] === seg)) start = baseSegments.length;
+  const rest = segments.slice(start);
+  const body = rest.length > 0 && mountSegments.has(rest[0]!) ? rest.slice(1) : rest;
+  return body.length > 0 ? body.join("/") : "index";
+}
+
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 function assetPathWithBase(base: string, assetPath: string): string {

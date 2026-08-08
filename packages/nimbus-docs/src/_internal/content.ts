@@ -15,6 +15,13 @@
 
 import type { CollectionEntry } from "astro:content";
 
+import {
+  audienceCacheKey,
+  projectEntries,
+  resolveAudience,
+  type ProjectionContext,
+} from "./projection.js";
+
 /** Primary collection name. Hard-coded — see also `getDocsStaticPaths`. */
 const PRIMARY_COLLECTION = "docs";
 
@@ -34,9 +41,19 @@ const PRIMARY_COLLECTION = "docs";
  */
 export async function getVisibleEntries(
   collections: string[] = [PRIMARY_COLLECTION],
+  ctx?: ProjectionContext,
 ): Promise<CollectionEntry<string>[]> {
-  const lists = await Promise.all(collections.map(loadVisibleEntries));
+  const lists = await Promise.all(collections.map((n) => loadVisibleEntries(n, ctx)));
   return lists.flat();
+}
+
+export async function getVisibleEntry(
+  collection: string,
+  id: string,
+  ctx?: ProjectionContext,
+): Promise<CollectionEntry<string> | null> {
+  const entries = await loadVisibleEntries(collection, ctx);
+  return entries.find((entry) => entry.id === id) ?? null;
 }
 
 /**
@@ -44,10 +61,9 @@ export async function getVisibleEntries(
  * builder so `collection:` autogenerate can look up entries by name
  * without re-fetching.
  */
-// Per-collection cache of visible entries, reused across pages. Cached in dev
-// too (the nav build is too expensive to repeat per request); the dev server
-// clears it on content change via `clearContentCaches`. Draft filtering stays
-// PROD-only so dev still shows drafts.
+// Per-collection cache, reused across pages (dev too); cleared on content
+// change. Draft filtering stays PROD-only. Keyed `<collection>::<audienceKey>`
+// so a per-audience projection can't poison another audience's cache.
 const visibleEntriesByName = new Map<string, CollectionEntry<string>[]>();
 
 /** Drop the visible-entry cache (dev content-change invalidation). */
@@ -57,27 +73,32 @@ export function clearContentCaches(): void {
 
 async function loadVisibleEntries(
   name: string,
+  ctx?: ProjectionContext,
 ): Promise<CollectionEntry<string>[]> {
-  const cached = visibleEntriesByName.get(name);
+  const cacheKey = `${name}::${audienceCacheKey(resolveAudience(ctx))}`;
+  const cached = visibleEntriesByName.get(cacheKey);
   if (cached) return cached;
   const { getCollection } = await import("astro:content");
   const all = await getCollection(name).catch(
     () => [] as CollectionEntry<string>[],
   );
-  const visible = import.meta.env.PROD
+  const published = import.meta.env.PROD
     ? all.filter((entry: CollectionEntry<string>) => !entry.data.draft)
     : all;
-  visibleEntriesByName.set(name, visible);
+  // Public projection: gated entries excluded from emission (dev + prod).
+  const visible = await projectEntries(published, (entry) => entry.id, ctx);
+  visibleEntriesByName.set(cacheKey, visible);
   return visible;
 }
 
 export async function getVisibleEntriesByCollection(
   collections: string[],
+  ctx?: ProjectionContext,
 ): Promise<Record<string, CollectionEntry<string>[]>> {
   const out: Record<string, CollectionEntry<string>[]> = {};
   await Promise.all(
     collections.map(async (name) => {
-      out[name] = await loadVisibleEntries(name);
+      out[name] = await loadVisibleEntries(name, ctx);
     }),
   );
   return out;

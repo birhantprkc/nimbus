@@ -68,6 +68,22 @@ export interface NimbusConfig {
    * deprecation banners.
    */
   versions?: VersionsConfig;
+  /**
+   * Slug globs that mark content as gated — excluded from the public projection
+   * and everything emitted into `dist` (HTML, `.md`/`.mdx` twins, `llms.txt`,
+   * sidebar, Pagefind, sitemap, and cross-version alternates/canonicals/redirects).
+   * A visibility boundary, not a draft toggle — gated entries are hidden in dev too.
+   *
+   * Globs match each entry's **collection-relative id**, never a filesystem path
+   * or collection-prefixed path, so loader-sourced entries gate identically. On a
+   * versioned site the id is the same across versions (`docs` and `docs-v1` both
+   * hold id `guides/setup`), so `guides/**` gates that slug in **every** version.
+   * A version- or collection-prefixed glob (`docs-v1/guides/**`) matches nothing
+   * and gates nothing — scope by the shared id instead.
+   *
+   * @example gated: ["internal/**", "partners/**"]
+   */
+  gated?: string[];
 }
 
 /**
