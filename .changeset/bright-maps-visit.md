@@ -8,4 +8,4 @@ Verified the generated starter with optimization on and with `mdx: { optimize: f
 
 Spot-checked the starter `components` page, which includes JSX tags in prose, inline code with `<...>`, quoted code, and package names. The optimized and opt-out renders preserve those special-character text probes and match structurally.
 
-Temporarily cap the supported Astro peer range to `>=7.0.0 <7.1.0` while the Astro 7.1.x static build regression is upstream.
+Constrain the supported Astro peer range to `>=7.0.0 <7.1.0 || >=7.2.0 <8.0.0`: the 7.1.x line is excluded while its static-build regression is open upstream, but 7.2.x is admitted (verified against a sub-path build). Generated templates and the dev pin stay on the verified 7.0.x line.
