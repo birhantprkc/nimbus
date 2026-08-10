@@ -73,6 +73,7 @@ import {
 } from "./_internal/validate-mdx-content.js";
 import { validateNimbusConfig } from "./_internal/validate.js";
 import { virtualConfigPlugin } from "./_internal/virtual-config.js";
+import { iconVirtualPlugin, type IconPluginOptions } from "./_internal/icon-virtual.js";
 import { scanCodeBlockLanguages } from "./_internal/scan-code-langs.js";
 import {
   clearCodeStyleRegistry,
@@ -221,6 +222,20 @@ export interface NimbusIntegrationOptions {
         contentDirs?: string[];
         skip?: (filePath: string) => boolean;
       };
+  /**
+   * Icon system configuration. Nimbus provides a built-in icon component
+   * (`@cloudflare/nimbus-docs/components/Icon.astro`) and Vite plugin
+   * (`virtual:nimbus/icons`) that replaces `astro-icon`. The plugin is
+   * enabled by default; set `icons: false` to disable.
+   *
+   *   - `true` (default): auto-detect `@iconify-json/*` packages from the
+   *     consumer's `package.json` and load local SVGs from `src/icons/`.
+   *   - `false`: disable the icon plugin entirely.
+   *   - `{ iconDir, include, svgoOptions }`: explicit configuration.
+   */
+  icons?:
+    | boolean
+    | IconPluginOptions;
   /**
    * Authoring-lint severity overrides for `nimbus-docs lint`. Maps a rule
    * code to `"error" | "warn" | "off"` or a `[severity, options]` tuple.
@@ -664,7 +679,46 @@ export function nimbus(
                 indexedCollections,
                 versionAlternates,
               }),
+              ...(options.icons !== false
+                ? [
+                    iconVirtualPlugin({
+                      root: fileURLToPath(astroConfig.root),
+                      ...(typeof options.icons === "object" ? options.icons : {}),
+                    }),
+                  ]
+                : []),
+              {
+                name: "nimbus-docs:fix-css-tree",
+                enforce: "pre",
+                async resolveId(source, importer, options) {
+                  if (!importer) return undefined;
+                  // css-tree@3 and csso use createRequire(import.meta.url)
+                  // to load JSON files at runtime, which breaks when Vite
+                  // bundles them into prerender chunks. Redirect bare
+                  // imports to the browser bundles which have data inlined.
+                  // https://github.com/csstree/csstree/issues/314
+                  const browserBundle: Record<string, string> = {
+                    "css-tree": "css-tree/dist/csstree.esm",
+                    csso: "csso/dist/csso.esm",
+                  };
+                  const target = browserBundle[source];
+                  if (!target) return undefined;
+                  const resolved = await this.resolve(target, importer, {
+                    ...options,
+                    skipSelf: true,
+                  });
+                  return resolved ?? undefined;
+                },
+              },
             ],
+            optimizeDeps: {
+              esbuildOptions: {
+                alias: {
+                  "css-tree": "css-tree/dist/csstree.esm",
+                  csso: "csso/dist/csso.esm",
+                },
+              },
+            },
           },
         });
       },
@@ -683,6 +737,19 @@ export function nimbus(
             "  export const indexedCollections: readonly string[];",
             "  /** Build-time cross-version alternates table. See `getVersionAlternates()`. */",
             "  export const versionAlternates: VersionAlternatesTable;",
+            "}",
+            "",
+          ].join("\n"),
+        });
+        injectTypes({
+          filename: "virtual-icons.d.ts",
+          content: [
+            'declare module "virtual:nimbus/icons" {',
+            "  import type { IconifyJSON } from \"@iconify/types\";",
+            "  export type Icon = string;",
+            "  export const config: { include: Record<string, string[]> };",
+            "  const icons: Record<string, IconifyJSON>;",
+            "  export default icons;",
             "}",
             "",
           ].join("\n"),

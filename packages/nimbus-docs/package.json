@@ -61,7 +61,8 @@
 			"types": "./dist/lib/pkgm.d.ts",
 			"import": "./dist/lib/pkgm.js"
 		},
-		"./components/NimbusHead.astro": "./src/components/NimbusHead.astro"
+		"./components/NimbusHead.astro": "./src/components/NimbusHead.astro",
+		"./components/Icon.astro": "./src/components/Icon.astro"
 	},
 	"files": [
 		"dist",
@@ -95,6 +96,9 @@
 		"@astrojs/mdx": "~7.0.3",
 		"@astrojs/sitemap": "^3.7.2",
 		"@clack/prompts": "^0.9.1",
+		"@iconify/tools": "^5.0.12",
+		"@iconify/types": "^2.0.0",
+		"@iconify/utils": "^3.1.4",
 		"@shikijs/transformers": "^4.4.1",
 		"@shikijs/types": "^4.4.1",
 		"@vercel/detect-agent": "^1.2.3",
