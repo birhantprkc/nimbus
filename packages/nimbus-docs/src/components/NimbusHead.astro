@@ -83,6 +83,20 @@ const {
 
 const hasSite = !!Astro.site;
 
+// Prefix a site-root-relative path with the configured `base` so generated
+// asset links resolve under sub-path deployments (e.g. `/docs`). `new URL(p,
+// Astro.site)` resolves against the origin only and drops `base`, so any
+// internal path handed to it must be based first. External/absolute URLs and
+// already-based paths pass through unchanged.
+const baseUrl = import.meta.env.BASE_URL;
+const withBase = (path: string): string => {
+  if (/^([a-z][a-z0-9+.\-]*:|\/\/)/i.test(path)) return path;
+  const b = baseUrl.replace(/\/$/, "");
+  if (!b) return path;
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return p === b || p.startsWith(`${b}/`) ? p : `${b}${p}`;
+};
+
 // Cross-version alternates and canonical override. When the page is part
 // of a versioned-docs class with a current-version sibling that isn't
 // `self`, `record.canonical` points to it — we emit that URL as the
@@ -122,12 +136,12 @@ const llmsIndexPath =
       : "/llms.txt";
 const llmsIndexUrl =
   llmsIndexPath && Astro.site
-    ? new URL(llmsIndexPath, Astro.site).href
+    ? new URL(withBase(llmsIndexPath), Astro.site).href
     : llmsIndexPath;
 
 const canonical = Astro.site
   ? versionCanonicalPath
-    ? new URL(versionCanonicalPath, Astro.site).href
+    ? new URL(withBase(versionCanonicalPath), Astro.site).href
     : new URL(Astro.url.pathname, Astro.site).href
   : null;
 
@@ -169,7 +183,7 @@ const defaultSocialImage = existsSync(userOpenGraphImage)
 const socialImagePath = socialImage ?? config.socialImage ?? defaultSocialImage;
 const ogImage = socialImagePath
   ? Astro.site
-    ? new URL(socialImagePath, Astro.site).href
+    ? new URL(withBase(socialImagePath), Astro.site).href
     : socialImagePath
   : null;
 const ogImageAlt = config.socialImageAlt;
@@ -189,7 +203,7 @@ const structuredData = canonical
             isPartOf: {
               "@type": "WebSite",
               name: config.title,
-              url: Astro.site ? new URL("/", Astro.site).href : config.site,
+              url: Astro.site ? new URL(withBase("/"), Astro.site).href : config.site,
             },
             ...(lastUpdated ? { dateModified: lastUpdated.toISOString() } : {}),
           }),
@@ -211,7 +225,7 @@ const shikiCssHref = `${import.meta.env.BASE_URL}_nimbus/shiki.css${import.meta.
 <link rel="icon" type={faviconType} href={faviconHref} />
 <link rel="stylesheet" href={shikiCssHref} />
 {hasSite && canonical && <link rel="canonical" href={canonical} />}
-{hasSite && <link rel="sitemap" href="/sitemap-index.xml" />}
+{hasSite && <link rel="sitemap" href={withBase("/sitemap-index.xml")} />}
 {markdownUrl && !isHiddenVersion && (
   <link rel="alternate" type="text/markdown" href={markdownUrl} />
 )}
@@ -227,7 +241,7 @@ const shikiCssHref = `${import.meta.env.BASE_URL}_nimbus/shiki.css${import.meta.
   <link
     rel="alternate"
     data-version={alt.version}
-    href={Astro.site ? new URL(alt.url, Astro.site).href : alt.url}
+    href={Astro.site ? new URL(withBase(alt.url), Astro.site).href : alt.url}
   />
 ))}
 
