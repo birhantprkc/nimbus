@@ -112,9 +112,10 @@ test("happy path writes and transforms the project", async () => {
     assert.equal(pkg.version, "0.0.1");
     assert.equal(pkg.private, true);
 
-    // The adapter marker is stripped from the shipped config.
+    // The adapter marker is preserved: `nimbus-docs add adapter-*` anchors its
+    // output flip on it, so stripping it would break the server-output opt-in.
     const cfg = fs.readFileSync(path.join(target, "astro.config.ts"), "utf8");
-    assert.equal(cfg.includes("nimbus:adapter"), false);
+    assert.equal(cfg.includes("// nimbus:adapter"), true);
 
     // `gitignore` is renamed to `.gitignore`.
     assert.ok(fs.existsSync(path.join(target, ".gitignore")));

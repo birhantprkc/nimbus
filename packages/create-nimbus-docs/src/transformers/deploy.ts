@@ -1,8 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const ADAPTER_MARKER = "  // nimbus:adapter\n";
-
 /**
  * Apply deploy target configuration.
  *
@@ -18,14 +16,13 @@ const ADAPTER_MARKER = "  // nimbus:adapter\n";
  *                 free-tier scaffold.
  * - "other":      No wrangler, vanilla static Astro output.
  *
- * Both targets strip the `// nimbus:adapter` marker from the shipped
- * astro.config.ts so users don't see a dangling comment.
+ * The `// nimbus:adapter` marker is left in place: it is the anchor
+ * `nimbus-docs add adapter-*` edits to flip `output` and wire an adapter.
  */
 export async function applyDeployTarget(
   dir: string,
   target: "cloudflare" | "other",
 ): Promise<void> {
-  await stripMarker(dir);
   if (target === "cloudflare") {
     await writeWranglerConfig(dir);
     // wrangler (added by updatePackageJson) pulls workerd, which trips pnpm's
@@ -76,13 +73,6 @@ async function writeWranglerConfig(dir: string): Promise<void> {
       2,
     ) + "\n",
   );
-}
-
-async function stripMarker(dir: string): Promise<void> {
-  const configPath = join(dir, "astro.config.ts");
-  const config = readFileSync(configPath, "utf-8");
-  if (!config.includes(ADAPTER_MARKER)) return;
-  writeFileSync(configPath, config.replace(ADAPTER_MARKER, ""));
 }
 
 function sanitizeWorkerName(name: string): string {
