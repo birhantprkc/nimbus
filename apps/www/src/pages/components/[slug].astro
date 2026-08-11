@@ -14,6 +14,7 @@ import PropTable from "@/components/showcase/PropTable.astro";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { PageActions } from "@/components/ui/page-actions";
 import { PackageManagers } from "@/components/ui/package-managers";
+import { Code } from "@/components/ui/code";
 import { Pagination } from "@/components/ui/pagination";
 import { MANIFESTS } from "@/../registry/manifests";
 import { getSidebar } from "@cloudflare/nimbus-docs";
@@ -126,9 +127,7 @@ const breadcrumbs = [
           <h2 class="text-xl font-semibold text-foreground tracking-tight">
             Installation
           </h2>
-          <div class="rounded-lg border border-border bg-muted/30 p-4 font-mono text-sm text-foreground">
-            import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
-          </div>
+          <Code code={`import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";`} lang="ts" raw />
         </section>
       )}
 
