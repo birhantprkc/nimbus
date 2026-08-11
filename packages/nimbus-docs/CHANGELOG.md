@@ -1,5 +1,48 @@
 # @cloudflare/nimbus-docs
 
+## 0.10.0
+
+### Minor Changes
+
+- [#71](https://github.com/cloudflare/nimbus/pull/71) [`e5d74f9`](https://github.com/cloudflare/nimbus/commit/e5d74f9d8452caa0c8ae6b02b61c8e83ff3c9f1f) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Enable MDX optimization by default to reduce large-site build memory usage. Sites can opt out with `mdx: { optimize: false }`.
+
+  Verified the generated starter with optimization on and with `mdx: { optimize: false }` forced; the rendered HTML is structurally equivalent for element names, attributes, and non-whitespace text. AC#3 is treated as semantic/structural render parity rather than byte identity: raw bytes differ due to serializer escaping and inter-block whitespace, but the rendered document is lossless.
+
+  Spot-checked the starter `components` page, which includes JSX tags in prose, inline code with `<...>`, quoted code, and package names. The optimized and opt-out renders preserve those special-character text probes and match structurally.
+
+  Constrain the supported Astro peer range to `>=7.0.0 <7.1.0 || >=7.2.0 <8.0.0`: the 7.1.x line is excluded while its static-build regression is open upstream, but 7.2.x is admitted (verified against a sub-path build). Generated templates and the dev pin stay on the verified 7.0.x line.
+
+- [#76](https://github.com/cloudflare/nimbus/pull/76) [`acfac20`](https://github.com/cloudflare/nimbus/commit/acfac2047b79711b99c586485814dd18abb3c4f9) Thanks [@mvvmm](https://github.com/mvvmm)! - Replace `astro-icon` with a built-in icon system. This is a breaking change for any project using `astro-icon` directly.
+
+  **Why:** `astro-icon` stamped a generated `lastModified` timestamp into its virtual module on every build, invalidating thousands of cached pages in Astro's incremental build cache. The package is unmaintained so an upstream fix isn't coming.
+
+  **What's new:** Nimbus now provides `virtual:nimbus/icons` (a Vite plugin) and `@cloudflare/nimbus-docs/components/Icon.astro`. The plugin auto-detects installed `@iconify-json/*` packages and loads local SVGs from `src/icons/`. The component API is compatible with `astro-icon` (`name`, `size`, `width`, `height`, `is:inline`, `title`, `desc`, and all `<svg>` attributes). SVG bodies are passed through `replaceIDs` so internal IDs (clipPath, mask, gradient defs) are unique per render — preventing collisions when the same icon appears more than once on a page.
+
+  **Breaking changes:**
+
+  - Remove `astro-icon` from your `package.json` and `astro.config.ts`
+  - Replace `import { Icon } from "astro-icon/components"` with `import Icon from "@cloudflare/nimbus-docs/components/Icon.astro"`
+  - SVG output structure changed: SVGs are always inlined; the previous `<symbol>`/`<use>` pattern produced duplicate DOM IDs when the same icon was used more than once on a page, so it has been removed. Any CSS or JS targeting `symbol` or `use` elements will need updating.
+
+  **Migration:**
+
+  ```diff
+  - import { Icon } from "astro-icon/components";
+  + import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
+  ```
+
+  Starter templates updated: removed `astro-icon` dependency and `icon()` integration from `astro.config.ts`; all component imports updated to the new path.
+
+### Patch Changes
+
+- [#77](https://github.com/cloudflare/nimbus/pull/77) [`1c49268`](https://github.com/cloudflare/nimbus/commit/1c49268f0a0a5cb3bf1c2473dddfa43dd7837014) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Fix `NimbusHead` emitting base-less SEO URLs on sub-path deployments (e.g. `base: '/docs'`).
+
+  `new URL(path, Astro.site)` resolves against the origin only and drops the configured `base`, so the `rel=sitemap` link, the LLM-index `rel=alternate`, `og:image`/`twitter:image`, the JSON-LD `isPartOf.url`, the versioned `canonical`, and the cross-version `rel=alternate` all pointed at the origin root and 404'd under a sub-path. Every internal path handed to `new URL(..., Astro.site)` is now `base`-prefixed via a `withBase` helper, matching the existing `BASE_URL` handling for the favicon and Shiki stylesheet.
+
+  Root deployments (`base: '/'`) are unaffected: the helper is a no-op when no base is configured, and already-based paths pass through unchanged (idempotent).
+
+- [#80](https://github.com/cloudflare/nimbus/pull/80) [`ec71a7b`](https://github.com/cloudflare/nimbus/commit/ec71a7b9d4cc3061d4d5d70478ba4b8e002aab6d) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Fix syntax-highlighted code rendering uncoloured in dev on sites with a non-root `base` (e.g. `base: "/docs"`). The dev middleware that serves `_nimbus/shiki.css` compared the request path exactly against the based asset path, but Vite strips `base` from `req.url` at a non-root base, so the request 404'd and tokens fell back to their inherited colour. It now matches by suffix, serving the stylesheet regardless of how Vite presents `base`. Production was unaffected — the stylesheet is written statically at build time.
+
 ## 0.9.0
 
 ### Minor Changes
