@@ -62,7 +62,7 @@ const prevNext = {
 const { Content, headings: bodyHeadings } = await render(entry);
 
 const headings: TOCItem[] = [
-  ...(isBuiltin ? [] : [{ depth: 2 as const, text: "Installation", slug: "installation" }]),
+  { depth: 2, text: "Installation", slug: "installation" },
   ...bodyHeadings
     .filter((h) => h.depth === 2 || h.depth === 3)
     .map((h) => ({ depth: h.depth as 2 | 3, text: h.text, slug: h.slug })),
@@ -113,27 +113,25 @@ const breadcrumbs = [
     <div class="mt-4 mb-16 h-px w-full bg-border" role="none"></div>
 
     <div class="flex flex-col gap-24">
-      {isBuiltin && (
-        <div class="nb-showcase-body flex flex-col gap-10">
-          <Content />
-        </div>
-      )}
-
       <section id="installation" class="scroll-mt-20 flex flex-col gap-5">
         <h2 class="text-xl font-semibold text-foreground tracking-tight">
           Installation
         </h2>
+        {isBuiltin && (
+          <ul class="text-sm text-muted-foreground flex flex-col gap-1 list-disc list-inside">
+            <li>Local SVGs — files in <code>src/icons/*.svg</code>, referenced by bare name (e.g. <code>name="workers"</code>)</li>
+            <li>Iconify-packaged icon sets — any <code>@iconify-json/*</code> package (Phosphor, Material Icons, Font Awesome, etc.), referenced with a set prefix (e.g. <code>name="ph:rocket"</code>)</li>
+          </ul>
+        )}
         {isBuiltin
           ? <Code code={`import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";`} lang="ts" raw />
           : <PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args={`add ${slug}`} />
         }
       </section>
 
-      {!isBuiltin && (
-        <div class="nb-showcase-body flex flex-col gap-10">
-          <Content />
-        </div>
-      )}
+      <div class="nb-showcase-body flex flex-col gap-10">
+        <Content />
+      </div>
 
       {hasProps && (
         <section id="api-reference" class="scroll-mt-20 flex flex-col gap-6">
