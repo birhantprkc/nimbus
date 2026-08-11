@@ -15,6 +15,10 @@ props:
   - name: height
     type: "number | string"
     description: "Override the SVG height."
+  - name: is:inline
+    type: "boolean"
+    defaultValue: "false"
+    description: "Accepted for API compatibility with astro-icon. SVGs are always inlined; this prop has no effect on output."
   - name: title
     type: string
     description: "Accessible title rendered inside `<title>`."

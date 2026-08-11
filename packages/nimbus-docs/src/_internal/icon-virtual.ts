@@ -116,7 +116,8 @@ export function iconVirtualPlugin(
         // No `lastModified` — this is the whole point. The module content
         // is deterministic across builds so the incremental cache is stable.
         return (
-          `export default ${JSON.stringify(collections)};\n`
+          `export default ${JSON.stringify(collections)};\n` +
+          `export const config = ${JSON.stringify({ include: include ?? {} })};\n`
         );
       }
       return undefined;
