@@ -36,7 +36,7 @@ if (!entry) return Astro.redirect("/404");
 const manifest = MANIFESTS[slug as keyof typeof MANIFESTS];
 const isBuiltin = !manifest || manifest.type !== "registry:ui";
 
-const { tagline, props } = entry.data;
+const { tagline, props, overview } = entry.data;
 const hasProps = props.length > 0;
 
 const sidebar = await getSidebar(`/components/${slug}`);
@@ -62,6 +62,7 @@ const prevNext = {
 const { Content, headings: bodyHeadings } = await render(entry);
 
 const headings: TOCItem[] = [
+  ...(overview ? [{ depth: 2 as const, text: "Overview", slug: "overview" }] : []),
   { depth: 2, text: "Installation", slug: "installation" },
   ...bodyHeadings
     .filter((h) => h.depth === 2 || h.depth === 3)
@@ -113,16 +114,17 @@ const breadcrumbs = [
     <div class="mt-4 mb-16 h-px w-full bg-border" role="none"></div>
 
     <div class="flex flex-col gap-24">
+      {overview && (
+        <section id="overview" class="scroll-mt-20 flex flex-col gap-3">
+          <h2 class="text-xl font-semibold text-foreground tracking-tight">Overview</h2>
+          <p class="text-sm text-muted-foreground">{overview}</p>
+        </section>
+      )}
+
       <section id="installation" class="scroll-mt-20 flex flex-col gap-5">
         <h2 class="text-xl font-semibold text-foreground tracking-tight">
           Installation
         </h2>
-        {isBuiltin && (
-          <ul class="text-sm text-muted-foreground flex flex-col gap-1 list-disc list-inside">
-            <li>Local SVGs — files in <code>src/icons/*.svg</code>, referenced by bare name (e.g. <code>name="workers"</code>)</li>
-            <li>Iconify-packaged icon sets — any <code>@iconify-json/*</code> package (Phosphor, Material Icons, Font Awesome, etc.), referenced with a set prefix (e.g. <code>name="ph:rocket"</code>)</li>
-          </ul>
-        )}
         {isBuiltin
           ? <Code code={`import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";`} lang="ts" raw />
           : <PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args={`add ${slug}`} />
