@@ -1,5 +1,39 @@
 # @cloudflare/create-nimbus-docs
 
+## 0.6.5
+
+### Patch Changes
+
+- [#76](https://github.com/cloudflare/nimbus/pull/76) [`acfac20`](https://github.com/cloudflare/nimbus/commit/acfac2047b79711b99c586485814dd18abb3c4f9) Thanks [@mvvmm](https://github.com/mvvmm)! - Replace `astro-icon` with a built-in icon system. This is a breaking change for any project using `astro-icon` directly.
+
+  **Why:** `astro-icon` stamped a generated `lastModified` timestamp into its virtual module on every build, invalidating thousands of cached pages in Astro's incremental build cache. The package is unmaintained so an upstream fix isn't coming.
+
+  **What's new:** Nimbus now provides `virtual:nimbus/icons` (a Vite plugin) and `@cloudflare/nimbus-docs/components/Icon.astro`. The plugin auto-detects installed `@iconify-json/*` packages and loads local SVGs from `src/icons/`. The component API is compatible with `astro-icon` (`name`, `size`, `width`, `height`, `is:inline`, `title`, `desc`, and all `<svg>` attributes). SVG bodies are passed through `replaceIDs` so internal IDs (clipPath, mask, gradient defs) are unique per render — preventing collisions when the same icon appears more than once on a page.
+
+  **Breaking changes:**
+
+  - Remove `astro-icon` from your `package.json` and `astro.config.ts`
+  - Replace `import { Icon } from "astro-icon/components"` with `import Icon from "@cloudflare/nimbus-docs/components/Icon.astro"`
+  - SVG output structure changed: SVGs are always inlined; the previous `<symbol>`/`<use>` pattern produced duplicate DOM IDs when the same icon was used more than once on a page, so it has been removed. Any CSS or JS targeting `symbol` or `use` elements will need updating.
+
+  **Migration:**
+
+  ```diff
+  - import { Icon } from "astro-icon/components";
+  + import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
+  ```
+
+  Starter templates updated: removed `astro-icon` dependency and `icon()` integration from `astro.config.ts`; all component imports updated to the new path.
+
+- [#70](https://github.com/cloudflare/nimbus/pull/70) [`b9620bc`](https://github.com/cloudflare/nimbus/commit/b9620bc475f9dfb0d92b6bd12c5a441d1c5bc599) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Fix search dialog results not scrolling. The results wrapper now lays out as a
+  flex column, so the results list gets a bounded height and its `overflow-y-auto`
+  engages — long result sets scroll within the dialog instead of being clipped,
+  while the search input stays in view above the scroll region.
+
+- [#71](https://github.com/cloudflare/nimbus/pull/71) [`4d6815f`](https://github.com/cloudflare/nimbus/commit/4d6815f3969f6a465e7549c663c579d699bd6492) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Make pkg.pr.new preview builds scaffold from bundled PR templates and pin generated projects to the matching `@cloudflare/nimbus-docs` preview.
+
+  Generated starters are now pinned to the verified Astro 7.0.x line while the upstream Astro 7.1.x static build regression is open.
+
 ## 0.6.4
 
 ### Patch Changes
