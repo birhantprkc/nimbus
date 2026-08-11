@@ -21,6 +21,13 @@ declare module "virtual:nimbus/config" {
   export const versionAlternates: import("../_internal/version-alternates.js").VersionAlternatesTable;
 }
 
+declare module "virtual:nimbus/icons" {
+  export type Icon = string;
+  export const config: { include: Record<string, string[]> };
+  const icons: Record<string, import("@iconify/types").IconifyJSON>;
+  export default icons;
+}
+
 declare module "astro:content" {
   // In a real project this is `keyof DataEntryMap` (the union of every
   // registered collection name). Stubbed loose here so the package

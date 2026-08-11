@@ -1,0 +1,138 @@
+---
+title: Icon
+tagline: "Render SVG icons from local files or Iconify-packaged sets."
+props:
+  - name: name
+    type: string
+    required: true
+    description: "Icon name. Bare names (e.g. `workers`) resolve to local `src/icons/*.svg`. Prefixed names (e.g. `ph:rocket`) resolve to an installed `@iconify-json/*` set."
+  - name: size
+    type: "number | string"
+    description: "Shorthand that sets both `width` and `height`."
+  - name: width
+    type: "number | string"
+    description: "Override the SVG width."
+  - name: height
+    type: "number | string"
+    description: "Override the SVG height."
+  - name: is:inline
+    type: "boolean"
+    defaultValue: "false"
+    description: "Accepted for API compatibility with astro-icon. SVGs are always inlined; this prop has no effect on output."
+  - name: title
+    type: string
+    description: "Accessible title rendered inside `<title>`."
+  - name: desc
+    type: string
+    description: "Accessible description rendered inside `<desc>`."
+---
+
+import Showcase from "@/components/showcase/Showcase.astro";
+import Example from "@/components/showcase/Example.astro";
+import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
+
+## Preview
+
+<Showcase
+  code={`<Icon name="ph:rocket-launch" class="w-6 h-6" />
+<Icon name="ph:github-logo" class="w-6 h-6" />
+<Icon name="ph:book-open" class="w-6 h-6" />`}
+>
+  <div class="flex flex-wrap items-center justify-center gap-6">
+    <Icon name="ph:rocket-launch" class="w-6 h-6 text-foreground" />
+    <Icon name="ph:github-logo" class="w-6 h-6 text-foreground" />
+    <Icon name="ph:book-open" class="w-6 h-6 text-foreground" />
+  </div>
+</Showcase>
+
+## Examples
+
+### Sizing
+
+Use `size` for equal width and height, or `width`/`height` individually. Tailwind utility classes on the element also work.
+
+<Example
+  code={`<Icon name="ph:star" size={16} />
+<Icon name="ph:star" size={24} />
+<Icon name="ph:star" size={32} />`}
+  minHeight="6rem"
+>
+  <div class="flex flex-wrap items-center justify-center gap-6">
+    <Icon name="ph:star" size={16} class="text-foreground" />
+    <Icon name="ph:star" size={24} class="text-foreground" />
+    <Icon name="ph:star" size={32} class="text-foreground" />
+  </div>
+</Example>
+
+### Accessibility
+
+Pass `title` and `desc` to add `<title>` and `<desc>` elements inside the SVG for screen readers.
+
+<Example
+  code={`<Icon name="ph:warning" title="Warning" desc="This action cannot be undone" class="w-6 h-6" />`}
+  minHeight="6rem"
+>
+  <div class="flex items-center justify-center">
+    <Icon
+      name="ph:warning"
+      title="Warning"
+      desc="This action cannot be undone"
+      class="w-6 h-6 text-foreground"
+    />
+  </div>
+</Example>
+
+### With Tailwind classes
+
+Any class on the `<svg>` element works — color, size, transitions, etc.
+
+<Example
+  code={`<Icon name="ph:heart" class="w-8 h-8 text-red-500 hover:scale-110 transition-transform" />`}
+  minHeight="6rem"
+>
+  <div class="flex items-center justify-center">
+    <Icon
+      name="ph:heart"
+      class="w-8 h-8 text-red-500 hover:scale-110 transition-transform"
+    />
+  </div>
+</Example>
+
+### Iconify sets
+
+Install any `@iconify-json/*` package and reference icons with its prefix. The icon system auto-detects installed packages.
+
+```bash
+npm install @iconify-json/ph         # Phosphor — ph:*
+npm install @iconify-json/mdi        # Material Design Icons — mdi:*
+npm install @iconify-json/fa6-solid  # Font Awesome 6 — fa6-solid:*
+npm install @iconify-json/heroicons  # Heroicons — heroicons:*
+```
+
+<Example code={`<Icon name="ph:rocket-launch" class="w-6 h-6" />
+<Icon name="ph:github-logo" class="w-6 h-6" />
+<Icon name="ph:warning" class="w-6 h-6" />
+<Icon name="ph:check-circle" class="w-6 h-6" />`} minHeight="6rem">
+  <div class="flex flex-wrap items-center justify-center gap-6">
+    <Icon name="ph:rocket-launch" class="w-6 h-6 text-foreground" />
+    <Icon name="ph:github-logo" class="w-6 h-6 text-foreground" />
+    <Icon name="ph:warning" class="w-6 h-6 text-foreground" />
+    <Icon name="ph:check-circle" class="w-6 h-6 text-foreground" />
+  </div>
+</Example>
+
+### Local SVGs
+
+Place SVG files in `src/icons/` and reference them by filename (no prefix, no extension).
+
+```
+src/icons/logo.svg
+src/icons/product/workers.svg
+```
+
+```tsx
+<Icon name="logo" class="w-6 h-6" />
+<Icon name="product/workers" class="w-6 h-6" />
+```
+
+Monochrome SVGs are automatically normalized to `currentColor` so they inherit text color via CSS.

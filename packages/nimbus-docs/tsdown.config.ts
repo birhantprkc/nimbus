@@ -32,6 +32,8 @@ export default defineConfig({
     "react-dom",
     /^react\//,
     /^virtual:/,
+    "@iconify/tools",
+    "@iconify/utils",
     // Emit shiki types as imports (not inlined) so they dedupe against the
     // consumer's Astro `<Code>` — otherwise `astro check` breaks downstream.
     "@shikijs/types",

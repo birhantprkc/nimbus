@@ -20,17 +20,46 @@ export const GET: APIRoute = async ({ params, site }) => {
   const slug = params.slug;
   if (!slug) return new Response("Not found", { status: 404 });
 
-  const manifest = MANIFESTS[slug as keyof typeof MANIFESTS];
-  if (!manifest || manifest.type !== "registry:ui") {
-    return new Response("Not found", { status: 404 });
-  }
-
   const entry = await getEntry("components", slug);
   if (!entry) return new Response("Not found", { status: 404 });
 
   const canonicalUrl = site
     ? new URL(`/components/${slug}/`, site).href
     : `/components/${slug}/`;
+
+  const manifest = MANIFESTS[slug as keyof typeof MANIFESTS];
+  const isBuiltin = !manifest || manifest.type !== "registry:ui";
+
+  if (isBuiltin) {
+    const payload = {
+      slug,
+      name: entry.data.title,
+      tagline: entry.data.tagline,
+      import: `import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";`,
+      canonicalUrl,
+      props: entry.data.props,
+    };
+
+    const md = [
+      `# ${entry.data.title}`,
+      ``,
+      entry.data.tagline,
+      ``,
+      `**Import:** \`${payload.import}\`  `,
+      `**Canonical:** ${canonicalUrl}`,
+      ``,
+      `## Agent payload (JSON)`,
+      ``,
+      "```json",
+      JSON.stringify(payload, null, 2),
+      "```",
+      ``,
+    ].join("\n");
+
+    return new Response(md, {
+      headers: { "Content-Type": "text/markdown; charset=utf-8" },
+    });
+  }
 
   const m = manifest as typeof manifest & {
     dependencies?: string[];

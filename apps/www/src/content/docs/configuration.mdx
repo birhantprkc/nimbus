@@ -13,7 +13,9 @@ Nimbus is configured in `astro.config.ts`. `defineConfig` (re-exported as `defin
 
 ```ts title="astro.config.ts"
 import { defineConfig } from "astro/config";
-import nimbus, { defineConfig as defineNimbusConfig } from "@cloudflare/nimbus-docs";
+import nimbus, {
+  defineConfig as defineNimbusConfig,
+} from "@cloudflare/nimbus-docs";
 
 const config = defineNimbusConfig({
   site: "https://docs.example.com",
@@ -25,41 +27,42 @@ const config = defineNimbusConfig({
 });
 
 export default defineConfig({
-  integrations: [nimbus(config, { /* options */ })],
+  integrations: [nimbus(config, {/* options */})],
 });
 ```
 
 ## Site config
 
-| Field | Type | Notes |
-|---|---|---|
-| `site` | string | **Required.** Canonical site URL. Bridged to Astro's `site`. |
-| `title` | string | **Required.** Site title and metadata fallback. |
-| `description` | string | Default meta description. |
-| `locale` | string | Document language (e.g. `"en"`). |
-| `homeLabel` | string | Label for the "Home" breadcrumb. |
-| `github` | string \| null | Repo URL for the header link; `null` hides it. |
-| `editPattern` | string \| null | Edit-link pattern; `{path}` is the page path. |
-| `socialImage` / `socialImageAlt` | string | OG fallback image and alt. See [Metadata and SEO](/ai/metadata-and-seo). |
-| `head` | array | Site-wide `<head>` elements. |
-| `sidebar` | object | Rail config — see [Sidebar](/navigation/sidebar). |
-| `features` | object | `sidebar` / `tableOfContents` kill switches. See [Layouts](/styling/layouts). |
-| `search` | object \| `false` | Search backend. See [Search](/navigation/search). |
-| `versions` | object | Versioning manifest — each version is its own content collection. |
+| Field                            | Type              | Notes                                                                         |
+| -------------------------------- | ----------------- | ----------------------------------------------------------------------------- |
+| `site`                           | string            | **Required.** Canonical site URL. Bridged to Astro's `site`.                  |
+| `title`                          | string            | **Required.** Site title and metadata fallback.                               |
+| `description`                    | string            | Default meta description.                                                     |
+| `locale`                         | string            | Document language (e.g. `"en"`).                                              |
+| `homeLabel`                      | string            | Label for the "Home" breadcrumb.                                              |
+| `github`                         | string \| null    | Repo URL for the header link; `null` hides it.                                |
+| `editPattern`                    | string \| null    | Edit-link pattern; `{path}` is the page path.                                 |
+| `socialImage` / `socialImageAlt` | string            | OG fallback image and alt. See [Metadata and SEO](/ai/metadata-and-seo).      |
+| `head`                           | array             | Site-wide `<head>` elements.                                                  |
+| `sidebar`                        | object            | Rail config — see [Sidebar](/navigation/sidebar).                             |
+| `features`                       | object            | `sidebar` / `tableOfContents` kill switches. See [Layouts](/styling/layouts). |
+| `search`                         | object \| `false` | Search backend. See [Search](/navigation/search).                             |
+| `versions`                       | object            | Versioning manifest — each version is its own content collection.             |
 
 ## Integration options
 
 The second argument to `nimbus()` controls build behavior:
 
-| Option | Default | Notes |
-|---|---|---|
-| `validateMdx` | `true` | PascalCase tag validation. `false` to skip; object to override paths. See [Markdown and MDX](/writing/markdown-and-mdx). |
-| `admonitions` | `true` | `:::type` → `<Aside>` rewrite; object adds `typeAliases`. |
-| `markdown.processor` | Sätteri | Swap to `unified(...)` for remark/rehype plugins. |
-| `sitemap` | enabled when `site` set | `false` to disable. |
-| `mdx` | — | Options forwarded to `@astrojs/mdx`. |
-| `rules` | `off` (opt-in) | Authoring-lint severities — each rule is off until you enable it. See [Linting](/writing/linting). |
-| `collections` | — | Per-collection lint overrides. |
+| Option               | Default                 | Notes                                                                                                                                                                                                                                                  |
+| -------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `validateMdx`        | `true`                  | PascalCase tag validation. `false` to skip; object to override paths. See [Markdown and MDX](/writing/markdown-and-mdx).                                                                                                                               |
+| `admonitions`        | `true`                  | `:::type` → `<Aside>` rewrite; object adds `typeAliases`.                                                                                                                                                                                              |
+| `markdown.processor` | Sätteri                 | Swap to `unified(...)` for remark/rehype plugins.                                                                                                                                                                                                      |
+| `sitemap`            | enabled when `site` set | `false` to disable.                                                                                                                                                                                                                                    |
+| `mdx`                | —                       | Options forwarded to `@astrojs/mdx`.                                                                                                                                                                                                                   |
+| `icons`              | `true`                  | Built-in icon system. `true` auto-detects `@iconify-json/*` packages (Phosphor, Material Icons, etc.) and local `src/icons/*.svg`. `false` to disable. Object for explicit config (`iconDir`, `include`, `svgoOptions`). See [Icon](/components/icon). |
+| `rules`              | `off` (opt-in)          | Authoring-lint severities — each rule is off until you enable it. See [Linting](/writing/linting).                                                                                                                                                     |
+| `collections`        | —                       | Per-collection lint overrides.                                                                                                                                                                                                                         |
 
 ```ts
 nimbus(config, {
