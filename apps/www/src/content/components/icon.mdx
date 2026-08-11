@@ -1,7 +1,6 @@
 ---
 title: Icon
 tagline: "Render SVG icons from local files or Iconify-packaged sets."
-overview: "Renders SVG icons from local `src/icons/*.svg` files (bare name, e.g. `name=\"workers\"`) or any Iconify-packaged icon set (`@iconify-json/*` package, e.g. `name=\"ph:rocket\"` for Phosphor)."
 props:
   - name: name
     type: string
@@ -111,3 +110,49 @@ Any class on the `<svg>` element works — color, size, transitions, etc.
     />
   </div>
 </Example>
+
+### Phosphor icons
+
+Phosphor is the default icon set. Install `@iconify-json/ph` and reference icons with the `ph:` prefix. Browse the full set at [phosphoricons.com](https://phosphoricons.com).
+
+```bash
+npm install @iconify-json/ph
+```
+
+<Example code={`<Icon name="ph:rocket-launch" class="w-6 h-6" />
+<Icon name="ph:github-logo" class="w-6 h-6" />
+<Icon name="ph:warning" class="w-6 h-6" />
+<Icon name="ph:check-circle" class="w-6 h-6" />`} minHeight="6rem">
+  <div class="flex flex-wrap items-center justify-center gap-6">
+    <Icon name="ph:rocket-launch" class="w-6 h-6 text-foreground" />
+    <Icon name="ph:github-logo" class="w-6 h-6 text-foreground" />
+    <Icon name="ph:warning" class="w-6 h-6 text-foreground" />
+    <Icon name="ph:check-circle" class="w-6 h-6 text-foreground" />
+  </div>
+</Example>
+
+### Other Iconify sets
+
+Any `@iconify-json/*` package works. Install the package and use its prefix.
+
+```bash
+npm install @iconify-json/mdi        # Material Design Icons — mdi:*
+npm install @iconify-json/fa6-solid  # Font Awesome 6 — fa6-solid:*
+npm install @iconify-json/heroicons  # Heroicons — heroicons:*
+```
+
+### Local SVGs
+
+Place SVG files in `src/icons/` and reference them by filename (no prefix, no extension).
+
+```
+src/icons/logo.svg
+src/icons/product/workers.svg
+```
+
+```tsx
+<Icon name="logo" class="w-6 h-6" />
+<Icon name="product/workers" class="w-6 h-6" />
+```
+
+Monochrome SVGs are automatically normalized to `currentColor` so they inherit text color via CSS.
