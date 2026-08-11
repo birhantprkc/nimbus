@@ -29,13 +29,11 @@ export async function getStaticPaths() {
 const { slug } = Astro.params;
 if (!slug) return Astro.redirect("/404");
 
-const manifest = MANIFESTS[slug as keyof typeof MANIFESTS];
-if (!manifest || manifest.type !== "registry:ui") {
-  return Astro.redirect("/404");
-}
-
 const entry = await getEntry("components", slug);
 if (!entry) return Astro.redirect("/404");
+
+const manifest = MANIFESTS[slug as keyof typeof MANIFESTS];
+const isBuiltin = !manifest || manifest.type !== "registry:ui";
 
 const { tagline, props } = entry.data;
 const hasProps = props.length > 0;
@@ -46,11 +44,11 @@ const sidebar = await getSidebar(`/components/${slug}`);
 // collection. The components grid + sidebar already sort by manifest
 // title; mirror that ordering here so the footer matches.
 const allEntries = await getCollection("components");
-const ordered = allEntries
-  .map((e) => {
-    const m = MANIFESTS[e.id as keyof typeof MANIFESTS];
-    return { id: e.id, label: m?.type === "registry:ui" ? m.title : e.id };
-  })
+  const ordered = allEntries
+    .map((e) => {
+      const m = MANIFESTS[e.id as keyof typeof MANIFESTS];
+      return { id: e.id, label: m?.type === "registry:ui" ? m.title : e.data.title };
+    })
   .sort((a, b) => a.label.localeCompare(b.label));
 const currentIndex = ordered.findIndex((e) => e.id === slug);
 const prevEntry = currentIndex > 0 ? ordered[currentIndex - 1] : undefined;
@@ -72,7 +70,7 @@ const headings: TOCItem[] = [
     : []),
 ];
 
-const name = manifest.title;
+const name = manifest?.type === "registry:ui" ? manifest.title : entry.data.title;
 const markdownUrl = Astro.site
   ? new URL(`/components/${slug}/index.md`, Astro.site).href
   : `/components/${slug}/index.md`;
@@ -114,12 +112,28 @@ const breadcrumbs = [
     <div class="mt-4 mb-16 h-px w-full bg-border" role="none"></div>
 
     <div class="flex flex-col gap-24">
-      <section id="installation" class="scroll-mt-20 flex flex-col gap-5">
-        <h2 class="text-xl font-semibold text-foreground tracking-tight">
-          Installation
-        </h2>
-        <PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args={`add ${slug}`} />
-      </section>
+      {!isBuiltin && (
+        <section id="installation" class="scroll-mt-20 flex flex-col gap-5">
+          <h2 class="text-xl font-semibold text-foreground tracking-tight">
+            Installation
+          </h2>
+          <PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args={`add ${slug}`} />
+        </section>
+      )}
+
+      {isBuiltin && (
+        <section id="installation" class="scroll-mt-20 flex flex-col gap-5">
+          <h2 class="text-xl font-semibold text-foreground tracking-tight">
+            Installation
+          </h2>
+          <p class="text-sm text-muted-foreground">
+            Built into <code class="font-mono">@cloudflare/nimbus-docs</code> — no install needed. Import directly:
+          </p>
+          <div class="rounded-lg border border-border bg-muted/30 p-4 font-mono text-sm text-foreground">
+            import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
+          </div>
+        </section>
+      )}
 
       <div class="nb-showcase-body flex flex-col gap-10">
         <Content />
