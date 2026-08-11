@@ -60,7 +60,7 @@ const uid =
           tabs.forEach(function (t, i) {
             t.setAttribute("aria-selected", String(i === idx));
           });
-          card.querySelectorAll("[data-nb-pm-panel]").forEach(function (p, i) {
+          (card.querySelectorAll("[data-nb-pm-panel]") as NodeListOf<HTMLElement>).forEach(function (p, i) {
             p.hidden = i !== idx;
           });
         }
