@@ -102,7 +102,7 @@ const hasPagination = Astro.slots.has("pagination");
               disclosure module loads so collapsed/scrolled state survives nav.
               Only emit when the sidebar is rendered. */}
           {showSidebar && (
-          <script is:inline aria-hidden="true">
+          <script aria-hidden="true">
           (function () {
             try {
               if (!matchMedia("(min-width: 64rem)").matches) return;

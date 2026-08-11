@@ -36,7 +36,7 @@ const uid =
   n.toString(16).padStart(4, "0");
 ---
 
-<script is:inline>
+<script>
   if (!customElements.get("nb-pm-restore")) {
     customElements.define(
       "nb-pm-restore",
@@ -120,8 +120,8 @@ const uid =
     })}
     <nb-pm-restore style="display:contents"></nb-pm-restore>
   </LayerCard>
-  <template data-nb-pm-icon-copy><Icon name="ph:copy" class="w-[18px] h-[18px]" is:inline /></template>
-  <template data-nb-pm-icon-check><Icon name="ph:check" class="w-[18px] h-[18px]" is:inline /></template>
+  <template data-nb-pm-icon-copy><Icon name="ph:copy" class="w-[18px] h-[18px]" /></template>
+  <template data-nb-pm-icon-check><Icon name="ph:check" class="w-[18px] h-[18px]" /></template>
 </div>
 
 <script>

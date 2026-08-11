@@ -104,7 +104,7 @@ const hasPagination = Astro.slots.has("pagination");
               Only emit when the sidebar is rendered; otherwise the script is
               dead code (the `desktop-sidebar` element doesn't exist). */}
           {showSidebar && (
-          <script is:inline aria-hidden="true">
+          <script aria-hidden="true">
           (function () {
             try {
               if (!matchMedia("(min-width: 64rem)").matches) return;

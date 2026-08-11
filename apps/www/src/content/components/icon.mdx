@@ -15,10 +15,6 @@ props:
   - name: height
     type: "number | string"
     description: "Override the SVG height."
-  - name: is:inline
-    type: "boolean"
-    defaultValue: "false"
-    description: "Inline the SVG body directly instead of using `<symbol>`/`<use>`. Set to `true` when you need the raw paths in the DOM (e.g. for CSS targeting)."
   - name: title
     type: string
     description: "Accessible title rendered inside `<title>`."
@@ -79,19 +75,6 @@ Pass `title` and `desc` to add `<title>` and `<desc>` elements inside the SVG fo
       desc="This action cannot be undone"
       class="w-6 h-6 text-foreground"
     />
-  </div>
-</Example>
-
-### Inline mode
-
-By default, `Icon` renders a `<symbol>` + `<use>` pair so the same icon can be referenced multiple times without duplicating the SVG body. Set `is:inline` to inline the raw SVG paths when you need them in the DOM.
-
-<Example
-  code={`<Icon name="ph:check-circle" is:inline class="w-6 h-6 text-green-500" />`}
-  minHeight="6rem"
->
-  <div class="flex items-center justify-center">
-    <Icon name="ph:check-circle" is:inline class="w-6 h-6 text-foreground" />
   </div>
 </Example>
 
