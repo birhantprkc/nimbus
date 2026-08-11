@@ -692,7 +692,8 @@ export function nimbus(
         clearCodeStyleRegistry();
         server.middlewares.use((req, res, next) => {
           const pathname = new URL(req.url ?? "/", "http://nimbus.local").pathname;
-          if (pathname !== assetPathWithBase(astroBaseForBuild, "_nimbus/shiki.css")) {
+          // Vite strips `base` from req.url at a non-root base; match by suffix.
+          if (!pathname.endsWith("/_nimbus/shiki.css")) {
             next();
             return;
           }
@@ -851,11 +852,6 @@ function canonicalizePathname(pathname: string): string {
   if (!s.startsWith("/")) s = `/${s}`;
   if (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1);
   return s;
-}
-
-function assetPathWithBase(base: string, assetPath: string): string {
-  const cleanBase = base && base !== "/" ? `/${base.replace(/^\/+|\/+$/g, "")}` : "";
-  return `${cleanBase}/${assetPath.replace(/^\/+/, "")}`;
 }
 
 function normalizeShikiCSS(currentCSS: string): string {
