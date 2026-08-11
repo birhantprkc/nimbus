@@ -111,12 +111,15 @@ Any class on the `<svg>` element works — color, size, transitions, etc.
   </div>
 </Example>
 
-### Phosphor icons
+### Iconify sets
 
-Phosphor is the icon set used in Nimbus and the starter template. Install `@iconify-json/ph` and reference icons with the `ph:` prefix. Browse the full set at [phosphoricons.com](https://phosphoricons.com).
+Install any `@iconify-json/*` package and reference icons with its prefix. The icon system auto-detects installed packages.
 
 ```bash
-npm install @iconify-json/ph
+npm install @iconify-json/ph         # Phosphor — ph:*
+npm install @iconify-json/mdi        # Material Design Icons — mdi:*
+npm install @iconify-json/fa6-solid  # Font Awesome 6 — fa6-solid:*
+npm install @iconify-json/heroicons  # Heroicons — heroicons:*
 ```
 
 <Example code={`<Icon name="ph:rocket-launch" class="w-6 h-6" />
@@ -130,16 +133,6 @@ npm install @iconify-json/ph
     <Icon name="ph:check-circle" class="w-6 h-6 text-foreground" />
   </div>
 </Example>
-
-### Other Iconify sets
-
-Any `@iconify-json/*` package works. Install the package and use its prefix.
-
-```bash
-npm install @iconify-json/mdi        # Material Design Icons — mdi:*
-npm install @iconify-json/fa6-solid  # Font Awesome 6 — fa6-solid:*
-npm install @iconify-json/heroicons  # Heroicons — heroicons:*
-```
 
 ### Local SVGs
 
