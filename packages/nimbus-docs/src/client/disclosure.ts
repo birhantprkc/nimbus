@@ -25,6 +25,8 @@ export interface DisclosureOptions {
   content: HTMLElement;
   /** Initial open state. Default `false`. */
   defaultOpen?: boolean;
+  /** Mark closed content `inert` so it leaves the tab order. Default `true`. */
+  manageInert?: boolean;
   /** Called whenever open changes. */
   onOpenChange?: (open: boolean) => void;
 }
@@ -38,7 +40,13 @@ export interface DisclosureInstance {
 }
 
 export function makeDisclosure(opts: DisclosureOptions): DisclosureInstance {
-  const { trigger, content, defaultOpen = false, onOpenChange } = opts;
+  const {
+    trigger,
+    content,
+    defaultOpen = false,
+    manageInert = true,
+    onOpenChange,
+  } = opts;
 
   let open = defaultOpen;
 
@@ -53,6 +61,7 @@ export function makeDisclosure(opts: DisclosureOptions): DisclosureInstance {
     trigger.setAttribute("data-nb-state", state);
     content.setAttribute("data-nb-state", state);
     trigger.setAttribute("aria-expanded", String(open));
+    if (manageInert) content.toggleAttribute("inert", !open);
   }
 
   function setOpen(value: boolean) {
