@@ -40,6 +40,7 @@ declare module "astro:content" {
     collection: C;
     data: Record<string, unknown>;
     body?: string;
+    digest?: number | string;
   }
 
   export interface SchemaContext {
