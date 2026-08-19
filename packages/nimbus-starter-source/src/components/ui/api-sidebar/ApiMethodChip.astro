@@ -1,11 +1,19 @@
 ---
 /**
  * ApiMethodChip — the method-coloured glyph chip for an API operation, as its
- * own self-contained atom. It ships its own colour tokens, variants, dark-mode
- * overrides and masked glyph, so it renders correctly anywhere — including
- * inside the shared `SidebarLink` (it does NOT depend on the API rail's host
- * scope). Every method folds onto four colours + three glyphs:
+ * own self-contained atom. Colours come from the shared `--nb-m-*` method
+ * palette in `globals.css`; the chip owns its variants and masked glyph, so its
+ * glyph renders anywhere — including inside the shared `SidebarLink` (it does NOT
+ * depend on the API rail's host scope), and its colour resolves wherever the
+ * shared `--nb-m-*` tokens are in scope (every Nimbus site's globals.css). Every
+ * method folds onto four
+ * colours + three glyphs:
  * get/head → down-left, post/put/patch → up-right, delete → ✕, else → dot.
+ *
+ * This mapping is the source of truth; the page route pill in `ApiBody.astro`
+ * mirrors the same glyph vocabulary inline (as stroked SVG rather than a mask)
+ * and draws from the same `--nb-m-*` palette — keep the two in sync when
+ * changing the method→glyph mapping.
  */
 interface Props {
   method?: string;
@@ -36,15 +44,9 @@ const variant = variantOf(verb);
 {variant && <span class={`nb-api-chip nb-api-chip--${variant}`} role="img" aria-label={verb?.toUpperCase()} />}
 
 <style>
-  /* Method colours are pinned to concrete values; the "other" tint follows the
-     theme foreground. Tokens live on the chip itself so it is fully self-scoped. */
+  /* Method colours come from the shared --nb-m-* palette in globals.css so the
+     chip and the page route pill can never disagree on a method's colour. */
   .nb-api-chip {
-    --nb-m-get: #16a34a;
-    --nb-m-post: #155dfc;
-    --nb-m-put: #ea580c;
-    --nb-m-delete: #d01e22;
-    --nb-m-other: color-mix(in oklab, var(--nb-foreground) 45%, transparent);
-
     box-sizing: border-box;
     flex: none;
     display: inline-flex;
@@ -57,12 +59,6 @@ const variant = variantOf(verb);
     background-color: color-mix(in oklab, var(--m) 8%, transparent);
     border-color: color-mix(in oklab, var(--m) 16%, transparent);
     color: var(--m);
-  }
-  :global([data-mode="dark"]) .nb-api-chip {
-    --nb-m-get: #22c55e;
-    --nb-m-post: #2b7fff;
-    --nb-m-put: #f97316;
-    --nb-m-delete: #e34041;
   }
   .nb-api-chip::before {
     content: "";

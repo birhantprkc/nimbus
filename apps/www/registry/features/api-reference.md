@@ -64,11 +64,12 @@ its routes under `src/pages/<collection>/` — substitute your chosen name for
 
 Print a short, exact plan to the user **before** writing anything:
 
-- Install `@scalar/openapi-parser` (the spec parser — a peer dependency, kept
-  out of the framework bundle so it only ships when you actually mount a spec).
-- Install the reference taste layer — `nimbus-docs add api-layout` — which
-  copies four owned, editable components into `src/components/ui/` (ApiLayout,
-  ApiSidebar, ApiFieldRow, ApiCodeRail) plus their deps (Badge, cn).
+- Install the reference layer — `nimbus-docs add api-layout` — which copies four
+  owned, editable components into `src/components/ui/` (ApiLayout, ApiSidebar,
+  ApiFieldRow, ApiCodeRail) with their registry deps (Badge, cn, …), and installs
+  the API engine's peer packages: `@scalar/openapi-parser` (the spec parser) plus
+  `openapi-sampler` and `@readme/httpsnippet` (the code-sample generators). These
+  stay out of the framework bundle, so they only land when you mount a spec.
 - Edit `astro.config.ts` — add the `api` key to the Nimbus config.
 - Edit `src/content.config.ts` — register the `api` collection.
 - Create `src/pages/api/[...slug].astro` and `src/pages/api/[...slug]/index.md.ts`.
@@ -79,31 +80,38 @@ Wait for confirmation before executing.
 
 ## 4. Execute
 
-### 4a. Install the parser
+### 4a. Install the reference layer
 
-The OpenAPI parser is a **peer dependency** — Nimbus loads it lazily so it's
-never bundled into sites that don't mount a spec. Install it with the user's
-package manager:
-
-```sh
-pnpm add @scalar/openapi-parser   # or: npm install / yarn add
-```
-
-Nimbus requires `>=0.10.0`. If it's missing at build time, Nimbus fails with a
-clear "install @scalar/openapi-parser" message — that's this step.
-
-Then install the reference UI — four owned, editable components that render the
-view-model. `api-layout` pulls the other three (and Badge + cn) via its
-dependency graph:
+Run the registry recipe — it copies four owned, editable components that render
+the view-model, and installs the API engine's peer packages:
 
 ```sh
-pnpm exec nimbus-docs add api-layout
+pnpm exec nimbus-docs add api-layout   # or: npm / yarn
 ```
 
 This lands `ApiLayout`, `ApiSidebar`, `ApiFieldRow`, and `ApiCodeRail` under
-`src/components/ui/`. They read the frozen view-model only (hrefs, anchors,
-flags, grouping are all pre-resolved) and own nothing but their look — restyle
-them freely, they're yours now. The route in 4e composes them.
+`src/components/ui/` (with their Badge/cn registry deps), and installs three
+optional peer packages of `@cloudflare/nimbus-docs`: `@scalar/openapi-parser`
+(required to parse the spec — the build fails without it), plus `openapi-sampler`
+and `@readme/httpsnippet` (the curl/TypeScript/Python sample generators). Nimbus
+keeps these out of its bundle and lazy-loads them, so docs-only sites never
+install them.
+
+The components read the frozen view-model only (hrefs, anchors, flags, grouping
+are all pre-resolved) and own nothing but their look — restyle them freely,
+they're yours now. The route in 4e composes them.
+
+Confirm your `src/styles/globals.css` carries the method-colour tokens
+`--nb-m-get`, `--nb-m-post`, `--nb-m-put`, `--nb-m-delete`, and `--nb-m-other`
+(with the four `[data-mode="dark"]` overrides). Sites scaffolded by
+`create-nimbus-docs` already ship them; the sidebar method chip and the page
+route pill share these tokens, so without them the method glyph/pill fall back to
+`currentColor` (uncoloured) rather than the get→green / post→blue / put→orange /
+delete→red palette.
+
+If you're wiring the engine by hand instead of via this recipe, install those
+peers yourself: `@scalar/openapi-parser` is required; the other two are optional
+(their absence just omits code samples).
 
 ### 4b. Add the `api` key to the Nimbus config
 
@@ -216,7 +224,8 @@ export async function GET({ props }: { props: SlugProps }) {
 The route is thin: build the model, project the page props + nav, and hand both
 to `ApiLayout` (installed in 4a). `ApiLayout` composes `ApiSidebar` (verb chips +
 active-section pruning), `ApiFieldRow` (recursive fields with type links), and
-`ApiCodeRail` (request signature + auth + response codes), rendering any page
+`ApiCodeRail` (server-generated code samples with a language switcher + a
+response-example status toggle), rendering any page
 kind — operation, schema, section, or the root overview. Everything it draws is
 pre-resolved on the view-model; the components hold only the look.
 
@@ -258,10 +267,6 @@ const { coordinate } = Astro.props as { coordinate: string };
 const model = await getApiModel(COLLECTION);
 const page = getApiPageProps(model, coordinate);
 const nav = getApiNav(model, coordinate);
-// The server base lives on the API root; pass it so the code rail can render a
-// copy-pasteable request URL.
-const root = getApiPageProps(model, COLLECTION);
-const server = root.kind === "api" ? root.servers[0] : undefined;
 ---
 
 <!doctype html>
@@ -276,7 +281,7 @@ const server = root.kind === "api" ? root.servers[0] : undefined;
     <header class="sticky top-0 z-10 flex h-14 items-center border-b border-border bg-background/80 px-6 backdrop-blur">
       <a href="/api" class="font-mono text-sm font-semibold no-underline">{nav.collection}</a>
     </header>
-    <ApiLayout page={page} nav={nav} server={server} />
+    <ApiLayout page={page} nav={nav} />
   </body>
 </html>
 

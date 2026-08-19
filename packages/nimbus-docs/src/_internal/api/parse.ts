@@ -110,7 +110,9 @@ async function loadParser(): Promise<ScalarParserModule> {
     return (await import(/* @vite-ignore */ specifier)) as unknown as ScalarParserModule;
   } catch {
     throw new Error(
-      `The API reference needs the OpenAPI parser. Install it in your project:\n\n  npm install @scalar/openapi-parser\n`,
+      `The API reference needs the OpenAPI parser. Install it in your project:\n\n  npm install @scalar/openapi-parser\n\n` +
+        `For code samples, also install the optional generators:\n\n  npm install openapi-sampler @readme/httpsnippet\n\n` +
+        `(Installing the api-layout registry recipe pulls all three automatically.)\n`,
     );
   }
 }
@@ -178,7 +180,7 @@ export async function parseOpenApi(source: SpecSource): Promise<ParseResult> {
       preDiagnostics.push({
         level: "warning",
         message:
-          "Code samples omitted — install openapi-sampler and @readme/httpsnippet to derive curl/TypeScript/Python examples.",
+          "Code samples omitted — install openapi-sampler and @readme/httpsnippet to derive curl/TypeScript/Python examples (the api-layout registry recipe pulls both).",
         source: label,
       });
     }

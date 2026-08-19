@@ -317,6 +317,9 @@ export const MANIFESTS = {
     description:
       "Three-column reference shell (nav · content · code rail) composing ApiSidebar + ApiFieldRow + ApiCodeRail. Renders any `ApiPageProps` by kind; widths inherit the site's layout tokens.",
     registryDependencies: ["api-sidebar", "api-field-row", "api-code-rail", "badge", "banner", "breadcrumbs", "cn"],
+    // Optional peers of nimbus-docs's API engine, installed only when a site opts
+    // into the reference
+    dependencies: ["@scalar/openapi-parser", "openapi-sampler", "@readme/httpsnippet"],
   },
 
   diagram: {

@@ -9,7 +9,10 @@
  *
  * The method/status/auth helpers and the `.nb-md`/`.nb-copy-md` styles are kept
  * inline here (rather than shared lib/CSS files) so a docs-only site carries no
- * extra API-specific files — this component is the single consumer.
+ * extra API-specific files — this component is their single consumer. The one
+ * exception is method colour: the route pill draws the shared `--nb-m-*` palette
+ * from `globals.css` (harmless when unused) so it can never disagree with the
+ * sidebar `ApiMethodChip`, which draws the same tokens.
  */
 import { Badge } from "@/components/ui/badge";
 import { Banner } from "@/components/ui/banner";
@@ -27,27 +30,50 @@ const { page } = Astro.props;
 
 const detail = (v: unknown): string => JSON.stringify(v);
 
-// HTTP method → Badge variant (get→info, post→success, put·patch→warning,
-// delete→danger; any other verb falls to the muted default). One source of truth
-// for the method colour vocabulary.
-type BadgeVariant = "info" | "success" | "warning" | "danger" | "default";
-function methodVariant(method: string): BadgeVariant {
+// HTTP method → method-colour key, mirroring ApiMethodChip's `variantOf` (the
+// sidebar chip is the source of truth): get/head → get, post → post,
+// put/patch → put, delete → delete, else → other. The pill draws the matching
+// shared `--nb-m-*` token, so it always agrees with the sidebar chip's colour.
+// Keep in sync with ApiMethodChip.astro.
+type MethodColor = "get" | "post" | "put" | "delete" | "other";
+function methodColor(method: string): MethodColor {
   switch (method.toLowerCase()) {
     case "get":
-      return "info";
+    case "head":
+      return "get";
     case "post":
-      return "success";
+      return "post";
     case "put":
     case "patch":
-      return "warning";
+      return "put";
     case "delete":
-      return "danger";
+      return "delete";
     default:
-      return "default";
+      return "other";
   }
 }
-// Class overrides that give the base Badge the route-pill look: mono, tight
-// radius, compact padding, and a small gap for the leading arrow glyph.
+// Method → route-pill arrow, mirroring ApiMethodChip's glyph vocabulary (the
+// sidebar chip is the source of truth): get/head → down-left, post/put/patch →
+// up-right, delete → cross, else → dot. Keep in sync with ApiMethodChip.astro so
+// the page pill and the sidebar chip never disagree on the same operation.
+type MethodGlyph = "downLeft" | "upRight" | "cross" | "dot";
+function methodGlyph(method: string): MethodGlyph {
+  switch (method.toLowerCase()) {
+    case "get":
+    case "head":
+      return "downLeft";
+    case "post":
+    case "put":
+    case "patch":
+      return "upRight";
+    case "delete":
+      return "cross";
+    default:
+      return "dot";
+  }
+}
+// Shape classes for the route pill: mono, tight radius, compact padding, and a
+// small gap for the leading arrow glyph. Colour comes from `.nb-route-pill`.
 const routePillClass =
   "gap-1 rounded-[5px] px-[0.4375rem] py-[0.1875rem] font-mono text-[0.6875rem] font-semibold tracking-[0.02em]";
 
@@ -142,6 +168,8 @@ function authFields(auth: ApiAuthView[][]): ApiFieldView[] {
 }
 
 const authFieldList = page.kind === "operation" ? authFields(page.auth) : [];
+const methodArrow: MethodGlyph = page.kind === "operation" ? methodGlyph(page.method) : "dot";
+const methodTone: MethodColor = page.kind === "operation" ? methodColor(page.method) : "other";
 
 // Deprecation notice, built as sanitized HTML for the shared Banner (which takes
 // a content string, mirroring DocsLayout's version-deprecation banner).
@@ -178,13 +206,15 @@ const deprecationHtml = page.deprecated
 
 {page.kind === "operation" && (
   <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
-    <Badge variant={methodVariant(page.method)} class={routePillClass}>
+    <span class={`nb-route-pill nb-route-pill--${methodTone} inline-flex items-center whitespace-nowrap border leading-none ${routePillClass}`}>
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3">
-        <path d="M7 17 17 7" />
-        <path d="M7 7h10v10" />
+        {methodArrow === "downLeft" && <Fragment><path d="M17 7 7 17" /><path d="M17 17H7V7" /></Fragment>}
+        {methodArrow === "upRight" && <Fragment><path d="M7 7h10v10" /><path d="M7 17 17 7" /></Fragment>}
+        {methodArrow === "cross" && <Fragment><path d="M18 6 6 18" /><path d="m6 6 12 12" /></Fragment>}
+        {methodArrow === "dot" && <circle cx="12" cy="12" r="3.25" fill="currentColor" stroke="none" />}
       </svg>
       {page.method.toUpperCase()}
-    </Badge>
+    </span>
     <span class="break-all font-mono text-muted-foreground">{page.path}</span>
     {page.isWebhook && <Badge text="webhook" variant="info" />}
   </div>
@@ -316,6 +346,31 @@ const deprecationHtml = page.deprecated
 </div>
 
 <style is:global>
+  /* Route pill — the method-coloured operation badge. Draws from the shared
+     --nb-m-* palette (globals.css), the same tokens the sidebar ApiMethodChip
+     uses, so the pill and the chip always agree on a method's colour. Mirrors
+     the chip's tint treatment (8% fill, 16% border, solid text). */
+  .nb-route-pill {
+    background-color: color-mix(in oklab, var(--m) 8%, transparent);
+    border-color: color-mix(in oklab, var(--m) 16%, transparent);
+    color: var(--m);
+  }
+  .nb-route-pill--get {
+    --m: var(--nb-m-get);
+  }
+  .nb-route-pill--post {
+    --m: var(--nb-m-post);
+  }
+  .nb-route-pill--put {
+    --m: var(--nb-m-put);
+  }
+  .nb-route-pill--delete {
+    --m: var(--nb-m-delete);
+  }
+  .nb-route-pill--other {
+    --m: var(--nb-m-other);
+  }
+
   /* "Copy Markdown" affordance — presentational placeholder for now, so it
      ships `disabled`: honest to AT and out of the tab order, while keeping the
      intended look. Wire a handler and drop `disabled` when copy lands. */
