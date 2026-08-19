@@ -162,25 +162,6 @@ paths:
         "201":
           description: Uploaded.
 
-  /responses:
-    post:
-      # Adversarial: case-only twin of `/responses` GET's `CreateResponse`.
-      # OpenAI's real spec pairs `createResponse` with `CreateResponse`; a hard
-      # error fails it, so the grammar allows it with a WARNING.
-      operationId: createResponse
-      summary: Create a response (lowercase)
-      tags: [charges]
-      responses:
-        "200":
-          description: ok
-    get:
-      operationId: CreateResponse
-      summary: Get a response (Pascalcase twin)
-      tags: [charges]
-      responses:
-        "200":
-          description: ok
-
 webhooks:
   # Webhook key is always the coordinate — a dotted key stays opaque
   # (`payment.succeeded`), never parsed apart.

@@ -344,6 +344,23 @@ describe("CoordinateRegistry: case-only twins warn, never fail (rule 3)", () => 
     assert.equal(warns.length, 1);
     assert.match(warns[0].message, /differ only by case/i);
   });
+
+  test("the real parser mints case-only twins as distinct coordinates", async () => {
+    const spec = JSON.stringify({
+      openapi: "3.0.0",
+      info: { title: "Twins", version: "1.0.0" },
+      paths: {
+        "/responses": {
+          post: { operationId: "createResponse", responses: { "200": { description: "ok" } } },
+          get: { operationId: "CreateResponse", responses: { "200": { description: "ok" } } },
+        },
+      },
+    });
+    const model = await buildApiModel({ collection: "twins", spec });
+    const coords = new Set(getApiPageSlugs(model).map((s) => s.coordinate));
+    assert.ok(coords.has("createResponse"));
+    assert.ok(coords.has("CreateResponse"));
+  });
 });
 
 describe("CoordinateRegistry: warnings that never gate the build", () => {
@@ -414,12 +431,10 @@ describe("grammar realized on the smallco fixture (end-to-end)", () => {
     coords = new Set(getApiPageSlugs(model).map((s) => s.coordinate));
   });
 
-  test("operations mint by operationId; case-only twins both survive", () => {
+  test("operations mint by operationId", () => {
     for (const op of ["create", "list", "search", "openDispute"]) {
       assert.ok(coords.has(op), `expected operation coordinate "${op}"`);
     }
-    assert.ok(coords.has("createResponse"));
-    assert.ok(coords.has("CreateResponse"));
   });
 
   test("a dotted webhook key stays a single opaque coordinate", () => {

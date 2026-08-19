@@ -237,6 +237,15 @@ instead of the standalone shell below — and omit the shell's `codeCopy()`
 `<script>` if that base layout already calls it (`BaseLayout` does), since two
 `codeCopy()` calls stack a second copy button on every code block.
 
+At `< lg` the nav lives in a left-slide drawer that `ApiLayout` opens from a
+trigger marked `data-menu-btn` — without one, the API reference has no mobile
+navigation. The standalone shell below includes a `lg:hidden` hamburger for this;
+if you mount `ApiLayout` in your own base layout instead, render that layout's
+menu trigger on the API route (in a `create-nimbus-docs` starter, pass
+`<Header showSidebar />`). The starter's `globals.css` already hides a stray
+`data-menu-btn` on pages with no drawer, so the trigger is safe to render
+site-wide.
+
 Write `src/pages/api/[...slug].astro`:
 
 ```astro
@@ -278,7 +287,17 @@ const nav = getApiNav(model, coordinate);
     <link rel="alternate" type="text/markdown" href={page.markdownHref} />
   </head>
   <body class="bg-background text-foreground antialiased">
-    <header class="sticky top-0 z-10 flex h-14 items-center border-b border-border bg-background/80 px-6 backdrop-blur">
+    <header class="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-border bg-background/80 px-6 backdrop-blur">
+      <button
+        type="button"
+        data-menu-btn
+        aria-label="Open navigation"
+        class="-ml-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent lg:hidden"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M3 6h18M3 12h18M3 18h18" />
+        </svg>
+      </button>
       <a href="/api" class="font-mono text-sm font-semibold no-underline">{nav.collection}</a>
     </header>
     <ApiLayout page={page} nav={nav} />
