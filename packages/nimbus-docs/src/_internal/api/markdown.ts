@@ -90,7 +90,7 @@ function safeBlock(text: string): string {
     .map((line) => {
       const atx = line.replace(/^(\s*)(#{1,6})(\s|$)/, "$1\\$2$3");
       return /^\s*(=+|-+|(?:[-*_]\s*){3,})\s*$/.test(atx)
-        ? atx.replace(/[-=*_]/, "\\$&")
+        ? atx.replace(/[-=*_]/g, "\\$&")
         : atx;
     })
     .join("\n");
