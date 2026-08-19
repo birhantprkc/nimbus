@@ -92,7 +92,7 @@ test("no .astro/types.d.ts → not_evaluated with requiresBuild note (won't fabr
   }
 });
 
-// Spec (ticket lines 197-199): file-absent is the ONLY whole-scope not_evaluated
+// By spec, file-absent is the ONLY whole-scope not_evaluated
 // trigger. Once .astro/types.d.ts EXISTS (here, empty/stale), an unresolved
 // astro:* import is a real finding, never a scope-blanking bail.
 test("present-but-empty .astro/types.d.ts + astro:content import → evaluated, unresolved import is a ts/2307 finding", () => {

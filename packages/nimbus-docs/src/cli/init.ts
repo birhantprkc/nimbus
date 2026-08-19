@@ -1,6 +1,6 @@
 /**
  * `nimbus-docs init` — write a `nimbus.json` for a project that lacks one
- * (scaffolded before DX-1, a bare Astro site adopting Nimbus, or a deleted
+ * (scaffolded before provenance recording existed, a bare Astro site adopting Nimbus, or a deleted
  * record). Provenance is reconstructed by matching installed component dirs
  * against registry bytes; what can't be identified is marked, not guessed.
  */
@@ -205,7 +205,7 @@ export async function initCommand(flags: InitFlags): Promise<void> {
   const record: NimbusJson = {
     $schema: SCHEMA_URL,
     // create-nimbus-docs version + templates tag aren't recoverable from the
-    // repo alone; DX-2 reads `reconstructed` to know starter provenance is partial.
+    // repo alone; the upgrade commands read `reconstructed` to know starter provenance is partial.
     version: null,
     templatesTag: null,
     variant: null,

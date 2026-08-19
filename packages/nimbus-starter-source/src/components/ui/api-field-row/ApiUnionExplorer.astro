@@ -1,0 +1,104 @@
+---
+/**
+ * ApiUnionExplorer — renders an `ApiUnionView` as a "one of" variant tree: each
+ * variant is an expander (object variants inline their properties) or a linked
+ * row (a named `$ref` variant). Prefers the discriminator mapping and falls back
+ * to the raw variant list. Used for both a field-level union
+ * (`ApiFieldView.union`) and a top-level request body.
+ */
+import { cn } from "@/lib/cn";
+import ApiFieldRow from "./ApiFieldRow.astro";
+import type { ApiUnionView, ApiVariant } from "@cloudflare/nimbus-docs/api";
+
+interface Props {
+  union: ApiUnionView;
+}
+
+const { union } = Astro.props;
+
+const entries: { value?: string; variant: ApiVariant }[] =
+  union.mapping && union.mapping.length > 0
+    ? union.mapping.map((m) => ({ value: m.value, variant: m.variant }))
+    : union.variants.map((v) => ({ variant: v }));
+
+const previewOf = (v: ApiVariant): string | null => {
+  const fields = v.fields ?? [];
+  if (fields.length === 0) return null;
+  const names = fields.slice(0, 3).map((f) => f.name);
+  const more = fields.length - names.length;
+  return `{ ${names.join(", ")}${more > 0 ? `, ${more} more` : ""} }`;
+};
+---
+
+<div>
+  <p class="mb-1 text-sm text-muted-foreground">One of the following:</p>
+  <ul class="list-none p-0">
+    {
+      entries.map((e) => {
+        const fields = e.variant.fields ?? [];
+        const preview = previewOf(e.variant);
+        return fields.length > 0 ? (
+          <li class="group/row py-1.5">
+            <details class="group/exp">
+              <summary class="flex list-none cursor-pointer items-start gap-2 [&::-webkit-details-marker]:hidden">
+                <span
+                  class="mt-1 flex size-4 shrink-0 items-center justify-center text-muted-foreground transition-colors group-hover/exp:text-foreground"
+                  aria-hidden="true"
+                >
+                  <svg class="size-3.5 group-open/exp:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14" />
+                    <path d="M12 5v14" />
+                  </svg>
+                  <svg class="hidden size-3.5 group-open/exp:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14" />
+                  </svg>
+                </span>
+                <span class="flex flex-wrap items-baseline gap-x-1.5 text-sm leading-6">
+                  <span class={cn("font-semibold", e.variant.href ? "font-mono text-info" : "text-foreground")}>
+                    {e.variant.label}
+                  </span>
+                  {preview && (
+                    <span class="text-muted-foreground group-open/exp:hidden">
+                      <span class="text-muted-foreground">object </span>
+                      {preview}
+                    </span>
+                  )}
+                  {e.value && <code class="font-mono text-xs text-muted-foreground">{e.value}</code>}
+                </span>
+              </summary>
+              <div class="mt-1 ml-2 border-l border-border pl-4">
+                {e.variant.href && (
+                  <a
+                    href={e.variant.href}
+                    class="mb-1 block text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    View {e.variant.label} schema →
+                  </a>
+                )}
+                <ul class="list-none p-0">
+                  {fields.map((f) => (
+                    <ApiFieldRow field={f} />
+                  ))}
+                </ul>
+              </div>
+            </details>
+          </li>
+        ) : (
+          <li class="group/row flex items-start gap-2 py-1.5">
+            <span class="mt-1 size-4 shrink-0" aria-hidden="true" />
+            <span class="flex flex-wrap items-baseline gap-x-1.5 text-sm leading-6">
+              {e.variant.href ? (
+                <a href={e.variant.href} class="font-mono font-medium text-info hover:underline underline-offset-2">
+                  {e.variant.label}
+                </a>
+              ) : (
+                <span class="font-semibold text-foreground">{e.variant.label}</span>
+              )}
+              {e.value && <code class="font-mono text-xs text-muted-foreground">{e.value}</code>}
+            </span>
+          </li>
+        );
+      })
+    }
+  </ul>
+</div>
