@@ -907,6 +907,11 @@ import type { AstroGlobal, GetStaticPaths } from "astro";
  * filtered in production. Each path passes `{ entry }` as props so the
  * page component can access it via `getDocsPageProps(Astro)`.
  *
+ * A `cacheKey` derived from the entry's `digest` is included on each path
+ * so Astro's experimental incremental build cache can skip re-rendering
+ * unchanged pages. This is a no-op when `experimental.incrementalBuild` is
+ * not enabled in `astro.config.ts`.
+ *
  * Usage:
  *
  *   // src/pages/[...slug].astro
@@ -926,6 +931,7 @@ export const getDocsStaticPaths: GetStaticPaths = async () => {
   return entries.map((entry) => ({
     params: { slug: entry.id },
     props: { entry },
+    cacheKey: String(entry.digest),
   }));
 };
 
@@ -1015,6 +1021,11 @@ export async function getRouteFlags(entry: {
  * filtered in production (same rule as `getDocsStaticPaths`). Each path
  * passes `{ entry }` as props for `getCollectionPageProps()`.
  *
+ * A `cacheKey` derived from the entry's `digest` is included on each path
+ * so Astro's experimental incremental build cache can skip re-rendering
+ * unchanged pages. This is a no-op when `experimental.incrementalBuild` is
+ * not enabled in `astro.config.ts`.
+ *
  * Usage:
  *
  *   // src/pages/api/[...slug].astro
@@ -1032,6 +1043,7 @@ export function getCollectionStaticPaths(collection: string): GetStaticPaths {
     return entries.map((entry) => ({
       params: { slug: entry.id },
       props: { entry },
+      cacheKey: String(entry.digest),
     }));
   };
 }
