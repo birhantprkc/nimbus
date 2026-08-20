@@ -10,3 +10,7 @@ packages:
   # framework's lockfile. Excluding them here keeps `pnpm install` from
   # injecting their importers into pnpm-lock.yaml.
   - "!examples/local"
+
+# nanoid@3.3.18 patches GHSA-2v37-7h3g-55p8; postcss ^3.3.17 won't resolve to it
+overrides:
+  nanoid: 3.3.18
