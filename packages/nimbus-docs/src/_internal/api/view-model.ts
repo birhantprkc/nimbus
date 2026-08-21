@@ -44,6 +44,8 @@ export interface SpecSource {
   collection: string;
   spec: string | Record<string, JsonValue>;
   label?: string;
+  /** Base URL for this model's pages. Defaults to `/<collection>` when absent. */
+  mountPath?: string;
 }
 
 declare const ApiModelBrand: unique symbol;
@@ -304,7 +306,7 @@ class ModelView {
 
   href(coordinate: Coordinate): string {
     const slug = this.model.pages.slugs.get(coordinate);
-    const base = `/${this.model.collection}`;
+    const base = this.model.mountPath ?? `/${this.model.collection}`;
     if (slug === undefined || slug === "") return base;
     return `${base}/${slug}`;
   }

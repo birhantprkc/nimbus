@@ -23,6 +23,8 @@ const {
   head: pageHead = [],
   collection,
   entryId,
+  apiVersion,
+  coordinate,
 } = Astro.props;
 
 const lang = config.locale ?? "en";
@@ -32,7 +34,11 @@ const lang = config.locale ?? "en";
 // the root `/llms.txt` when no collection is provided.
 // Hidden-version pages don't advertise an agent index (the per-version
 // llms.txt isn't emitted for them); suppress the AgentDirective entirely.
-const versionStatus = collection ? await getVersionStatus(collection) : null;
+const versionStatusKey =
+  apiVersion && collection ? `${collection}@${apiVersion}` : collection;
+const versionStatus = versionStatusKey
+  ? await getVersionStatus(versionStatusKey)
+  : null;
 const isHiddenVersion = versionStatus?.isHidden === true;
 const llmsIndexPath = collection
   ? await getCollectionLlmsUrl(collection)
@@ -98,6 +104,8 @@ const llmsUrl = Astro.site
       head={pageHead}
       collection={collection}
       entryId={entryId}
+      apiVersion={apiVersion}
+      coordinate={coordinate}
     />
     <ClientRouter />
   </head>

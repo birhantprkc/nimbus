@@ -137,6 +137,25 @@ describe("apiCollection loader — thin index", () => {
     assert.ok(store.keys().length > 0);
     assert.ok(store.has("index"));
   });
+
+  test("an untagged operationId `index` collides with the root id and is rejected", async () => {
+    // Without the guard this silently clobbers the api-root entry (both mint
+    // store id `index`), dropping a page from the agent index while its HTML
+    // route still renders. The loader must fail the build with a pointed error.
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.0",
+      info: { title: "Collide", version: "1.0.0" },
+      paths: {
+        "/index": {
+          get: { operationId: "index", summary: "Index", responses: { "200": { description: "ok" } } },
+        },
+      },
+    };
+    await assert.rejects(
+      () => runLoader("api-collide", spec),
+      /same route id "index"/,
+    );
+  });
 });
 
 describe("round-trip completeness (pageSlugs ⊆ domain(pageProps))", () => {

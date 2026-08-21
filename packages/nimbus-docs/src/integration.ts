@@ -72,6 +72,10 @@ import {
   validateMdxContent,
 } from "./_internal/validate-mdx-content.js";
 import { validateNimbusConfig } from "./_internal/validate.js";
+import {
+  hiddenVersionPrefixes,
+  makeHiddenSitemapFilter,
+} from "./_internal/hidden-sitemap.js";
 import { virtualConfigPlugin } from "./_internal/virtual-config.js";
 import { iconVirtualPlugin, type IconPluginOptions } from "./_internal/icon-virtual.js";
 import { scanCodeBlockLanguages } from "./_internal/scan-code-langs.js";
@@ -533,12 +537,33 @@ export function nimbus(
           );
         }
 
+        // API version families contribute their own coordinate-identity axis.
+        // Keys carry the `family@version` version key (an `@`), disjoint from
+        // every docs key, so the merge is a plain spread. Runs even when the
+        // site has no docs versions.
+        if (config.api?.some((e) => e.versions && e.versions.length > 1)) {
+          const { buildApiVersionAlternates } = await import(
+            "./_internal/api/api-alternates.js"
+          );
+          const apiAlternates = await buildApiVersionAlternates(
+            config.api,
+            projectRoot,
+          );
+          versionAlternates = { ...versionAlternates, ...apiAlternates };
+        }
+
         // MDX is always added; sitemap only when `site` is configured.
         integrationsToAdd.push(mdx(resolveMdxOptions(options.mdx)));
         const wantSitemap = options.sitemap !== false && Boolean(config.site);
         const sitemapOpts =
           typeof options.sitemap === "object" ? options.sitemap : undefined;
         if (wantSitemap) {
+          // Injected only when hidden versions exist, so an all-visible site's
+          // sitemap stays byte-identical (no `filter` key).
+          const hiddenPrefixes = hiddenVersionPrefixes(
+            config,
+            astroConfig.base,
+          );
           integrationsToAdd.push(
             sitemap({
               // Our public `SitemapSerialize` types `changefreq` as a
@@ -553,6 +578,9 @@ export function nimbus(
                 >["serialize"],
               }),
               ...(sitemapOpts?.customPages && { customPages: sitemapOpts.customPages }),
+              ...(hiddenPrefixes.length > 0 && {
+                filter: makeHiddenSitemapFilter(config, astroConfig.base),
+              }),
             }),
           );
         }

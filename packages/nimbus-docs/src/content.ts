@@ -31,6 +31,7 @@ import {
   definePartialsSchema,
   partialsSchema,
 } from "./schemas.js";
+import type { ApiVersionSpec } from "./types.js";
 
 // Re-export the public schema factories from `nimbus-docs/content` so users
 // have a single import for content-config concerns (collections + schemas).
@@ -176,16 +177,22 @@ export function componentsCollection(options: ComponentsCollectionOptions = {}) 
 }
 
 export interface ApiCollectionOptions {
-  /** Collection name + URL prefix — routes mount at `/<collection>`. */
+  /** Collection name + base URL prefix — routes mount at `/<collection>`. */
   collection: string;
   /**
    * Local file path (relative to the project root) or an inline OpenAPI
    * object. Authored once in `nimbus.config.ts` `api[]`; pass the entry
-   * straight through here.
+   * straight through here. Omit when `versions` is set.
    */
-  spec: string | Record<string, unknown>;
+  spec?: string | Record<string, unknown>;
   /** Human label for build diagnostics (falls back to `collection`). */
   label?: string;
+  /**
+   * A version family — one entry per version. The default version indexes at
+   * `/<collection>`; others nest at `/<collection>/<version>`. Provide exactly
+   * one of `spec` or `versions`.
+   */
+  versions?: ApiVersionSpec[];
 }
 
 /**
@@ -212,9 +219,14 @@ export interface ApiCollectionOptions {
  */
 export function apiCollection(options: ApiCollectionOptions): {
   loader: Loader;
-  schema: z.ZodType<{ coordinate: string; title: string; description?: string }>;
+  schema: z.ZodType<{
+    coordinate: string;
+    title: string;
+    description?: string;
+    version?: string;
+  }>;
 } {
-  const { collection, spec, label } = options;
+  const { collection, spec, label, versions } = options;
 
   const loader: Loader = {
     name: "nimbus-docs:api",
@@ -223,63 +235,120 @@ export function apiCollection(options: ApiCollectionOptions): {
 
       assertSupportedNode();
 
-      const [{ buildApiModel, getApiPageIndex, clearApiModelCache }, { resolveSpecSource }] =
-        await Promise.all([
-          import("./api/index.js"),
-          import("./_internal/api/resolve-spec.js"),
-        ]);
+      const [
+        { buildApiModel, getApiPageIndex, clearApiModelCache },
+        { resolveSpecSource },
+        { resolveApiFamily, apiPageRoute },
+      ] = await Promise.all([
+        import("./api/index.js"),
+        import("./_internal/api/resolve-spec.js"),
+        import("./_internal/api/resolve-versions.js"),
+      ]);
 
       const rootDir = fileURLToPath(astroConfig.root);
-      const name = label ?? collection;
+      const targets = resolveApiFamily({ collection, spec, label, versions });
+
+      // M4: a non-default version id must not collide with a top-level page
+      // slug of the default version (both would claim `/<collection>/<id>`).
+      // Config validation rejects the structural reserved ids (schemas/tags/…);
+      // this catches the dynamic set — an untagged `operationId` or a tag that
+      // happens to equal a version id — which is only knowable post-parse.
+      const nonDefaultVersionIds = targets
+        .filter((t) => !t.isDefault && t.version)
+        .map((t) => t.version!);
+      const defaultTopSegments = new Set<string>();
 
       const index = async () => {
-        let model;
-        try {
-          const source = await resolveSpecSource({ collection, spec, label }, rootDir);
-          model = await buildApiModel(source);
-        } catch (err) {
-          // `ApiBuildError` already formats a pointed diagnostic list; surface
-          // it (plus which spec failed) and fail the build cleanly.
-          logger.error(
-            `Failed to build the API reference for "${name}":\n${(err as Error).message}`,
-          );
-          throw err;
-        }
-
         store.clear();
-        for (const { coordinate, slug, title, description } of getApiPageIndex(model)) {
-          // The root page has an empty slug (href `/<collection>`), but Astro's
-          // DataStore rejects an empty id — map it to Astro's own `index`
-          // convention (`entryRouteUrl("", "index") → "/"`). Render is driven by
-          // `data.coordinate`, not the slug; title/description seed the agent
-          // index (llms.txt, corpus) without re-deriving the model there.
-          const id = slug === "" ? "index" : slug;
-          const data = await parseData({
-            id,
-            data:
-              description === undefined
-                ? { coordinate, title }
-                : { coordinate, title, description },
-          });
-          store.set({ id, data });
+        // Two pages minting the same id is a silent last-writer-wins clobber
+        // (e.g. an untagged `operationId: "index"` vs the default root's id).
+        const seenIds = new Map<string, string>();
+        for (const target of targets) {
+          let model;
+          try {
+            const source = await resolveSpecSource(
+              {
+                collection: target.namespace,
+                spec: target.spec,
+                label: target.label,
+                mountPath: target.mountPath,
+              },
+              rootDir,
+            );
+            model = await buildApiModel(source);
+          } catch (err) {
+            // `ApiBuildError` already formats a pointed diagnostic list; surface
+            // it (plus which spec failed) and fail the build cleanly.
+            logger.error(
+              `Failed to build the API reference for "${target.label}":\n${(err as Error).message}`,
+            );
+            throw err;
+          }
+
+          for (const { coordinate, slug, title, description } of getApiPageIndex(
+            model,
+          )) {
+            if (target.isDefault && slug !== "") {
+              defaultTopSegments.add(slug.split("/")[0]!);
+            }
+            const { storeId: id } = apiPageRoute(target, slug);
+            const prior = seenIds.get(id);
+            if (prior !== undefined) {
+              const message =
+                `nimbus-docs api: collection "${collection}"${target.version ? ` version "${target.version}"` : ""} ` +
+                `maps two pages ("${prior}" and "${coordinate}") to the same route id "${id}". ` +
+                `Rename one operation/tag so their URLs stay distinct.`;
+              logger.error(message);
+              throw new Error(message);
+            }
+            seenIds.set(id, coordinate);
+            const data = await parseData({
+              id,
+              data: {
+                coordinate,
+                title,
+                ...(description === undefined ? {} : { description }),
+                ...(target.version ? { version: target.version } : {}),
+              },
+            });
+            store.set({ id, data });
+          }
         }
-        logger.info(`Indexed ${store.keys().length} API pages for "${collection}".`);
+        for (const versionId of nonDefaultVersionIds) {
+          if (defaultTopSegments.has(versionId)) {
+            const message =
+              `nimbus-docs api: version "${versionId}" of collection "${collection}" collides with a ` +
+              `default-version page mounted at /${collection}/${versionId}. Rename the version, or the ` +
+              `colliding operation/tag, so the version segment stays unambiguous.`;
+            logger.error(message);
+            throw new Error(message);
+          }
+        }
+        logger.info(
+          `Indexed ${store.keys().length} API pages for "${collection}".`,
+        );
       };
 
       await index();
 
-      // Dev only: reparse when the on-disk spec changes. Inline-object specs
-      // have no file to watch.
-      if (watcher && typeof spec === "string") {
-        const specPath = path.resolve(rootDir, spec);
-        const onChange = async (changed: string) => {
-          if (path.resolve(changed) !== specPath) return;
-          clearApiModelCache(collection);
-          await index();
-        };
-        watcher.add(specPath);
-        watcher.on("change", onChange);
-        watcher.on("add", onChange);
+      // Dev only: reparse when any on-disk version spec changes. Inline-object
+      // specs have no file to watch.
+      if (watcher) {
+        const specPaths = new Map<string, true>();
+        for (const target of targets) {
+          if (typeof target.spec !== "string") continue;
+          specPaths.set(path.resolve(rootDir, target.spec), true);
+        }
+        if (specPaths.size > 0) {
+          const onChange = async (changed: string) => {
+            if (!specPaths.has(path.resolve(changed))) return;
+            clearApiModelCache(collection);
+            await index();
+          };
+          for (const specPath of specPaths.keys()) watcher.add(specPath);
+          watcher.on("change", onChange);
+          watcher.on("add", onChange);
+        }
       }
     },
   };
@@ -290,6 +359,7 @@ export function apiCollection(options: ApiCollectionOptions): {
       coordinate: z.string(),
       title: z.string(),
       description: z.string().optional(),
+      version: z.string().optional(),
     }),
   };
 }

@@ -324,6 +324,15 @@ export interface NavTree {
 export interface DocsModel {
   /** The collection name — this model's namespace. */
   collection: string;
+  /**
+   * Base URL this model's pages mount under. Defaults to `/<collection>` when
+   * absent (the unversioned case). A version family sets it explicitly so the
+   * default version keeps `/<collection>` and others nest at
+   * `/<collection>/<version>`. Never carries the version in the coordinate
+   * namespace — coordinates stay identical across versions so pages link by
+   * shared coordinate.
+   */
+  mountPath?: string;
   nodes: Map<Coordinate, Node>;
   pages: PageGraph;
   nav: NavTree;

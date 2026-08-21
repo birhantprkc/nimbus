@@ -73,6 +73,8 @@ export interface SpecSource {
   spec: string | Record<string, unknown>;
   /** Human label for diagnostics (e.g. the file path). */
   label?: string;
+  /** Base URL for this model's pages. Defaults to `/<collection>` when absent. */
+  mountPath?: string;
 }
 
 export interface ParseResult {
@@ -187,6 +189,7 @@ export async function parseOpenApi(source: SpecSource): Promise<ParseResult> {
 
     walker = new Walker(source.collection, document, rawDoc, sampleTools);
     const model = walker.walk();
+    if (source.mountPath !== undefined) model.mountPath = source.mountPath;
     walker.registry.throwIfErrors();
 
     const diagnostics: Diagnostic[] = [...preDiagnostics, ...walker.registry.getDiagnostics()];

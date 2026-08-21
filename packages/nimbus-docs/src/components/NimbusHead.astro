@@ -30,6 +30,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "virtual:nimbus/config";
 import {
+  getApiVersionAlternates,
   getCollectionLlmsUrl,
   getVersionAlternates,
   getVersionStatus,
@@ -65,6 +66,11 @@ export interface Props {
   collection?: string;
   /** Astro entry id (slug) for this page. Pass `entry.id` from your route. */
   entryId?: string;
+  /** Version id for a page in a versioned API family (with `collection` = the
+   *  family and `coordinate` set). Unset for docs and unversioned APIs. */
+  apiVersion?: string;
+  /** Operation coordinate — the cross-version identity key for an API page. */
+  coordinate?: string;
 }
 
 const {
@@ -77,6 +83,8 @@ const {
   head: pageHead = [],
   collection,
   entryId,
+  apiVersion,
+  coordinate,
 } = Astro.props;
 
 // ---- Derived values -------------------------------------------------------
@@ -102,8 +110,14 @@ const withBase = (path: string): string => {
 // `self`, `record.canonical` points to it — we emit that URL as the
 // canonical instead of the page's own URL, so search engines treat the
 // current version as authoritative.
-const versionRecord =
-  collection && entryId ? await getVersionAlternates(collection, entryId) : null;
+// API pages link on the coordinate-identity axis; docs pages on the slug axis.
+const versionRecord = apiVersion
+  ? collection && coordinate
+    ? await getApiVersionAlternates(collection, apiVersion, coordinate)
+    : null
+  : collection && entryId
+    ? await getVersionAlternates(collection, entryId)
+    : null;
 const versionCanonicalPath = versionRecord?.canonical?.url ?? null;
 
 // Hidden-version suppression. Hidden versions are URL-reachable but
@@ -116,10 +130,15 @@ const versionCanonicalPath = versionRecord?.canonical?.url ?? null;
 //     for hidden versions, so the link would 404)
 //   - cross-version `<link rel="alternate">` tags (other pages shouldn't
 //     advertise this hidden page either)
-// Canonical and `<meta robots>` are left alone — hidden pages still get
-// the normal `noindex` behavior the user opts into via frontmatter.
-const versionStatus =
-  collection ? await getVersionStatus(collection) : null;
+// A hidden version is auto-`noindex`ed below; the canonical still points at
+// the default-version sibling.
+const versionStatus = apiVersion
+  ? collection
+    ? await getVersionStatus(`${collection}@${apiVersion}`)
+    : null
+  : collection
+    ? await getVersionStatus(collection)
+    : null;
 const isHiddenVersion = versionStatus?.isHidden === true;
 
 // Agent index hint — point readers' AI tooling at the right per-collection
@@ -220,7 +239,7 @@ const shikiCssHref = `${import.meta.env.BASE_URL}_nimbus/shiki.css${import.meta.
 
 <meta name="generator" content={Astro.generator} />
 {resolvedDescription && <meta name="description" content={resolvedDescription} />}
-{noindex && <meta name="robots" content="noindex" />}
+{(noindex || isHiddenVersion) && <meta name="robots" content="noindex" />}
 
 <link rel="icon" type={faviconType} href={faviconHref} />
 <link rel="stylesheet" href={shikiCssHref} />

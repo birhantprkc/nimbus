@@ -84,16 +84,63 @@ export interface NimbusConfig {
 /**
  * One OpenAPI reference spec, mounted as a content collection named
  * `collection` at `/<collection>`. Declared once in `nimbus.config.ts`.
+ *
+ * For a single, unversioned reference, set `spec`. For a **version family**,
+ * set `versions` instead: the default version mounts at `/<collection>` and
+ * every other version mounts at `/<collection>/<version>`. Provide exactly one
+ * of `spec` or `versions`.
  */
 export interface ApiSpec {
-  /** Collection name + URL prefix, e.g. `"api"` → routes under `/api`. */
+  /** Collection name + base URL prefix, e.g. `"api"` → routes under `/api`. */
   collection: string;
   /**
    * Local file path (relative to the project root) or an inline OpenAPI
-   * document object. Not a remote URL in v1.
+   * document object. Not a remote URL in v1. Omit when `versions` is set.
    */
-  spec: string | Record<string, unknown>;
+  spec?: string | Record<string, unknown>;
   /** Human label for build diagnostics (falls back to `collection`). */
+  label?: string;
+  /**
+   * Declares this collection as a version family. Pages are linked across
+   * versions by shared operation coordinate (same `operationId` ⇒ same logical
+   * page). Provide exactly one of `spec` or `versions`.
+   */
+  versions?: ApiVersionSpec[];
+}
+
+/** Maturity/deprecation status for one API version. */
+export type ApiVersionStatus = "ga" | "beta" | "deprecated";
+
+/**
+ * One version within an {@link ApiSpec} family. Each version parses its own
+ * OpenAPI document. The default version owns the bare `/<collection>` URL and
+ * is the canonical target for cross-version links; others mount under
+ * `/<collection>/<version>`.
+ */
+export interface ApiVersionSpec {
+  /**
+   * Version id — lowercase letters, digits, and dashes. Becomes the URL
+   * segment for non-default versions and the default picker label. Permanent
+   * once shipped (it becomes part of every non-default URL).
+   */
+  version: string;
+  /** Local file path (relative to the project root) or inline OpenAPI object. */
+  spec: string | Record<string, unknown>;
+  /**
+   * Marks the family default — mounts at the bare `/<collection>` and is the
+   * canonical target for cross-version links. At most one version may set this;
+   * if none do, the first entry is the default. The default cannot be `hidden`.
+   */
+  default?: boolean;
+  /** Maturity status. `deprecated` renders a banner on every page in the version. */
+  status?: ApiVersionStatus;
+  /**
+   * Hidden versions stay reachable by direct URL but are omitted from the
+   * picker, search, and sitemap, and marked `noindex`. The default version
+   * cannot be hidden.
+   */
+  hidden?: boolean;
+  /** Display label override for the picker (defaults to `version`). */
   label?: string;
 }
 
@@ -591,6 +638,13 @@ export interface BasePageProps {
    * the alternates lookup. Pass `entry.id` from your route.
    */
   entryId?: string;
+  /**
+   * API-version context for a page in a versioned API family. Pass the
+   * `version` and `coordinate` props from `getApiStaticPaths` (with
+   * `collection` = the family); leave unset for docs and unversioned APIs.
+   */
+  apiVersion?: string;
+  coordinate?: string;
 }
 
 /**

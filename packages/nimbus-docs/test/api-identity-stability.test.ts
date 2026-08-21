@@ -107,4 +107,24 @@ describe("api identity stability", () => {
     const after = identity(await buildApiModel({ collection: "solo", spec: fixtureText("smallco.yaml") }));
     assert.deepEqual(after, before);
   });
+
+  // Versioning must be identity-preserving: mounting a spec under a nested
+  // version path shifts every href by exactly the mount prefix while leaving
+  // coordinates and collection-relative slugs byte-for-byte unchanged. This is
+  // the invariant that lets the same operation link across versions.
+  test("a nested version mount shifts hrefs by the prefix and moves no coordinate", async () => {
+    clearApiModelCache("api");
+    const versioned = await buildApiModel({
+      collection: "api",
+      spec: fixtureText("smallco.yaml"),
+      mountPath: "/api/v2",
+    });
+    const expected = SMALLCO_IDENTITY.map((row) => ({
+      coordinate: row.coordinate,
+      slug: row.slug,
+      // Root href is the bare mount; others gain the `/v2` segment.
+      href: row.slug === "" ? "/api/v2" : `/api/v2/${row.slug}`,
+    }));
+    assert.deepEqual(identity(versioned), expected);
+  });
 });

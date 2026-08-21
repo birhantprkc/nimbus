@@ -66,6 +66,7 @@ const showSections = sections.length >= 2;
     </div>
 
     <div class="flex items-center gap-2 shrink-0">
+      <slot name="actions" />
       {config.search !== false && <SearchTrigger />}
       {config.github && (
         <LinkButton
@@ -82,7 +83,6 @@ const showSections = sections.length >= 2;
         </LinkButton>
       )}
       <ThemeToggle />
-      <slot name="actions" />
       {showSidebar && (
         <Button
           variant="ghost"

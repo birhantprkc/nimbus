@@ -19,6 +19,8 @@ export interface ApiSpecEntry {
   collection: string;
   spec: string | Record<string, unknown>;
   label?: string;
+  /** Base URL for the resolved model's pages. Defaults to `/<collection>`. */
+  mountPath?: string;
 }
 
 export async function resolveSpecSource(
@@ -26,12 +28,14 @@ export async function resolveSpecSource(
   rootDir: string,
 ): Promise<SpecSource> {
   const label = entry.label ?? entry.collection;
+  const mountPath = entry.mountPath ? { mountPath: entry.mountPath } : {};
 
   if (typeof entry.spec !== "string") {
     return {
       collection: entry.collection,
       spec: entry.spec as SpecSource["spec"],
       ...(entry.label ? { label: entry.label } : {}),
+      ...mountPath,
     };
   }
 
@@ -53,5 +57,6 @@ export async function resolveSpecSource(
     collection: entry.collection,
     spec: contents,
     ...(entry.label ? { label: entry.label } : {}),
+    ...mountPath,
   };
 }

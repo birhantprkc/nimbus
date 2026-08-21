@@ -170,20 +170,120 @@ const REMOVED_CONFIG_KEYS: Record<string, string> = {
     "was removed. The starter no longer ships a default `Footer.astro`. To add one, create your own component and render it in `src/layouts/DocsLayout.astro`.",
 };
 
-const apiSpecSchema = z.object({
-  collection: z
-    .string({ error: '"api[].collection" must be a non-empty string' })
-    .min(1, '"api[].collection" must be a non-empty string')
-    .regex(
-      /^[a-z0-9-]+$/,
-      '"api[].collection" must be lowercase letters, digits, and dashes only (it becomes the URL prefix and the coordinate namespace)',
-    ),
-  spec: z.union([z.string().min(1), z.record(z.string(), z.unknown())], {
+const specSourceSchema = z.union(
+  [z.string().min(1), z.record(z.string(), z.unknown())],
+  {
     error:
       '"api[].spec" must be a local file path (string) or an inline OpenAPI object — remote URLs are not supported in v1',
-  }),
+  },
+);
+
+/**
+ * Version ids that would shadow a top-level page slug within a family
+ * (`/<collection>/<version>` collides with `/<collection>/schemas/...` etc.).
+ * The engine emits `tags/`, `schemas/`, `webhooks/`, and reserves `changelog`
+ * and `errors` — a version may not claim any of them. Operation- and tag-level
+ * collisions are caught post-parse (build time), where the slug set is known.
+ */
+const RESERVED_VERSION_IDS = new Set([
+  "schemas",
+  "tags",
+  "webhooks",
+  "changelog",
+  "errors",
+  // The default-root store id; a version named `index` would clobber it.
+  "index",
+]);
+
+const apiVersionSpecSchema = z.object({
+  version: z
+    .string({ error: '"api[].versions[].version" must be a non-empty string' })
+    .min(1, '"api[].versions[].version" must be a non-empty string')
+    .regex(
+      /^[a-z0-9-]+$/,
+      '"api[].versions[].version" must be lowercase letters, digits, and dashes only (it becomes a URL segment)',
+    ),
+  spec: specSourceSchema,
+  default: z.boolean().optional(),
+  status: z.enum(["ga", "beta", "deprecated"]).optional(),
+  hidden: z.boolean().optional(),
   label: z.string().optional(),
 });
+
+const apiSpecSchema = z
+  .object({
+    collection: z
+      .string({ error: '"api[].collection" must be a non-empty string' })
+      .min(1, '"api[].collection" must be a non-empty string')
+      .regex(
+        /^[a-z0-9-]+$/,
+        '"api[].collection" must be lowercase letters, digits, and dashes only (it becomes the URL prefix and the coordinate namespace)',
+      ),
+    spec: specSourceSchema.optional(),
+    label: z.string().optional(),
+    versions: z.array(apiVersionSpecSchema).optional(),
+  })
+  .superRefine((entry, ctx) => {
+    const hasSpec = entry.spec !== undefined;
+    const hasVersions = entry.versions !== undefined;
+    if (hasSpec === hasVersions) {
+      ctx.addIssue({
+        code: "custom",
+        path: [hasVersions ? "spec" : "versions"],
+        message: `api collection "${entry.collection}" must set exactly one of "spec" (single reference) or "versions" (a version family)`,
+      });
+      return;
+    }
+    if (!hasVersions) return;
+
+    const versions = entry.versions!;
+    if (versions.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["versions"],
+        message: `api collection "${entry.collection}" has an empty "versions" array — declare at least one version`,
+      });
+      return;
+    }
+
+    const seenVersion = new Set<string>();
+    let defaultCount = 0;
+    versions.forEach((v, vi) => {
+      if (RESERVED_VERSION_IDS.has(v.version)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["versions", vi, "version"],
+          message: `version id "${v.version}" is reserved — it would collide with the "/${entry.collection}/${v.version}" section URL`,
+        });
+      }
+      if (seenVersion.has(v.version)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["versions", vi, "version"],
+          message: `duplicate version id "${v.version}" in api collection "${entry.collection}"`,
+        });
+      }
+      seenVersion.add(v.version);
+      if (v.default) defaultCount += 1;
+    });
+
+    if (defaultCount > 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["versions"],
+        message: `api collection "${entry.collection}" marks ${defaultCount} versions as "default: true" — only one may be the default`,
+      });
+    }
+
+    const defaultVersion = versions.find((v) => v.default) ?? versions[0]!;
+    if (defaultVersion.hidden) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["versions"],
+        message: `the default version "${defaultVersion.version}" of api collection "${entry.collection}" cannot be "hidden" — the default owns the bare /${entry.collection} URL`,
+      });
+    }
+  });
 
 const apiSchema = z
   .array(apiSpecSchema)

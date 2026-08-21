@@ -9,15 +9,33 @@
 import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
 import { ApiSidebar } from "@/components/ui/api-sidebar";
 import { ApiCodeRail } from "@/components/ui/api-code-rail";
+import { Banner } from "@/components/ui/banner";
+import { VersionSwitcher } from "@/components/ui/version-switcher";
 import ApiBody from "./ApiBody.astro";
+import { getApiVersionAlternates, getVersionStatus } from "@cloudflare/nimbus-docs";
 import type { ApiNav, ApiPageProps } from "@cloudflare/nimbus-docs/api";
 
 interface Props {
   page: ApiPageProps;
   nav: ApiNav;
+  /** API family + this page's version/coordinate — enables the version
+   *  picker and the deprecated-version banner. Omit for an unversioned API. */
+  collection?: string;
+  version?: string | null;
+  coordinate?: string;
 }
 
-const { page, nav } = Astro.props;
+const { page, nav, collection, version, coordinate } = Astro.props;
+
+const versionStatus =
+  collection && version
+    ? await getVersionStatus(`${collection}@${version}`)
+    : null;
+const currentSiblingUrl =
+  collection && version && coordinate
+    ? ((await getApiVersionAlternates(collection, version, coordinate))?.canonical
+        ?.url ?? null)
+    : null;
 ---
 
 <div class="flex w-full">
@@ -32,7 +50,14 @@ const { page, nav } = Astro.props;
 
   <div class="flex min-w-0 flex-1 flex-col 2xl:flex-row">
     <main id="main-content" tabindex="-1" class="min-w-0 flex-1">
-      <div class="mx-auto max-w-(--nb-content-max) px-4 md:px-8 2xl:px-16 pt-6 pb-12">
+      <div class="mx-auto max-w-(--nb-content-max) px-4 md:px-8 2xl:px-16 pt-8 pb-12">
+        {versionStatus?.isDeprecated && (
+          <Banner
+            variant="caution"
+            class="mb-6"
+            content={`<strong>${versionStatus.version}</strong> is deprecated. <a href="${currentSiblingUrl ?? "/"}">See the latest version</a>.`}
+          />
+        )}
         <ApiBody page={page} />
       </div>
     </main>
@@ -76,6 +101,14 @@ const { page, nav } = Astro.props;
       </button>
     </div>
     <nav class="px-4 pb-8 pt-5">
+      {collection && (
+        <VersionSwitcher
+          apiCollection={collection}
+          apiVersion={version}
+          coordinate={coordinate}
+          variant="sidebar"
+        />
+      )}
       <ApiSidebar items={nav.items} />
     </nav>
   </div>

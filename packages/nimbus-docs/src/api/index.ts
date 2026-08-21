@@ -97,8 +97,10 @@ export async function buildApiModel(source: SpecSource): Promise<ApiModel> {
   const raw =
     typeof source.spec === "string" ? source.spec : JSON.stringify(source.spec);
   // Content-addressed: the key follows the *bytes*, not a path, so an edited
-  // spec is a cache miss (dev hot-reload gets a fresh parse for free).
-  const key = `${source.collection}::${specDigest(raw)}`;
+  // spec is a cache miss (dev hot-reload gets a fresh parse for free). The
+  // mount path is part of the key so two versions of one family that happen to
+  // ship byte-identical specs still resolve to their own URLs.
+  const key = `${source.collection}::${source.mountPath ?? ""}::${specDigest(raw)}`;
   const cached = handleCache.get(key);
   if (cached) return cached;
   const promise = parseOpenApi(source).then((r) => wrap(r.model));
@@ -116,13 +118,21 @@ export async function buildApiModel(source: SpecSource): Promise<ApiModel> {
  * calls this on a watched-spec change so the next `buildApiModel` reparses.
  */
 export function clearApiModelCache(collection: string): void {
+  // Every version of a family shares the namespace (`collection`), so the
+  // `${collection}::` handle prefix already spans them all.
   const prefix = `${collection}::`;
   for (const key of [...handleCache.keys()]) {
     if (key.startsWith(prefix)) handleCache.delete(key);
   }
-  // Drop the resolved-source memo too, so a watched-spec change forces a
-  // fresh read on the next render, matching the loader's reparse.
-  sourceCache.delete(collection);
+  // Drop the resolved-source memos too, so a watched-spec change forces a
+  // fresh read on the next render. Source keys are per-version (`collection`
+  // or `collection@<version>`), so evict the family name and every version.
+  const versionPrefix = `${collection}@`;
+  for (const key of [...sourceCache.keys()]) {
+    if (key === collection || key.startsWith(versionPrefix)) {
+      sourceCache.delete(key);
+    }
+  }
 }
 
 /**
@@ -131,32 +141,58 @@ export function clearApiModelCache(collection: string): void {
  * Reads the same `api[]` declaration the loader indexed and re-derives the
  * model from the spec (memoized per graph), so render never depends on the
  * loader's cache surviving the content-sync → render phase boundary.
+ *
+ * For a version family, pass the `version` to select a non-default version;
+ * omitting it selects the family default (the bare `/<collection>` URL).
  */
-export async function getApiModel(collection: string): Promise<ApiModel> {
-  const cachedSource = sourceCache.get(collection);
-  if (cachedSource) return buildApiModel(await cachedSource);
-
+export async function getApiModel(
+  collection: string,
+  version?: string,
+): Promise<ApiModel> {
   const { loadNimbusConfig, loadProjectRoot } = await import(
     "../_internal/runtime-config.js"
   );
   const { resolveSpecSource } = await import("../_internal/api/resolve-spec.js");
+  const { resolveApiVersion } = await import(
+    "../_internal/api/resolve-versions.js"
+  );
   const config = await loadNimbusConfig();
-  const entry = (config.api ?? []).find((a) => a.collection === collection);
-  if (!entry) {
+  const resolved = resolveApiVersion(config.api, collection, version ?? null);
+  if (!resolved) {
+    const suffix = version
+      ? ` version "${version}"`
+      : "";
     throw new Error(
-      `nimbus-docs api: no spec registered for collection "${collection}". ` +
+      `nimbus-docs api: no spec registered for collection "${collection}"${suffix}. ` +
         `Declare it in \`nimbus.config.ts\`: api: [{ collection: "${collection}", spec: "./openapi.yaml" }].`,
     );
   }
+
+  // The cache key carries the version so two versions of one family never
+  // alias (they share a namespace but not a spec/mount).
+  const cacheKey = resolved.versionKey;
+  const cachedSource = sourceCache.get(cacheKey);
+  if (cachedSource) return buildApiModel(await cachedSource);
+
   // Resolve against the loader's base (astroConfig.root), not process.cwd() —
   // they differ under monorepo/subpackage/`--root`/Cloudflare builds.
-  const promise = loadProjectRoot().then((root) => resolveSpecSource(entry, root));
-  sourceCache.set(collection, promise);
+  const promise = loadProjectRoot().then((root) =>
+    resolveSpecSource(
+      {
+        collection: resolved.namespace,
+        spec: resolved.spec,
+        label: resolved.label,
+        mountPath: resolved.mountPath,
+      },
+      root,
+    ),
+  );
+  sourceCache.set(cacheKey, promise);
   // Never leave a rejected resolution cached — a transient read failure (an
   // editor's atomic write-then-rename) would otherwise stick until the next
   // watched-file event, mirroring the `handleCache` guard above.
   promise.catch(() => {
-    if (sourceCache.get(collection) === promise) sourceCache.delete(collection);
+    if (sourceCache.get(cacheKey) === promise) sourceCache.delete(cacheKey);
   });
   return buildApiModel(await promise);
 }
