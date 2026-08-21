@@ -721,10 +721,12 @@ export function nimbus(
               },
             ],
             optimizeDeps: {
-              esbuildOptions: {
-                alias: {
-                  "css-tree": "css-tree/dist/csstree.esm",
-                  csso: "csso/dist/csso.esm",
+              rolldownOptions: {
+                resolve: {
+                  alias: {
+                    "css-tree": "css-tree/dist/csstree.esm",
+                    csso: "csso/dist/csso.esm",
+                  },
                 },
               },
             },
