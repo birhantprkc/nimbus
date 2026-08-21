@@ -86,7 +86,7 @@ const hasPagination = Astro.slots.has("pagination");
       <div class="flex-1 mx-auto w-full">
         <div class="flex">
           {showSidebar && (
-            <aside id="desktop-sidebar" data-nb-desktop-sidebar class="hidden lg:flex w-(--nb-sidebar-width) shrink-0 border-r border-border bg-background sticky top-14 h-[calc(100vh-3.5rem)] flex-col overflow-y-auto overscroll-contain relative">
+            <aside id="desktop-sidebar" data-nb-desktop-sidebar class="hidden md:flex w-60 lg:w-(--nb-sidebar-width) shrink-0 border-r border-border bg-background sticky top-14 h-[calc(100vh-3.5rem)] flex-col overflow-y-auto overscroll-contain relative">
               {hasSidebar ? (
                 <slot name="sidebar" />
               ) : (
@@ -132,7 +132,7 @@ const hasPagination = Astro.slots.has("pagination");
 
             function restore() {
               try {
-                if (!matchMedia("(min-width: 64rem)").matches) return;
+                if (!matchMedia("(min-width: 48rem)").matches) return;
                 const sidebar = document.getElementById("desktop-sidebar");
                 if (!sidebar) return;
                 const content = sidebar.querySelector("[data-nb-sidebar]");
@@ -184,7 +184,7 @@ const hasPagination = Astro.slots.has("pagination");
           )}
 
           <main id="main-content" tabindex="-1" transition:name="nb-content" class="flex-1 min-w-0">
-            <div class="mx-auto max-w-(--nb-content-max) px-4 lg:px-6 pt-6 pb-12">
+            <div class="mx-auto max-w-(--nb-content-max) px-4 md:px-6 pt-6 pb-12">
               {versionStatus?.isDeprecated && (
                 <Banner
                   variant="caution"
@@ -211,7 +211,7 @@ const hasPagination = Astro.slots.has("pagination");
                     )}
                     <PageActions markdownUrl={markdownUrl} lastUpdated={lastUpdated} class={description ? undefined : "mt-3"} />
                     {headings !== false && headings.length > 0 && (
-                      <div class="border-border bg-background/95 supports-[backdrop-filter]:bg-background/80 sticky top-14 z-20 -mx-4 mt-3 border-y px-4 py-2 backdrop-blur lg:-mx-6 lg:px-6 xl:hidden">
+                      <div class="border-border bg-background/95 supports-[backdrop-filter]:bg-background/80 sticky top-14 z-20 -mx-4 mt-3 border-y px-4 py-2 backdrop-blur md:-mx-6 md:px-6 xl:hidden">
                         <MobileTOC headings={headings} />
                       </div>
                     )}
@@ -291,7 +291,7 @@ const hasPagination = Astro.slots.has("pagination");
     import { mount, lockScroll, unlockScroll, generateId } from "@cloudflare/nimbus-docs/client";
 
     const CLOSE_DURATION_MS = 250;
-    const DESKTOP_QUERY = "(min-width: 64rem)";
+    const DESKTOP_QUERY = "(min-width: 48rem)";
 
     // mount() re-binds on every astro:page-load and tears down on
     // astro:before-swap, so the hamburger survives client-side navigation.

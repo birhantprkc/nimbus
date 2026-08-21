@@ -1,16 +1,18 @@
 ---
 /**
  * ApiFieldList — a titled, anchored property group (params, request body, schema
- * fields, response fields). Renders a list of `ApiFieldRow`s, or slotted content
- * (the body-union explorer) when `fields` is omitted. The Expand/Collapse toggle
- * is wired by one delegated listener that flips every `<details>` in the group.
- * `title` is optional — omit it where an ancestor already names the group (e.g. a
- * response body under its status), so the badge/controls stand alone.
+ * fields, response fields) rendered as a filetree. Holds a list of
+ * `ApiFieldRow`s, or slotted content (the body-union explorer) when `fields` is
+ * omitted. Sets the `ft-root` geometry variables and hosts the single
+ * Expand/Collapse-all control; the mechanism (toggle + hash deep-linking) is
+ * wired by `api-field-row.client.ts`. `title` is optional — omit it where an
+ * ancestor already names the group so the badge/controls stand alone.
  */
 import { cn } from "@/lib/cn";
 import ApiFieldRow from "./ApiFieldRow.astro";
 import { isExpandable } from "./type-display";
 import type { ApiFieldView } from "@cloudflare/nimbus-docs/api";
+import "./field-tree.css";
 
 interface Props {
   /** Group heading. Omit when an ancestor already labels the group. */
@@ -43,42 +45,46 @@ const hasHead = Boolean(title) || Boolean(badge) || showControls;
 
 {
   !empty && (
-    <section id={anchor} class={cn("scroll-mt-24", className)} data-api-section>
+    <section id={anchor} class={cn("ft-root scroll-mt-24", className)} data-api-section>
       {hasHead && (
         <div class="mb-2 flex items-center justify-between gap-3">
           <HeadTag class="flex items-center gap-2 text-sm font-normal text-muted-foreground">
             {title}
-            {badge && (
-              <span class="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 font-mono text-[0.6875rem] text-muted-foreground">
-                <span aria-hidden="true">{"{}"}</span>
-                {badge}
-              </span>
-            )}
+            {badge && <span class="font-mono text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{badge}</span>}
           </HeadTag>
           {showControls && (
             <button
               type="button"
               data-api-toggle-all
-              data-expanded="false"
-              class="group/toggle flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              data-nb-expanded="false"
+              class="group/toggle flex cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
-              <span class="group-data-[expanded=true]/toggle:hidden">Expand</span>
-              <span class="hidden group-data-[expanded=true]/toggle:inline">Collapse</span>
-              <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <span class="group-data-[nb-expanded=true]/toggle:hidden">Expand all</span>
+              <span class="hidden group-data-[nb-expanded=true]/toggle:inline">Collapse all</span>
+              <svg class="size-3.5 group-data-[nb-expanded=true]/toggle:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <path d="m7 15 5 5 5-5" />
                 <path d="m7 9 5-5 5 5" />
+              </svg>
+              <svg class="hidden size-3.5 group-data-[nb-expanded=true]/toggle:inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m7 20 5-5 5 5" />
+                <path d="m7 4 5 5 5-5" />
               </svg>
             </button>
           )}
         </div>
       )}
       {hasFields ? (
-        <ul class="list-none p-0">
+        <ul class="ft-list">
           {fields!.map((field: ApiFieldView) => (
-            <ApiFieldRow field={field} />
+            <ApiFieldRow field={field} depth={0} />
           ))}
           {omitted > 0 && (
-            <li class="py-1.5 text-xs text-muted-foreground">… {omitted} more field(s) omitted</li>
+            <li class="ft-item">
+              <div class="ft-row">
+                <span class="ft-chevbox" aria-hidden="true" />
+                <div class="ft-content text-xs text-muted-foreground">… {omitted} more field(s) omitted</div>
+              </div>
+            </li>
           )}
         </ul>
       ) : (
@@ -89,16 +95,5 @@ const hasHead = Boolean(title) || Boolean(badge) || showControls;
 }
 
 <script>
-  document.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement | null;
-    const button = target?.closest<HTMLElement>("[data-api-toggle-all]");
-    if (!button) return;
-    const section = button.closest<HTMLElement>("[data-api-section]");
-    if (!section) return;
-    const open = button.dataset.expanded !== "true";
-    section.querySelectorAll("details").forEach((d) => {
-      d.open = open;
-    });
-    button.dataset.expanded = String(open);
-  });
+  import "./api-field-row.client";
 </script>

@@ -22,7 +22,7 @@ const { page, nav } = Astro.props;
 
 <div class="flex w-full">
   <aside
-    class="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-(--nb-sidebar-width) shrink-0 flex-col overflow-y-auto overscroll-contain border-r border-border bg-background [scrollbar-color:gray_transparent] [scrollbar-width:thin] lg:flex"
+    class="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-60 shrink-0 flex-col overflow-y-auto overscroll-contain border-r border-border bg-background [scrollbar-color:gray_transparent] [scrollbar-width:thin] md:flex lg:w-(--nb-sidebar-width)"
   >
     <div class="flex-1 pt-8 pb-12 pl-6 pr-4">
       <ApiSidebar items={nav.items} />
@@ -30,23 +30,19 @@ const { page, nav } = Astro.props;
     <div class="pointer-events-none sticky bottom-0 h-8 bg-gradient-to-t from-background to-transparent"></div>
   </aside>
 
-  <div class="flex min-w-0 flex-1 flex-col xl:flex-row">
-    <main id="main-content" tabindex="-1" class="min-w-0 flex-1 px-8 py-8">
-      <ApiBody page={page} />
+  <div class="flex min-w-0 flex-1 flex-col 2xl:flex-row">
+    <main id="main-content" tabindex="-1" class="min-w-0 flex-1">
+      <div class="mx-auto max-w-(--nb-content-max) px-4 md:px-8 2xl:px-16 pt-6 pb-12">
+        <ApiBody page={page} />
+      </div>
     </main>
 
-    {/* Code rail — one DOM node, two layouts. Below xl it reflows inline beneath
-        the body (normal flow, full width) so request/response samples stay
-        reachable — and present in the no-JS HTML — on tablet/mobile
-        (crawlability). This is the deliberate inverse of the prose TOC, which
-        `hidden xl:block`s away below xl because it only duplicates on-page
-        headings; samples are unique content, so they reflow rather than vanish.
-        At xl+ the rail becomes the sticky right column. xl:pl-1: the column is
-        overflow-y-auto, which per CSS forces overflow-x to clip too; without a
-        little left room the rail LayerCard's outset `ring` (a box-shadow 1px
-        beyond its box) gets shaved at the scroll edge. */}
+    {/* Below 2xl the rail reflows inline beneath the body (samples are unique
+        content, so unlike the TOC they stay in the no-JS HTML for crawlability);
+        at 2xl+ it becomes the sticky right column. 2xl:pl-1 keeps overflow-y-auto
+        from clipping the LayerCard's outset ring at the scroll edge. */}
     {page.kind === "operation" && (
-      <div class="w-full pb-8 pl-8 pr-8 xl:sticky xl:top-14 xl:h-[calc(100vh-3.5rem)] xl:w-(--nb-code-rail-width) xl:shrink-0 xl:overflow-y-auto xl:pt-8 xl:pr-6 xl:pb-8 xl:pl-1 xl:[scrollbar-color:gray_transparent] xl:[scrollbar-width:thin]">
+      <div class="mx-auto w-full max-w-(--nb-content-max) px-4 pb-12 md:px-8 2xl:mx-0 2xl:max-w-none 2xl:sticky 2xl:top-14 2xl:h-[calc(100vh-3.5rem)] 2xl:w-(--nb-code-rail-width) 2xl:shrink-0 2xl:overflow-y-auto 2xl:pt-8 2xl:pr-6 2xl:pb-8 2xl:pl-1 2xl:[scrollbar-color:gray_transparent] 2xl:[scrollbar-width:thin]">
         <ApiCodeRail
           responses={page.responses}
           samples={page.samples}
@@ -89,7 +85,7 @@ const { page, nav } = Astro.props;
   import { mount, lockScroll, unlockScroll, generateId } from "@cloudflare/nimbus-docs/client";
 
   const CLOSE_DURATION_MS = 250;
-  const DESKTOP_QUERY = "(min-width: 64rem)";
+  const DESKTOP_QUERY = "(min-width: 48rem)";
 
   // mount() re-binds on every astro:page-load and tears down on
   // astro:before-swap, so the drawer survives client-side navigation.

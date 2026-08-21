@@ -94,7 +94,7 @@ const sidebarSchema = z
 // happens at integration setup time in `integration.ts` where the parsed
 // collections list is available.
 //
-// Rules enforced here (mirrors versioned-docs spec acceptance criteria):
+// Rules enforced here:
 //   - `current` is a non-empty string.
 //   - `others` are non-empty strings, no duplicates.
 //   - `deprecated` ⊆ `others`.

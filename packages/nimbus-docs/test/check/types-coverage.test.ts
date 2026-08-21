@@ -173,11 +173,11 @@ test("a real type error is caught as an error-severity finding with file/line", 
   }
 });
 
-// AC #11: a coverage gap must never blank an evaluated error. With types.d.ts
+// A coverage gap must never blank an evaluated error. With types.d.ts
 // present, an UNKNOWN astro:* specifier is a user typo (a real ts/2307), not a
 // staleness signal — it must coexist with an independent ts/2322, and the scope
 // must stay evaluated rather than collapsing to types-not-evaluated alone.
-test("typoed astro:contennt + a TS2322 → both surface, evaluated, never types-not-evaluated alone (AC #11)", () => {
+test("typoed astro:contennt + a TS2322 → both surface, evaluated, never types-not-evaluated alone", () => {
   const dir = project({
     body:
       'import { getCollection } from "astro:contennt";\n' +

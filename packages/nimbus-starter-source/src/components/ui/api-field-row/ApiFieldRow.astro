@@ -1,65 +1,82 @@
 ---
 /**
- * ApiFieldRow — one `ApiFieldView`, rendered recursively. A leaf renders its
- * signature inline; an object/union field renders a disclosure (native
- * `<details>`) whose content is its nested children or, for a union field, the
- * variant explorer. Display formatting lives in `type-display.ts`. Anchored by
- * the field's stable id so the page can deep-link a property.
+ * ApiFieldRow — one `ApiFieldView`, rendered recursively as a filetree node. A
+ * leaf renders its signature inline; an object/union field renders a native
+ * `<details>` disclosure whose body holds the field's own meta and its nested
+ * children (or the union variant explorer). The per-level guide geometry lives
+ * in `field-tree.css`; display formatting in `type-display.ts`. Auto-opens the
+ * top two levels; deeper nodes collapse behind a `{ … }` marker.
  */
 import ApiPropertyMeta from "./ApiPropertyMeta.astro";
 import ApiUnionExplorer from "./ApiUnionExplorer.astro";
-import { isExpandable } from "./type-display";
+import ApiChevron from "./ApiChevron.astro";
+import ApiAnchor from "./ApiAnchor.astro";
+import { isExpandable, hasFieldMeta } from "./type-display";
 import type { ApiFieldView } from "@cloudflare/nimbus-docs/api";
+import "./field-tree.css";
 
 interface Props {
   field: ApiFieldView;
+  depth?: number;
 }
 
-const { field } = Astro.props;
+const { field, depth = 0 } = Astro.props;
 
+const AUTO_OPEN_DEPTH = 1;
 const expandable = isExpandable(field);
+const startOpen = AUTO_OPEN_DEPTH >= depth;
+const showMeta = hasFieldMeta(field);
 const omitted = field.childCount - field.children.length;
 ---
 
-<li id={field.anchor} class="group/row scroll-mt-24 py-1.5">
+<li id={field.anchor} class:list={["ft-item scroll-mt-24", expandable && "is-parent"]}>
   {
     expandable ? (
-      <details class="group/exp">
-        <summary class="flex list-none cursor-pointer items-start gap-2 [&::-webkit-details-marker]:hidden">
-          <span
-            class="mt-1 flex size-4 shrink-0 items-center justify-center text-muted-foreground transition-colors group-hover/exp:text-foreground"
-            aria-hidden="true"
-          >
-            <svg class="size-3.5 group-open/exp:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 12h14" />
-              <path d="M12 5v14" />
-            </svg>
-            <svg class="hidden size-3.5 group-open/exp:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 12h14" />
-            </svg>
-          </span>
-          <ApiPropertyMeta field={field} interactive={false} />
-        </summary>
-        <div class="mt-1 ml-2 border-l border-border pl-4">
-          {field.union ? (
-            <ApiUnionExplorer union={field.union} />
-          ) : (
-            <ul class="list-none p-0">
-              {field.children.map((child) => (
-                <Astro.self field={child} />
-              ))}
-              {/* Only fires when a container hits the inline-field ceiling — a safety net, never a normal spec. */}
-              {field.truncated && (
-                <li class="py-1.5 text-xs text-muted-foreground">… {omitted} more field(s) omitted</li>
-              )}
-            </ul>
-          )}
-        </div>
-      </details>
+      <Fragment>
+        <details class="ft-details" open={startOpen}>
+          <summary class="ft-row">
+            <ApiChevron />
+            <div class="ft-content">
+              <ApiPropertyMeta field={field} part="signature" interactive={false} />
+            </div>
+          </summary>
+          <div class="ft-body">
+            {showMeta && (
+              <div class="ft-meta">
+                <ApiPropertyMeta field={field} part="meta" />
+              </div>
+            )}
+            {field.union ? (
+              // The "one of" wrapper is intentionally not counted as a depth
+              // level, so pass `depth` (not `depth + 1`) — variant fields sit at
+              // the same auto-open budget as sibling object children.
+              <ApiUnionExplorer union={field.union} depth={depth} nested />
+            ) : (
+              <ul class="ft-list ft-children">
+                {field.children.map((child) => (
+                  <Astro.self field={child} depth={depth + 1} />
+                ))}
+                {/* Only fires when a container hits the inline-field ceiling — a safety net, never a normal spec. */}
+                {field.truncated && (
+                  <li class="ft-item">
+                    <div class="ft-row">
+                      <ApiChevron empty />
+                      <div class="ft-content text-xs text-muted-foreground">… {omitted} more field(s) omitted</div>
+                    </div>
+                  </li>
+                )}
+              </ul>
+            )}
+          </div>
+        </details>
+        <ApiAnchor anchor={field.anchor} name={field.name} />
+      </Fragment>
     ) : (
-      <div class="flex items-start gap-2">
-        <span class="mt-1 size-4 shrink-0" aria-hidden="true" />
-        <ApiPropertyMeta field={field} />
+      <div class="ft-row">
+        <ApiChevron empty />
+        <div class="ft-content">
+          <ApiPropertyMeta field={field} part="all" />
+        </div>
       </div>
     )
   }

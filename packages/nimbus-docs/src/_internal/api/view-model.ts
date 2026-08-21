@@ -148,6 +148,9 @@ export interface ApiOperationPage extends ApiPageBase {
   kind: "operation";
   method: string;
   path: string;
+  /** Effective server base URL (trailing slash trimmed), so the header can show
+   *  the full request URL. Absent when the spec declares no servers. */
+  server?: string;
   isWebhook?: boolean;
   auth: ApiAuthView[][];
   parameters: ApiParamGroup[];
@@ -737,6 +740,7 @@ export function projectPageProps(
         if (value !== undefined) page.example = { mediaType: f.example.mediaType, value };
       }
       if (f.bodyUnion) page.bodyUnion = unionView(view, f.bodyUnion, true);
+      if (f.server) page.server = f.server.replace(/\/+$/, "");
       if (webhookKey !== undefined) page.isWebhook = true;
       if (f.deprecated) page.deprecated = true;
       return page;

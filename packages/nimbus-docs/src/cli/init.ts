@@ -231,9 +231,9 @@ export async function initCommand(flags: InitFlags): Promise<void> {
   await reportReadiness(cwd);
 }
 
-// AC #6 "comes to the user": init ends by running the env category so a fresh
-// scaffold hears about `site: CHANGE_ME` here, not only on demand. Wrapped so a
-// readiness hiccup never fails an otherwise-successful init.
+// init ends by running the env category so a fresh scaffold hears about
+// `site: CHANGE_ME` here, not only on demand. Wrapped so a readiness hiccup
+// never fails an otherwise-successful init.
 async function reportReadiness(cwd: string): Promise<void> {
   try {
     const { runChecks } = await import("../check/index.js");

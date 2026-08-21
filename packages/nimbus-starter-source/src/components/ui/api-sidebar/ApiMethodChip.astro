@@ -10,10 +10,10 @@
  * colours + three glyphs:
  * get/head → down-left, post/put/patch → up-right, delete → ✕, else → dot.
  *
- * This mapping is the source of truth; the page route pill in `ApiBody.astro`
- * mirrors the same glyph vocabulary inline (as stroked SVG rather than a mask)
- * and draws from the same `--nb-m-*` palette — keep the two in sync when
- * changing the method→glyph mapping.
+ * This mapping is the source of truth; the endpoint bar in `ApiBody.astro`
+ * reuses this chip directly for its glyph and colours its verb label from the
+ * same `--nb-m-*` palette — keep them in sync when changing the method→colour
+ * mapping.
  */
 interface Props {
   method?: string;
@@ -45,7 +45,7 @@ const variant = variantOf(verb);
 
 <style>
   /* Method colours come from the shared --nb-m-* palette in globals.css so the
-     chip and the page route pill can never disagree on a method's colour. */
+     chip and the endpoint bar can never disagree on a method's colour. */
   .nb-api-chip {
     box-sizing: border-box;
     flex: none;

@@ -680,6 +680,7 @@ class Walker {
       protocol: { method: method.toUpperCase(), path },
     };
     if (bodyUnion) facts.bodyUnion = bodyUnion;
+    if (this.firstServer) facts.server = this.firstServer;
 
     // Resolve the request example ONCE (authored `example`/`examples` win, else
     // sampler synthesis with read-only fields hidden) so the rendered example and

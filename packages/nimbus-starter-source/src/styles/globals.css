@@ -64,7 +64,7 @@
  	--nb-danger-muted: oklch(0.965 0.015 25);
  
  	/* API method palette — shared source of truth for the sidebar method chip
- 	   (api-sidebar) and the route pill (api-layout); harmless elsewhere. The
+ 	   (api-sidebar) and the endpoint bar (api-layout); harmless elsewhere. The
  	   "other" tint follows the theme foreground. */
  	--nb-m-get: #16a34a;
  	--nb-m-post: #155dfc;

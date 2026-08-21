@@ -143,6 +143,12 @@ export interface OperationFacts {
   example?: DerivedExample;
   /** Per-language; `x-codeSamples` from the spec always win. */
   samples: CodeSample[];
+  /**
+   * The effective server base URL (first declared server), so the header can
+   * show the full request URL. Absent when the spec declares no servers, or for
+   * webhooks (which are delivered, not called against a base URL).
+   */
+  server?: string;
   /** e.g. `{ method, path }` — rendered by components, never keyed on. */
   protocol: Record<string, unknown>;
 }

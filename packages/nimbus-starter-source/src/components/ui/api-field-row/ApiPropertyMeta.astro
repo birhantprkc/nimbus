@@ -1,130 +1,105 @@
 ---
 /**
- * ApiPropertyMeta — the one-line signature of a property (name, optional marker,
- * type preview, object shorthand, deep-link) plus its description, constraints,
- * and default/example. Shared by the expandable and leaf rows of `ApiFieldRow`
- * so the two paths never drift.
+ * ApiPropertyMeta — a property's signature (name, optional/deprecated marker,
+ * type preview, collapsed-object `{ … }` marker) and its body (description,
+ * constraints, default/example). Split into `part`s so a folder can put the
+ * signature in its `<summary>` while the description — which may contain links,
+ * and so must not live inside a summary — renders in the disclosure body.
+ *
+ *   - `all`       leaf row: signature + inline copy-link + body.
+ *   - `signature` folder summary: signature only (no focusable controls).
+ *   - `meta`      folder body: description + constraints + default/example.
  */
 import { cn } from "@/lib/cn";
-import { typeTokens, objectPreview, constraintPairs } from "./type-display";
+import ApiAnchor from "./ApiAnchor.astro";
+import { typeTokens, hasChildPreview, constraintPairs } from "./type-display";
 import { renderMarkdown } from "@cloudflare/nimbus-docs/markdown";
 import type { ApiFieldView } from "@cloudflare/nimbus-docs/api";
 
 interface Props {
   field: ApiFieldView;
-  /**
-   * Whether links may render. False when this meta sits inside a `<summary>`
-   * (the disclosure trigger) — a summary must hold no focusable controls, so the
-   * linked types are shown as plain colour there and reached by expanding.
-   */
+  part?: "all" | "signature" | "meta";
+  /** False inside a `<summary>` — linked types render as plain colour there. */
   interactive?: boolean;
 }
 
-const { field, interactive = true } = Astro.props;
+const { field, part = "all", interactive = true } = Astro.props;
+
+const showSignature = part !== "meta";
+const showMeta = part !== "signature";
+const showAnchor = part === "all" && interactive;
 
 const toks = typeTokens(field);
-const preview = objectPreview(field);
+const preview = hasChildPreview(field);
 const constraints = constraintPairs(field.constraints);
 const detail = (v: unknown): string => JSON.stringify(v);
 ---
 
-<div class="min-w-0 flex-1">
-  <div class="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm leading-6">
-    <span class="font-semibold text-foreground">{field.name}</span>
-    <span class="text-muted-foreground">:</span>
-    {field.deprecated && <span class="text-xs font-semibold text-danger">deprecated</span>}
-    {!field.required && <span class="text-muted-foreground">optional</span>}
+{
+  showSignature && (
+    <div class="flex items-start justify-between gap-2">
+      <span class="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-sm leading-6">
+        <span class={cn("font-semibold", field.deprecated ? "text-muted-foreground line-through" : "text-foreground")}>
+          {field.name}
+        </span>
+        <span class="text-muted-foreground">:</span>
+        {field.deprecated && <span class="text-xs font-medium text-muted-foreground">deprecated</span>}
+        {!field.required && <span class="text-muted-foreground">optional</span>}
 
-    <span class="inline-flex flex-wrap items-baseline gap-x-1">
-      {
-        toks.map((t) =>
-          t.href && interactive ? (
-            <a href={t.href} class={cn(t.mono && "font-mono", t.cls)}>
-              {t.text}
-            </a>
-          ) : (
-            <span class={cn(t.mono && "font-mono", t.href ? "text-info" : t.cls)}>{t.text}</span>
-          ),
-        )
-      }
-      {
-        preview && (
-          <span class="text-muted-foreground">
-            {" { "}
-            {preview.names.join(", ")}
-            {preview.more > 0 ? `, ${preview.more} more` : ""}
-            {" }"}
-          </span>
-        )
-      }
-      {field.nullable && <span class="text-muted-foreground">or null</span>}
-    </span>
+        <span class="inline-flex flex-wrap items-baseline gap-x-1">
+          {toks.map((t) =>
+            t.href && interactive ? (
+              <a href={t.href} title={t.title} class={cn(t.mono && "font-mono", t.cls)}>
+                {t.text}
+              </a>
+            ) : (
+              <span title={t.title} class={cn(t.mono && "font-mono", t.href ? "text-info" : t.cls)}>
+                {t.text}
+              </span>
+            ),
+          )}
+          {preview && <span class="ft-preview text-muted-foreground" aria-hidden="true">{"{ … }"}</span>}
+          {field.nullable && <span class="text-muted-foreground">or null</span>}
+        </span>
+      </span>
+      {showAnchor && <ApiAnchor anchor={field.anchor} name={field.name} />}
+    </div>
+  )
+}
 
-    {
-      interactive && (
-        <a
-          href={`#${field.anchor}`}
-          class="ml-0.5 inline-flex size-5 items-center justify-center rounded border border-border text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
-          aria-label={`Direct link to ${field.name}`}
-        >
-          <svg
-            class="size-3.5"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-          </svg>
-        </a>
-      )
-    }
-  </div>
+{
+  showMeta && field.description && (
+    <div class="nb-md mt-0.5 text-sm text-muted-foreground" set:html={renderMarkdown(field.description)} />
+  )
+}
 
-  {
-    field.description && (
-      <div
-        class="nb-md mt-1 text-sm text-muted-foreground"
-        set:html={renderMarkdown(field.description)}
-      />
-    )
-  }
+{
+  showMeta && constraints.length > 0 && (
+    <div class="mt-0.5 text-xs text-muted-foreground">
+      {constraints.map((c, i) => (
+        <span>
+          {i > 0 && ", "}
+          {c.name}: <span class="font-mono text-foreground">{c.value}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
 
-  {
-    constraints.length > 0 && (
-      <div class="mt-1 text-xs text-muted-foreground">
-        {constraints.map((c, i) => (
-          <span>
-            {i > 0 && ", "}
-            {c.name}:{" "}
-            <code class="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em] text-foreground">
-              {c.value}
-            </code>
-          </span>
-        ))}
-      </div>
-    )
-  }
-
-  {
-    (field.default !== undefined || field.example !== undefined) && (
-      <p class="mt-1 font-mono text-xs text-muted-foreground">
-        {field.default !== undefined && (
-          <>
-            Default: <span class="text-foreground">{detail(field.default)}</span>
-          </>
-        )}
-        {field.default !== undefined && field.example !== undefined && " · "}
-        {field.example !== undefined && (
-          <>
-            Example: <span class="text-foreground">{detail(field.example)}</span>
-          </>
-        )}
-      </p>
-    )
-  }
-</div>
+{
+  showMeta && (field.default !== undefined || field.example !== undefined) && (
+    <p class="mt-0.5 text-xs text-muted-foreground">
+      {field.default !== undefined && (
+        <>
+          Default: <span class="font-mono text-foreground">{detail(field.default)}</span>
+        </>
+      )}
+      {field.default !== undefined && field.example !== undefined && " · "}
+      {field.example !== undefined && (
+        <>
+          Example: <span class="font-mono text-foreground">{detail(field.example)}</span>
+        </>
+      )}
+    </p>
+  )
+}

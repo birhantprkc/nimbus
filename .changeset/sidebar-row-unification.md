@@ -13,3 +13,5 @@ Unify the docs and API rails onto shared base components, and fix several API-re
 - `ApiFieldList` gains the `truncated` prop so capped groups show the "… N more omitted" note; `ApiLayout` forwards it.
 - Align the API shell header offset with the docs layout (`top-14` / `3.5rem`); the code rail sizes from a dedicated `--nb-code-rail-width` (default `34rem`) instead of borrowing `--nb-toc-width`.
 - Harden the shared mobile nav drawer: reclaim a drawer caught mid-close, wire `aria-expanded`/`aria-controls`/`aria-haspopup`, close instantly under `prefers-reduced-motion`, dismiss at the desktop breakpoint, and drop the two-frame open delay.
+- Single-source the site `Header`: `brand`/`actions` slots and an optional `sections` prop replace per-app header forks, and it imports `SearchTrigger` directly so the search dialog stays out of its module graph.
+- Bring the persistent sidebar in at `md` (tablet) instead of `lg` (compact `w-60` through the `md`–`lg` band), retire the hamburger at `md` in lockstep, and make the header overflow-proof (pinned logo/controls, scrollable section nav). Side-by-side code rail stays at `2xl`.
