@@ -82,25 +82,40 @@ const copyLabel = server ? "Copy request URL" : "Copy path";
 </LayerCard>
 
 <script>
-  // Copy-URL affordance: copy the request URL and flip the copy glyph to a check
-  // for a beat. Mechanism only; the look lives above.
-  document.querySelectorAll<HTMLButtonElement>("[data-nb-copy-url]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const value = btn.dataset.url;
-      if (!value) return;
-      try {
-        await navigator.clipboard.writeText(value);
-      } catch {
-        return;
-      }
-      const copy = btn.querySelector("[data-copy-icon]");
-      const check = btn.querySelector("[data-check-icon]");
-      copy?.classList.add("hidden");
-      check?.classList.remove("hidden");
-      window.setTimeout(() => {
-        copy?.classList.remove("hidden");
-        check?.classList.add("hidden");
-      }, 1200);
-    });
+  // Copy the request URL. mount() re-binds per navigation.
+  import { mount } from "@cloudflare/nimbus-docs/client";
+
+  mount("[data-nb-copy-url]", (btn) => {
+    if (!(btn instanceof HTMLButtonElement)) return () => {};
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    btn.addEventListener(
+      "click",
+      async () => {
+        const value = btn.dataset.url;
+        if (!value) return;
+        try {
+          await navigator.clipboard.writeText(value);
+        } catch {
+          return;
+        }
+        const copy = btn.querySelector("[data-copy-icon]");
+        const check = btn.querySelector("[data-check-icon]");
+        copy?.classList.add("hidden");
+        check?.classList.remove("hidden");
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          copy?.classList.remove("hidden");
+          check?.classList.add("hidden");
+        }, 1200);
+      },
+      { signal: controller.signal },
+    );
+
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
   });
 </script>
