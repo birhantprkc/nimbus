@@ -786,6 +786,106 @@ components:
   });
 });
 
+describe("field typeShape: compound `type` labels split into { kind, inner }", () => {
+  let page: ApiOperationPage;
+  before(async () => {
+    const model = await buildApiModel({
+      collection: "ts",
+      spec: `
+openapi: 3.1.0
+info: { title: T, version: "1" }
+paths:
+  /p:
+    post:
+      operationId: postTS
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tags: { type: array, items: { type: string } }
+                metadata: { type: object, additionalProperties: { type: string } }
+                envs: { type: object, additionalProperties: { $ref: "#/components/schemas/Env" } }
+                name: { type: string }
+      responses:
+        "200": { description: ok }
+components:
+  schemas:
+    Env: { type: object, properties: { value: { type: string } } }
+`,
+    });
+    page = getApiPageProps(model, "postTS") as ApiOperationPage;
+  });
+
+  const field = (name: string) => {
+    const f = page.body.find((x) => x.name === name);
+    assert.ok(f, `body field "${name}" projected`);
+    return f!;
+  };
+
+  test("an array field splits to { kind: array, inner }", () => {
+    assert.deepEqual(field("tags").typeShape, { kind: "array", inner: "string" });
+  });
+
+  test("a scalar-valued map splits to { kind: map, inner }", () => {
+    assert.deepEqual(field("metadata").typeShape, { kind: "map", inner: "string" });
+  });
+
+  test("a named-schema map carries the component name as inner", () => {
+    assert.deepEqual(field("envs").typeShape, { kind: "map", inner: "Env" });
+  });
+
+  test("a plain scalar carries no typeShape", () => {
+    assert.equal(field("name").typeShape, undefined);
+  });
+
+  test("inner stays byte-consistent with the `type` label", () => {
+    const tags = field("tags");
+    assert.equal(`array<${tags.typeShape!.inner}>`, tags.type);
+  });
+});
+
+describe("response statusClass: RFC 9110 class of the status", () => {
+  let page: ApiOperationPage;
+  before(async () => {
+    const model = await buildApiModel({
+      collection: "sc",
+      spec: `
+openapi: 3.1.0
+info: { title: T, version: "1" }
+paths:
+  /p:
+    get:
+      operationId: getSC
+      responses:
+        "100": { description: continue }
+        "200": { description: ok }
+        "301": { description: moved }
+        "404": { description: missing }
+        "500": { description: boom }
+        default: { description: fallback }
+`,
+    });
+    page = getApiPageProps(model, "getSC") as ApiOperationPage;
+  });
+
+  const statusOf = (status: string) =>
+    page.responses.find((r) => r.status === status)?.statusClass;
+
+  test("maps each numeric class to its RFC name", () => {
+    assert.equal(statusOf("100"), "info");
+    assert.equal(statusOf("200"), "success");
+    assert.equal(statusOf("301"), "redirect");
+    assert.equal(statusOf("404"), "client-error");
+    assert.equal(statusOf("500"), "server-error");
+  });
+
+  test("a non-numeric status (default) carries no statusClass", () => {
+    assert.equal(statusOf("default"), undefined);
+  });
+});
+
 describe("auth: OR-of-AND, enriched, none-required", () => {
   test("create → [[bearerAuth]] with http/Authorization + scope", () => {
     const create = getApiPageProps(smallco, "create") as ApiOperationPage;

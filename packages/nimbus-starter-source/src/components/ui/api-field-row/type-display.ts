@@ -60,37 +60,29 @@ function variantTokens(union: ApiUnionView): TypeToken[] {
   return out;
 }
 
-const isArrayType = (type: string): boolean => type.startsWith("array<");
-const innerType = (type: string): string =>
-  isArrayType(type) ? type.slice("array<".length, -1) : type;
-
-const isMapType = (type: string): boolean => type.startsWith("map<");
-const mapInner = (type: string): string => type.slice("map<".length, -1);
-
 /** The coloured type preview for a field, as a token stream. Separators carry
  *  no baked whitespace — the renderer's `gap` supplies the spacing. */
 export function typeTokens(field: ApiFieldView): TypeToken[] {
-  if (isMapType(field.type)) {
-    const inner = mapInner(field.type);
+  const shape = field.typeShape;
+
+  if (shape?.kind === "map") {
     return [
       { text: "map of", cls: MUTED_CLS },
       field.typeRef
-        ? { text: inner, cls: LINK_CLS, href: field.typeRef.href, mono: true }
-        : { text: inner || "any", cls: MUTED_CLS },
+        ? { text: shape.inner, cls: LINK_CLS, href: field.typeRef.href, mono: true }
+        : { text: shape.inner || "any", cls: MUTED_CLS },
     ];
   }
 
-  const arr = isArrayType(field.type);
-  const prefix: TypeToken[] = arr ? [{ text: "array of", cls: MUTED_CLS }] : [];
+  const prefix: TypeToken[] = shape?.kind === "array" ? [{ text: "array of", cls: MUTED_CLS }] : [];
 
   if (field.union) return [...prefix, ...variantTokens(field.union)];
 
-  if (arr) {
-    const inner = innerType(field.type);
+  if (shape?.kind === "array") {
     if (field.enum && field.enum.length > 0) return [...prefix, ...literalTokens(field.enum)];
     if (field.typeRef)
-      return [...prefix, { text: inner, cls: LINK_CLS, href: field.typeRef.href, mono: true }];
-    return [...prefix, { text: inner || "any", cls: MUTED_CLS }];
+      return [...prefix, { text: shape.inner, cls: LINK_CLS, href: field.typeRef.href, mono: true }];
+    return [...prefix, { text: shape.inner || "any", cls: MUTED_CLS }];
   }
 
   if (field.enum && field.enum.length > 0) return literalTokens(field.enum);

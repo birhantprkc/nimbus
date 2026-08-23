@@ -213,6 +213,11 @@ export interface ApiCollectionOptions {
  *     ),
  *   };
  *
+ * For that single source of truth to stay off the integration's module graph
+ * (which this early content-config pass must not pull in), have `nimbus.config`
+ * build its config with `defineConfig` from the side-effect-free
+ * `@cloudflare/nimbus-docs/config` entry — not the main `@cloudflare/nimbus-docs`.
+ *
  * The OpenAPI engine is imported lazily inside `load()` — a prose-only site
  * that never registers an API collection pulls neither the engine nor its
  * parser.

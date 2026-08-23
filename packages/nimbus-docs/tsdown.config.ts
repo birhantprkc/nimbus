@@ -8,6 +8,7 @@ const pkg = JSON.parse(
 export default defineConfig({
   entry: {
     index: "src/index.ts",
+    config: "src/config.ts",
     content: "src/content.ts",
     schemas: "src/schemas.ts",
     types: "src/types.ts",

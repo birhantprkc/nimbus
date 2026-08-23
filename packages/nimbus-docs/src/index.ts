@@ -123,11 +123,9 @@ export type { Heading } from "./_internal/partial-headings.js";
 export { getHeadingsFromHtml } from "./_internal/rendered-headings.js";
 
 /**
- * Define a typed Nimbus config. Returns the config unchanged but inferred.
+ * Define a typed Nimbus config.
  */
-export function defineConfig<T extends NimbusConfig>(config: T): T {
-  return config;
-}
+export { defineConfig } from "./config.js";
 
 /** Deterministic short hash of the sidebar structure (for sessionStorage invalidation). */
 export { sidebarHash };
@@ -1164,8 +1162,9 @@ export interface ApiVersionInfo {
  * `/<collection>/<version>/...`. Hidden versions are still generated (they stay
  * reachable by direct URL) — the picker and sitemap omit them separately.
  *
- * Each path carries `{ version, coordinate }` props; render with
- * `getApiModel(<collection>, version)` + `getApiPageProps(model, coordinate)`.
+ * Each path carries `{ collection, version, coordinate }` props; render the
+ * page with a single `getApiPage(Astro)` call (or, by hand, `getApiModel` +
+ * `getApiPageProps` + `getApiNav`).
  *
  * Usage:
  *
@@ -1189,7 +1188,7 @@ export function getApiStaticPaths(collection: string): GetStaticPaths {
     const targets = resolveApiFamily(entry);
     const paths: {
       params: { slug: string | undefined };
-      props: { version: string | null; coordinate: string };
+      props: { collection: string; version: string | null; coordinate: string };
     }[] = [];
     for (const target of targets) {
       const model = await getApiModel(collection, target.version ?? undefined);
@@ -1197,11 +1196,49 @@ export function getApiStaticPaths(collection: string): GetStaticPaths {
         const { param } = apiPageRoute(target, slug);
         paths.push({
           params: { slug: param },
-          props: { version: target.version, coordinate },
+          props: { collection, version: target.version, coordinate },
         });
       }
     }
     return paths;
+  };
+}
+
+/**
+ * Read an API route's `{ collection, version, coordinate }` from `Astro.props`,
+ * resolve the model for that version, and return the page + nav a route needs —
+ * the one-call companion to `getApiStaticPaths`, mirroring `getDocsPageProps`.
+ *
+ * Collapses the per-page model→props→nav dance and normalises the `version`
+ * `null`→`undefined` hand-off that `getApiModel` expects. Lives here (not on the
+ * `nimbus-docs/api` seam) so the seam's runtime surface stays fixed; it reaches
+ * the seam lazily, like `getApiStaticPaths`.
+ *
+ * Usage:
+ *
+ *   export const getStaticPaths = getApiStaticPaths("api");
+ *   const { page, nav } = await getApiPage(Astro);
+ */
+export async function getApiPage(astro: AstroGlobal): Promise<{
+  page: import("./api/index.js").ApiPageProps;
+  nav: import("./api/index.js").ApiNav;
+}> {
+  const { collection, version, coordinate } = astro.props as {
+    collection?: string;
+    version?: string | null;
+    coordinate?: string;
+  };
+  if (!collection || !coordinate) {
+    throw new Error(
+      "getApiPage(): expected `collection` and `coordinate` in Astro.props. " +
+        "Ensure your route uses `getStaticPaths = getApiStaticPaths(<collection>)`.",
+    );
+  }
+  const { getApiModel, getApiPageProps, getApiNav } = await import("./api/index.js");
+  const model = await getApiModel(collection, version ?? undefined);
+  return {
+    page: getApiPageProps(model, coordinate),
+    nav: getApiNav(model, coordinate),
   };
 }
 

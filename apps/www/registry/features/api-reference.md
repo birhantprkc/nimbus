@@ -36,8 +36,9 @@ Before prompting the user or writing anything, inspect the project:
   (`pnpm`/`npm`/`yarn`) from the lockfile so later commands match.
 - `src/content.config.ts` — read it in full. Note the `defineCollection`
   import and the existing `collections` object shape so your edit matches.
-- `astro.config.ts` (or wherever `defineNimbusConfig(...)` lives) — read the
-  Nimbus config block. You will add an `api` key to it.
+- The Nimbus config — inline in `astro.config.ts` for most projects, or split
+  into a `nimbus.config.ts`. Read it; you'll add an `api` entry and, if it's
+  still inline, extract it so `content.config.ts` can share the same list.
 - `src/pages/[...slug].astro` and `src/pages/[...slug]/index.md.ts` — the
   primary docs page + `.md` twin. The API routes are siblings that mirror the
   twin's frontmatter/headers, so match their style.
@@ -70,8 +71,10 @@ Print a short, exact plan to the user **before** writing anything:
   the API engine's peer packages: `@scalar/openapi-parser` (the spec parser) plus
   `openapi-sampler` and `@readme/httpsnippet` (the code-sample generators). These
   stay out of the framework bundle, so they only land when you mount a spec.
-- Edit `astro.config.ts` — add the `api` key to the Nimbus config.
-- Edit `src/content.config.ts` — register the `api` collection.
+- Declare the spec **once** in the Nimbus config (an `api` entry); if that config
+  is still inline in `astro.config.ts`, extract it to a shared `nimbus.config.ts`
+  so `src/content.config.ts` can derive the collection from the same list — no
+  second spec declaration.
 - Create `src/pages/api/[...slug].astro` and `src/pages/api/[...slug]/index.md.ts`.
 - Resulting URLs: `/api` (overview), `/api/<slug>` (each page), the matching
   `/api/<slug>/index.md` twins, and `/api/llms.txt`.
@@ -113,32 +116,68 @@ If you're wiring the engine by hand instead of via this recipe, install those
 peers yourself: `@scalar/openapi-parser` is required; the other two are optional
 (their absence just omits code samples).
 
-### 4b. Add the `api` key to the Nimbus config
+### 4b. Declare the spec once, in a shared Nimbus config
 
-In `astro.config.ts`, inside `defineNimbusConfig({ ... })`, add:
+The spec is declared in exactly **one** place — the Nimbus config's `api[]`
+array — and the content collection (4c) derives from it, so the two can never
+drift. For `src/content.config.ts` to read that array without pulling the
+integration into the content layer, the config must be its own module built with
+the **side-effect-free** `defineConfig` entry.
+
+If your Nimbus config is still inline in `astro.config.ts`, extract it into a
+`nimbus.config.ts` at the project root:
 
 ```ts
-api: [{ collection: "api", spec: "./src/api/openapi.yaml" }],
+// nimbus.config.ts
+import { defineConfig } from "@cloudflare/nimbus-docs/config";
+
+export default defineConfig({
+  // …your existing site / title / etc…
+  api: [{ collection: "api", spec: "./src/api/openapi.yaml" }],
+});
+```
+
+Then import it in `astro.config.ts` (Astro's own `defineConfig` is unchanged):
+
+```ts
+import nimbus from "@cloudflare/nimbus-docs";
+import nimbusConfig from "./nimbus.config";
+
+// …integrations: [nimbus(nimbusConfig)] …
 ```
 
 `spec` is the path from Q1, resolved from the project root (not the current
 working directory — builds from a monorepo root or `--root` resolve correctly).
-`spec` may also be an inline OpenAPI object. Add a `label` if you want a
-friendlier name in build diagnostics; it defaults to the collection name. To
-mount more than one spec, add more entries to the array.
+`spec` may also be an inline OpenAPI object. Add a `label` for a friendlier name
+in build diagnostics; it defaults to the collection name. To mount more than one
+spec, add more entries to the array — each becomes its own collection in 4c.
 
-### 4c. Register the collection in `src/content.config.ts`
+> **Why the `/config` entry?** `@cloudflare/nimbus-docs/config` exports only the
+> identity `defineConfig` with no side effects, so a `nimbus.config.ts` imported
+> by BOTH `astro.config.ts` and the early `content.config.ts` graph never drags
+> the integration (mdx/sitemap/…) into the content layer. Importing `defineConfig`
+> from the main `@cloudflare/nimbus-docs` barrel would.
 
-Add `apiCollection` to the `nimbus-docs/content` import and register the
-collection. The name and spec **must** match the `astro.config.ts` entry from
-4b — they're the single source of truth together:
+### 4c. Derive the collection from that same config
+
+In `src/content.config.ts`, import the config and map its `api[]` list into
+collections — no second spec declaration:
 
 ```ts
 import { apiCollection } from "@cloudflare/nimbus-docs/content";
+import nimbus from "../nimbus.config";
 
-// inside the `collections` object:
-api: defineCollection(apiCollection({ collection: "api", spec: "./src/api/openapi.yaml" })),
+export const collections = {
+  // …docs, partials…
+  ...Object.fromEntries(
+    (nimbus.api ?? []).map((a) => [a.collection, defineCollection(apiCollection(a))]),
+  ),
+};
 ```
+
+The import path is relative to `src/content.config.ts` (`../nimbus.config` for a
+root-level config). Every `api[]` entry becomes a collection keyed by its
+`collection` name, so adding a spec in 4b needs no change here.
 
 ### 4d. Scaffold the `.md` twin route
 
@@ -221,8 +260,9 @@ export async function GET({ props }: { props: SlugProps }) {
 
 ### 4e. Scaffold the HTML route
 
-The route is thin: build the model, project the page props + nav, and hand both
-to `ApiLayout` (installed in 4a). `ApiLayout` composes `ApiSidebar` (verb chips +
+The route is thin: `getApiStaticPaths` enumerates one path per page, and
+`getApiPage(Astro)` builds the model and projects the page props + nav in a
+single call — you hand both to `ApiLayout` (installed in 4a). `ApiLayout` composes `ApiSidebar` (verb chips +
 active-section pruning), `ApiFieldRow` (recursive fields with type links), and
 `ApiCodeRail` (server-generated code samples with a language switcher + a
 response-example status toggle), rendering any page
@@ -251,31 +291,13 @@ Write `src/pages/api/[...slug].astro`:
 ```astro
 ---
 import "@/styles/globals.css";
-import {
-  getApiModel,
-  getApiNav,
-  getApiPageProps,
-  getApiPageSlugs,
-} from "@cloudflare/nimbus-docs/api";
+import { getApiStaticPaths, getApiPage } from "@cloudflare/nimbus-docs";
 import { ApiLayout } from "@/components/ui/api-layout";
 
-const COLLECTION = "api";
+export const prerender = true;
+export const getStaticPaths = getApiStaticPaths("api");
 
-export async function getStaticPaths() {
-  // Inline the "api" literal here, NOT `COLLECTION` — Astro hoists
-  // getStaticPaths above the frontmatter consts, so referencing them here
-  // is a temporal-dead-zone error ("COLLECTION is not defined").
-  const model = await getApiModel("api");
-  return getApiPageSlugs(model).map(({ coordinate, slug }) => ({
-    params: { slug: slug === "" ? undefined : slug },
-    props: { coordinate },
-  }));
-}
-
-const { coordinate } = Astro.props as { coordinate: string };
-const model = await getApiModel(COLLECTION);
-const page = getApiPageProps(model, coordinate);
-const nav = getApiNav(model, coordinate);
+const { page, nav } = await getApiPage(Astro);
 ---
 
 <!doctype html>
@@ -353,5 +375,6 @@ locally, this is why — rename in the spec or build on Linux.
 ## 7. Already installed?
 
 If `src/pages/api/[...slug].astro` already exists, do not overwrite it. Ask the
-user whether to replace, skip, or show a diff first. The `content.config.ts`
-entry and the `api` config key may also already exist — check before editing.
+user whether to replace, skip, or show a diff first. The `nimbus.config` `api[]`
+entry and the `content.config.ts` derive line may also already exist — check
+before editing.

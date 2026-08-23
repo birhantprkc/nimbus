@@ -12,6 +12,7 @@
  */
 import { LayerCard, LayerCardHeader, LayerCardContent } from "@/components/ui/layer-card";
 import ApiMethodChip from "@/components/ui/api-sidebar/ApiMethodChip.astro";
+import { methodVariant } from "@/components/ui/api-sidebar/method";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
@@ -27,28 +28,7 @@ interface Props {
 
 const { method, path, server, isWebhook, class: className } = Astro.props;
 
-// HTTP method → method-colour key, mirroring ApiMethodChip's `variantOf` (the
-// sidebar chip is the source of truth): get/head → get, post → post,
-// put/patch → put, delete → delete, else → other. Keep in sync with
-// ApiMethodChip.astro so the verb tint always agrees with the chip.
-function methodColor(m: string): "get" | "post" | "put" | "delete" | "other" {
-  switch (m.toLowerCase()) {
-    case "get":
-    case "head":
-      return "get";
-    case "post":
-      return "post";
-    case "put":
-    case "patch":
-      return "put";
-    case "delete":
-      return "delete";
-    default:
-      return "other";
-  }
-}
-
-const tone = methodColor(method);
+const tone = methodVariant(method) || "other";
 const url = `${server ?? ""}${path}`;
 const copyLabel = server ? "Copy request URL" : "Copy path";
 ---

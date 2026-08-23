@@ -35,6 +35,7 @@ export type {
   ApiSectionPage,
   ApiRootPage,
   ApiFieldView,
+  ApiTypeShape,
   ApiScalarView,
   ApiUnionView,
   ApiVariant,
