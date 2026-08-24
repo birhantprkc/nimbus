@@ -10,6 +10,7 @@ Unify the docs and API rails onto shared base components, and fix several API-re
 - The deprecated-operation notice renders through the base `Banner`. `api-layout` now depends on `banner`.
 - Method colour is now single-source: the `--nb-m-*` palette lives in `globals.css`, shared by the sidebar `ApiMethodChip` and the route pill (a mono span with a leading arrow glyph). Fixes a mismatch where the pill's semantic `Badge` colours rendered GET blue / POST green — swapped from the chip.
 - Fix double-spaced code-rail samples (drop the redundant `.line { display: block }`).
+- The code-rail language picker deep-links via `?lang=`: a shared URL opens on that sample, and each change writes it back to the URL (localStorage stays the cross-page fallback).
 - `ApiFieldList` gains the `truncated` prop so capped groups show the "… N more omitted" note; `ApiLayout` forwards it.
 - Align the API shell header offset with the docs layout (`top-14` / `3.5rem`); the code rail sizes from a dedicated `--nb-code-rail-width` (default `34rem`) instead of borrowing `--nb-toc-width`.
 - Harden the shared mobile nav drawer: reclaim a drawer caught mid-close, wire `aria-expanded`/`aria-controls`/`aria-haspopup`, close instantly under `prefers-reduced-motion`, dismiss at the desktop breakpoint, and drop the two-frame open delay.

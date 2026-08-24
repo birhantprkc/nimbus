@@ -23,3 +23,4 @@ export { generateId } from "./ids";
 export { FOCUSABLE } from "./dom";
 export { codeCopy } from "./code-copy";
 export { headingAnchors } from "./heading-anchors";
+export { readUrlParam, writeUrlParam } from "./url-param";
