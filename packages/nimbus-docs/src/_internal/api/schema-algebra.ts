@@ -4,26 +4,47 @@
  */
 
 import type { Constraints } from "./model.js";
-import type { OpenApiSchema } from "./openapi-types.js";
+import type { OpenApiSchema, OpenApiMediaType } from "./openapi-types.js";
+
+/**
+ * Coerce a spec-supplied scalar to a display string (numbers/booleans
+ * stringified), or `undefined` for objects/arrays/null. Sanitizes authored
+ * string fields at the parse boundary so a non-string can't reach the renderers.
+ */
+export function asString(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return undefined;
+}
 
 /**
  * Fold `allOf` branches into a single schema for leaf-fact extraction, mirroring
- * `collectObjectShape`'s recursion (depth-first, later branch wins). Without
- * this, the common `allOf: [ <scalar> ]` wrapper — which `@scalar` does not
+ * `collectObjectShape`'s recursion (depth-first, later branch wins on scalar keys
+ * and on individual property-name clashes). `properties` ACCUMULATE across all
+ * branches and `required` is UNIONED — a shallow `Object.assign` per branch would
+ * let a later branch's `properties` clobber an earlier branch's wholesale, hiding
+ * a union that lives in an earlier branch's property from `docNeedsRawDoc`. Without
+ * this fold, the common `allOf: [ <scalar> ]` wrapper — which `@scalar` does not
  * collapse — reads as an empty schema and its type/enum/constraints vanish.
  */
 export function foldAllOf(schema: OpenApiSchema): OpenApiSchema {
   if (!Array.isArray(schema.allOf)) return schema;
   const merged: OpenApiSchema = {};
+  const properties: Record<string, OpenApiSchema> = {};
+  const required = new Set<string>();
   const seen = new Set<OpenApiSchema>();
   const apply = (s: OpenApiSchema): void => {
     if (seen.has(s)) return;
     seen.add(s);
     for (const branch of s.allOf ?? []) apply(branch);
     Object.assign(merged, s);
+    Object.assign(properties, s.properties);
+    for (const r of s.required ?? []) required.add(r);
   };
   apply(schema);
   delete merged.allOf;
+  if (Object.keys(properties).length > 0) merged.properties = properties;
+  if (required.size > 0) merged.required = [...required];
   return merged;
 }
 
@@ -95,4 +116,27 @@ export function constraintsOf(schema: OpenApiSchema | undefined): Constraints | 
   if (schema.maxLength !== undefined) c.maxLength = schema.maxLength;
   if (schema.pattern) c.pattern = schema.pattern;
   return Object.keys(c).length > 0 ? c : undefined;
+}
+
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The one media selection rule: `application/json` if it carries a schema, else
+ *  the first declared media. Every other media accessor derives from this so the
+ *  schema, the media type, and the example never disagree about which media won. */
+export function primaryMediaEntry(
+  content: Record<string, OpenApiMediaType> | undefined,
+): { mediaType: string; media: OpenApiMediaType } | undefined {
+  if (!content) return undefined;
+  const json = content["application/json"];
+  if (json?.schema) return { mediaType: "application/json", media: json };
+  const first = Object.entries(content)[0];
+  return first ? { mediaType: first[0], media: first[1] } : undefined;
+}
+
+export function primaryMediaSchema(
+  content: Record<string, OpenApiMediaType> | undefined,
+): OpenApiSchema | undefined {
+  return primaryMediaEntry(content)?.media.schema;
 }

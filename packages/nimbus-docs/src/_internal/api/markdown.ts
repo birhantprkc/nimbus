@@ -147,6 +147,14 @@ function renderField(field: ApiFieldView, depth: number, out: string[]): void {
   const detail = detailParts(field);
   if (detail.length > 0) out.push(`${pad}  - ${detail.join("; ")}`);
 
+  if (field.union) {
+    const label = field.union.kind === "oneOf" ? "one of" : "any of";
+    out.push(`${pad}  - ${label}: ${field.union.variants.map(variantLabel).join(", ")}`);
+    if (field.union.discriminator) {
+      out.push(`${pad}  - discriminator: ${inlineCode(field.union.discriminator)}`);
+    }
+  }
+
   for (const child of field.children) renderField(child, depth + 1, out);
   if (field.truncated) renderOmitted(field.childCount, field.children.length, out, `${pad}  `);
 }
@@ -248,9 +256,13 @@ function renderResponses(responses: ApiResponseView[], out: string[]): void {
       for (const header of response.headers) renderField(header, 0, out);
       out.push("");
     }
-    for (const field of response.fields) renderField(field, 0, out);
-    if (response.truncated) renderOmitted(response.truncated.total, response.fields.length, out);
-    if (response.fields.length > 0) out.push("");
+    if (response.bodyUnion) {
+      renderUnion(response.bodyUnion, out);
+    } else {
+      for (const field of response.fields) renderField(field, 0, out);
+      if (response.truncated) renderOmitted(response.truncated.total, response.fields.length, out);
+      if (response.fields.length > 0) out.push("");
+    }
   }
 }
 
@@ -293,7 +305,12 @@ export function renderApiPageMarkdown(props: ApiPageProps): string {
       for (const group of props.parameters) {
         renderFieldSection(group.label, group.fields, out, group.truncated);
       }
-      renderFieldSection("Request body", props.body, out, props.bodyTruncated);
+      if (props.bodyUnion) {
+        out.push("## Request body", "");
+        renderUnion(props.bodyUnion, out);
+      } else {
+        renderFieldSection("Request body", props.body, out, props.bodyTruncated);
+      }
       if (props.example) renderExample("## Example request", props.example, out);
       if (props.samples.length > 0) {
         out.push("## Code samples", "");

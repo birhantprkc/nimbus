@@ -301,13 +301,18 @@ function scalar(tools: SampleTools, schema: OpenApiSchema | undefined, fallback:
   return String(value);
 }
 
+// OpenAPI security is OR-of-AND: any one alternative satisfies the operation.
+// An empty alternative (`{}`) means anonymous access is allowed, so when one is
+// present the simplest valid call carries no credentials and the sample injects
+// none. Otherwise the first alternative wins, honoring the spec's ordering.
 function applyAuth(
   headers: HarField[],
   queryString: HarField[],
   input: OperationSampleInput,
 ): void {
-  const group = input.auth.find((alternative) => alternative.length > 0);
-  if (!group) return;
+  if (input.auth.some((alternative) => alternative.length === 0)) return;
+  const group = input.auth[0];
+  if (!group || group.length === 0) return;
   const schemes = input.securitySchemes ?? {};
   for (const requirement of group) {
     const scheme = schemes[requirement.scheme];
@@ -334,8 +339,16 @@ interface SpecCodeSample {
 function fromSpecCodeSamples(raw: unknown): CodeSample[] {
   if (!Array.isArray(raw)) return [];
   const out: CodeSample[] = [];
+  // Dedupe by `lang`, first-wins: the rail's language `<select>` keys panels by
+  // lang, so two entries sharing one (e.g. two `python` snippets) would emit
+  // duplicate option values the picker can't disambiguate — it would reveal
+  // both panels at once. First-wins keeps the author's primary snippet per
+  // language and leaves the control coherent.
+  const seen = new Set<string>();
   for (const entry of raw as SpecCodeSample[]) {
     if (!entry || typeof entry.source !== "string" || typeof entry.lang !== "string") continue;
+    if (seen.has(entry.lang)) continue;
+    seen.add(entry.lang);
     const label = typeof entry.label === "string" ? entry.label : entry.lang;
     out.push({ lang: entry.lang, label, source: entry.source });
   }

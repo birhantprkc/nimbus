@@ -9,6 +9,8 @@
  * it to the helpers below.
  */
 
+import { createHash } from "node:crypto";
+
 import { parseOpenApi } from "../_internal/api/parse.js";
 import type { DocsModel } from "../_internal/api/model.js";
 import {
@@ -63,14 +65,9 @@ const handleCache = new Map<string, Promise<ApiModel>>();
 // and re-hash the whole spec file. Distinct from `handleCache` (content-keyed).
 const sourceCache = new Map<string, Promise<SpecSource>>();
 
-/** FNV-1a → base36. Keeps the cache key compact *and* content-addressed. */
+/** SHA-256 → base64url. Collision-resistant *and* content-addressed. */
 function specDigest(raw: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < raw.length; i++) {
-    hash ^= raw.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(36);
+  return createHash("sha256").update(raw).digest("base64url");
 }
 
 function wrap(model: DocsModel): ApiModel {

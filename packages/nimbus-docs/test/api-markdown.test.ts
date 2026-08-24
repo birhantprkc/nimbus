@@ -217,50 +217,11 @@ describe("api markdown emitter", () => {
       },
     });
     const md = renderApiPageMarkdown(getApiPageProps(model, "W"));
-    // Backtick escaped in the label, %60 in the href — no code span forms.
+    // Backtick escaped in the label, %60 in the href — no code span forms. A
+    // backtick isn't a route delimiter, so the name is legal; the markdown
+    // escaper still has to neutralise it (route-hostile names — backslash,
+    // control chars, `\ ? #` — are rejected at build; see api-resilience).
     assert.match(md, /- \[Ev\\`il\]\(\/inj\/schemas\/Ev%60il\)/);
-  });
-
-  test("backslash in a variant name is escaped in the label so it can't eat the closing bracket", async () => {
-    const model = await buildApiModel({
-      collection: "esc",
-      spec: {
-        openapi: "3.0.0",
-        info: { title: "E", version: "1" },
-        paths: {},
-        components: {
-          schemas: {
-            "Trail\\": { type: "object", properties: { x: { type: "string" } } },
-            U: { oneOf: [{ $ref: "#/components/schemas/Trail\\" }] },
-          },
-        },
-      },
-    });
-    const md = renderApiPageMarkdown(getApiPageProps(model, "U"));
-    // Label carries an escaped backslash (`\\`), so the `]` still closes the span.
-    assert.match(md, /- \[Trail\\\\\]\(/);
-  });
-
-  test("tab/control chars in a variant href are percent-encoded, never left raw", async () => {
-    const model = await buildApiModel({
-      collection: "esc",
-      spec: {
-        openapi: "3.0.0",
-        info: { title: "E", version: "1" },
-        paths: {},
-        components: {
-          schemas: {
-            "Tab\tX": { type: "object", properties: { x: { type: "string" } } },
-            U: { oneOf: [{ $ref: "#/components/schemas/Tab\tX" }] },
-          },
-        },
-      },
-    });
-    const md = renderApiPageMarkdown(getApiPageProps(model, "U"));
-    const linkLine = md.split("\n").find((l) => l.includes("schemas/Tab"));
-    assert.ok(linkLine, "the variant link line is present");
-    assert.doesNotMatch(linkLine!, /[\t\r\n]/, "no raw control char survives in the link line");
-    assert.match(linkLine!, /schemas\/Tab%09X/, "tab is encoded as %09 in the href");
   });
 
   test("malformed non-string schema `type` is coerced, never crashes the emitter", async () => {

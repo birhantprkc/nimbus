@@ -10,7 +10,6 @@ import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
 import { ApiSidebar } from "@/components/ui/api-sidebar";
 import { ApiCodeRail } from "@/components/ui/api-code-rail";
 import { Banner } from "@/components/ui/banner";
-import { VersionSwitcher } from "@/components/ui/version-switcher";
 import ApiBody from "./ApiBody.astro";
 import { getApiVersionAlternates, getVersionStatus } from "@cloudflare/nimbus-docs";
 import type { ApiNav, ApiPageProps } from "@cloudflare/nimbus-docs/api";
@@ -36,6 +35,13 @@ const currentSiblingUrl =
     ? ((await getApiVersionAlternates(collection, version, coordinate))?.canonical
         ?.url ?? null)
     : null;
+
+// The rail column is reserved ONLY when it has content — a request sample or a
+// response example (mirrors ApiCodeRail's own gate). A bodyless GET with no
+// samples otherwise pins an empty sticky column at the page's right edge.
+const hasRail =
+  page.kind === "operation" &&
+  (page.samples.length > 0 || page.responses.some((r) => r.example !== undefined));
 ---
 
 <div class="flex w-full">
@@ -66,7 +72,7 @@ const currentSiblingUrl =
         content, so unlike the TOC they stay in the no-JS HTML for crawlability);
         at 2xl+ it becomes the sticky right column. 2xl:pl-1 keeps overflow-y-auto
         from clipping the LayerCard's outset ring at the scroll edge. */}
-    {page.kind === "operation" && (
+    {hasRail && (
       <div class="mx-auto w-full max-w-(--nb-content-max) px-4 pb-12 md:px-8 2xl:mx-0 2xl:max-w-none 2xl:sticky 2xl:top-14 2xl:h-[calc(100vh-3.5rem)] 2xl:w-(--nb-code-rail-width) 2xl:shrink-0 2xl:overflow-y-auto 2xl:pt-8 2xl:pr-6 2xl:pb-8 2xl:pl-1 2xl:[scrollbar-color:gray_transparent] 2xl:[scrollbar-width:thin]">
         <ApiCodeRail
           responses={page.responses}
@@ -101,14 +107,6 @@ const currentSiblingUrl =
       </button>
     </div>
     <nav class="px-4 pb-8 pt-5">
-      {collection && (
-        <VersionSwitcher
-          apiCollection={collection}
-          apiVersion={version}
-          coordinate={coordinate}
-          variant="sidebar"
-        />
-      )}
       <ApiSidebar items={nav.items} />
     </nav>
   </div>

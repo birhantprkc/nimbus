@@ -98,12 +98,12 @@ const deprecationHtml = page.deprecated
       ))}
 
       {page.bodyUnion ? (
-        <ApiFieldList as="h2" title="Parameters" badge="JSON" collapsible>
+        <ApiFieldList as="h2" title="Request body" badge="JSON" collapsible>
           <ApiUnionExplorer union={page.bodyUnion} />
         </ApiFieldList>
-      ) : (
-        <ApiFieldList as="h2" title="Parameters" badge="JSON" fields={page.body} truncated={page.bodyTruncated} />
-      )}
+      ) : page.body.length > 0 ? (
+        <ApiFieldList as="h2" title="Request body" badge="JSON" fields={page.body} truncated={page.bodyTruncated} />
+      ) : null}
 
       {page.responses.length > 0 && (
         <section class="scroll-mt-24">

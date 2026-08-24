@@ -73,6 +73,9 @@ export const HTTP_METHODS = [
 
 export type HttpMethod = (typeof HTTP_METHODS)[number];
 
+/** How deep the schema walk descends before linking out. */
+export const SCHEMA_FIELD_DEPTH = 6;
+
 export type OpenApiPathItem = {
   parameters?: OpenApiParameter[];
 } & Partial<Record<HttpMethod, OpenApiOperation>>;

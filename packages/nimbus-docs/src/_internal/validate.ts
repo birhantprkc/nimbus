@@ -218,7 +218,11 @@ const apiSpecSchema = z
       .regex(
         /^[a-z0-9-]+$/,
         '"api[].collection" must be lowercase letters, digits, and dashes only (it becomes the URL prefix and the coordinate namespace)',
-      ),
+      )
+      .refine((c) => c !== "docs" && c !== "partials", {
+        error:
+          '"api[].collection" must not be "docs" or "partials" — those names are reserved for the built-in content collections and would collide',
+      }),
     spec: specSourceSchema.optional(),
     label: z.string().optional(),
     versions: z.array(apiVersionSpecSchema).optional(),

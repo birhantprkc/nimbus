@@ -1217,11 +1217,18 @@ export function getApiStaticPaths(collection: string): GetStaticPaths {
  * Usage:
  *
  *   export const getStaticPaths = getApiStaticPaths("api");
- *   const { page, nav } = await getApiPage(Astro);
+ *   const { page, nav, collection, version, coordinate } = await getApiPage(Astro);
+ *
+ * `collection`/`version`/`coordinate` are echoed back so a versioned layout can
+ * drive its version picker and deprecated-version banner from the same one call
+ * (they originate in the route props `getApiStaticPaths` stamps).
  */
 export async function getApiPage(astro: AstroGlobal): Promise<{
   page: import("./api/index.js").ApiPageProps;
   nav: import("./api/index.js").ApiNav;
+  collection: string;
+  version: string | null;
+  coordinate: string;
 }> {
   const { collection, version, coordinate } = astro.props as {
     collection?: string;
@@ -1239,6 +1246,9 @@ export async function getApiPage(astro: AstroGlobal): Promise<{
   return {
     page: getApiPageProps(model, coordinate),
     nav: getApiNav(model, coordinate),
+    collection,
+    version: version ?? null,
+    coordinate,
   };
 }
 

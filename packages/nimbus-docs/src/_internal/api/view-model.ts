@@ -636,6 +636,14 @@ function navKind(kind: NodeKind): ApiNodeKind {
 // path (O(depth), not O(tree)); off-path subtrees are shared by reference.
 const navBaseCache = new WeakMap<DocsModel, ApiNavItem[]>();
 
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const v of Object.values(value)) deepFreeze(v);
+  }
+  return value;
+}
+
 function projectNavBase(model: DocsModel): ApiNavItem[] {
   const cached = navBaseCache.get(model);
   if (cached) return cached;
@@ -661,6 +669,7 @@ function projectNavBase(model: DocsModel): ApiNavItem[] {
   };
 
   const base = model.nav.roots.map(toItem);
+  deepFreeze(base);
   navBaseCache.set(model, base);
   return base;
 }

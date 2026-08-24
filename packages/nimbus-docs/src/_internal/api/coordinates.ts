@@ -165,6 +165,28 @@ export function isCollectionName(name: string): boolean {
   return COLLECTION_NAME.test(name);
 }
 
+/**
+ * Why an author identity is unsafe as a raw URL path segment, or `undefined`
+ * when safe. Slugs are emitted into routes unencoded, so unsafe identities are
+ * rejected (not mangled): whitespace, control chars, `% \ ? #`, and
+ * `.`/`..`/empty segments (which escape the mount). Dots inside a segment are
+ * fine, so `users.list` passes.
+ */
+export function routeIdentityFault(identity: string): string | undefined {
+  if (identity !== identity.trim()) {
+    return `"${identity}" has leading or trailing whitespace — unsafe as a URL path segment. Rename it in the spec.`;
+  }
+  if (/[\u0000-\u001f\u007f\\?#%]/.test(identity)) {
+    return `"${identity}" contains a control character, a percent sign, or one of \\ ? # — unsafe as a URL path segment. Rename it in the spec.`;
+  }
+  for (const segment of identity.split("/")) {
+    if (segment === "" || segment === "." || segment === "..") {
+      return `"${identity}" contains a "${segment || "(empty)"}" path segment, which would break or escape the API route mount. Rename it in the spec.`;
+    }
+  }
+  return undefined;
+}
+
 /** True when a top-level body property name reads like a coordinate prefix. */
 export function isShadowingBodyProperty(name: string): boolean {
   return SHADOWING_NAMES.has(name);
@@ -190,6 +212,7 @@ export class CoordinateRegistry {
   readonly collection: string;
   private readonly byCoordinate = new Map<Coordinate, Registration>();
   private readonly byLowercase = new Map<string, Coordinate>();
+  private readonly slugOwners = new Map<string, Coordinate>();
   private readonly diagnostics: Diagnostic[] = [];
 
   constructor(collection: string) {
@@ -225,6 +248,7 @@ export class CoordinateRegistry {
           source,
         );
       }
+      this.flagRouteFault(check, coordinate, source);
     }
 
     if (COLLECTION_PREFIX.test(coordinate)) {
@@ -266,6 +290,29 @@ export class CoordinateRegistry {
     this.byCoordinate.set(coordinate, { kind, source });
     if (!this.byLowercase.has(lower)) this.byLowercase.set(lower, coordinate);
     return coordinate;
+  }
+
+  /** Fail the build when an author identity would break or escape the URL route
+   *  it becomes. Applied to every page-producing identity (operationId, schema
+   *  name, webhook key, tag) — the leading, author-controlled route segment. */
+  flagRouteFault(identity: string, coordinate: Coordinate, source?: string): void {
+    const fault = routeIdentityFault(identity);
+    if (fault) this.error(fault, coordinate, source);
+  }
+
+  /** Fail the build when two distinct pages resolve to the same routing slug. */
+  registerSlug(slug: string, coordinate: Coordinate, source?: string): void {
+    const prior = this.slugOwners.get(slug);
+    if (prior !== undefined && prior !== coordinate) {
+      this.error(
+        `pages "${prior}" and "${coordinate}" both map to the route slug "${slug || "(index)"}". ` +
+          `Rename one operation, schema, tag, or webhook so their URLs stay distinct.`,
+        coordinate,
+        source,
+      );
+      return;
+    }
+    this.slugOwners.set(slug, coordinate);
   }
 
   /** Emit the shadowing warning for a legal-but-prefix-shaped body property. */

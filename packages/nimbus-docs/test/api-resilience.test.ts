@@ -17,7 +17,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { parseOpenApi } from "../src/_internal/api/parse.js";
-import { ApiBuildError } from "../src/api/index.js";
+import {
+  ApiBuildError,
+  buildApiModel,
+  getApiPageProps,
+  getApiPageSlugs,
+  renderApiPageMarkdown,
+} from "../src/api/index.js";
 
 function fixtureText(rel: string): string {
   return readFileSync(fileURLToPath(new URL(`./fixtures/api/${rel}`, import.meta.url)), "utf8");
@@ -79,6 +85,344 @@ describe("api resilience — deviant renders + warns", () => {
     assert.ok(
       warnings.some((w) => w.includes("[nimbus:api:dev]") && /deviates from OpenAPI/i.test(w)),
       `expected a surfaced warning line; saw:\n${warnings.join("\n")}`,
+    );
+  });
+});
+
+describe("api resilience — a non-string security scope renders, never crashes", () => {
+  // A deviant spec whose `security` scope array mixes a NON-string entry (a
+  // number) with a real scope. OpenAPI says scopes are strings; a real-world
+  // spec that violates that must still render (the number is dropped), never
+  // crash the build via `inlineCode(...).replace(...)` on a non-string.
+  const mixedScopeSpec = JSON.stringify({
+    openapi: "3.0.3",
+    info: { title: "Mixed scopes", version: "1.0.0" },
+    components: {
+      securitySchemes: {
+        oauth: {
+          type: "oauth2",
+          flows: {
+            clientCredentials: {
+              tokenUrl: "https://example.com/oauth/token",
+              scopes: { read: "Read access" },
+            },
+          },
+        },
+      },
+    },
+    paths: {
+      "/widgets": {
+        get: {
+          operationId: "listWidgets",
+          security: [{ oauth: [1, "read"] }],
+          responses: { "200": { description: "A list of widgets." } },
+        },
+      },
+    },
+  });
+
+  test("building the model does not throw on a mixed-type scope array", async () => {
+    await assert.doesNotReject(() =>
+      buildApiModel({ collection: "mixed", spec: mixedScopeSpec, label: "mixed.json" }),
+    );
+  });
+
+  test("the deviating operation renders, dropping the non-string scope", async () => {
+    const model = await buildApiModel({
+      collection: "mixed",
+      spec: mixedScopeSpec,
+      label: "mixed.json",
+    });
+
+    // Locate the operation page by kind rather than hard-coding a coordinate.
+    let opCoordinate: string | undefined;
+    for (const { coordinate } of getApiPageSlugs(model)) {
+      if (getApiPageProps(model, coordinate).kind === "operation") {
+        opCoordinate = coordinate;
+        break;
+      }
+    }
+    assert.ok(opCoordinate, "the operation page exists");
+
+    const props = getApiPageProps(model, opCoordinate);
+    assert.equal(props.kind, "operation");
+
+    // The crash path: rendering markdown must not throw. Before the fix, the
+    // number `1` reached `inlineCode(...).replace(...)` → TypeError.
+    let markdown = "";
+    assert.doesNotThrow(() => {
+      markdown = renderApiPageMarkdown(props);
+    });
+
+    // The number was filtered out; only the string scope survives.
+    if (props.kind === "operation") {
+      const scopes = props.auth.flat().flatMap((a) => a.scopes);
+      assert.deepEqual(scopes, ["read"], "the non-string scope was dropped");
+    }
+
+    assert.ok(markdown.length > 0, "markdown is non-empty");
+    assert.ok(markdown.includes("read"), "markdown surfaces the surviving scope");
+  });
+});
+
+describe("api resilience — non-string security scheme fields render, never crash", () => {
+  // Sibling to the scope case: a scheme whose scalar metadata violates the
+  // spec (`type: 123`, `in: 7`) must not reach the markdown twin as a non-string
+  // where `inlineText(...).replace(...)` would throw. The bogus values are
+  // dropped; a valid neighbour survives.
+  const badSchemeSpec = JSON.stringify({
+    openapi: "3.0.3",
+    info: { title: "Bad scheme", version: "1.0.0" },
+    components: {
+      securitySchemes: {
+        bad: { type: 123, in: 7, name: {}, scheme: [] },
+        good: { type: "apiKey", in: "header", name: "X-Key" },
+      },
+    },
+    paths: {
+      "/widgets": {
+        get: {
+          operationId: "listWidgets",
+          security: [{ bad: [] }, { good: [] }],
+          responses: { "200": { description: "A list of widgets." } },
+        },
+      },
+    },
+  });
+
+  test("a scheme with non-string scalar fields does not crash markdown rendering", async () => {
+    const model = await buildApiModel({ collection: "badscheme", spec: badSchemeSpec, label: "badscheme.json" });
+    let opCoordinate: string | undefined;
+    for (const { coordinate } of getApiPageSlugs(model)) {
+      if (getApiPageProps(model, coordinate).kind === "operation") {
+        opCoordinate = coordinate;
+        break;
+      }
+    }
+    assert.ok(opCoordinate, "the operation page exists");
+    const props = getApiPageProps(model, opCoordinate);
+
+    let markdown = "";
+    assert.doesNotThrow(() => {
+      markdown = renderApiPageMarkdown(props);
+    });
+    assert.ok(markdown.length > 0, "markdown is non-empty");
+    // The valid neighbour's string metadata survives; the bogus scheme
+    // contributes no non-string that could have thrown.
+    assert.ok(markdown.includes("apiKey"), "the well-formed scheme still renders");
+  });
+});
+
+describe("api resilience — two pages that collide on a route slug are fatal", () => {
+  const collidingSpec = JSON.stringify({
+    openapi: "3.0.3",
+    info: { title: "Collide", version: "1.0.0" },
+    paths: {
+      "/users": {
+        get: { operationId: "schemas/User", responses: { "200": { description: "ok" } } },
+      },
+    },
+    components: { schemas: { User: { type: "object", properties: { id: { type: "string" } } } } },
+  });
+
+  test("colliding slugs fail at buildApiModel with a pointed error", async () => {
+    await assert.rejects(
+      () => buildApiModel({ collection: "collide", spec: collidingSpec, label: "collide.json" }),
+      (err: unknown) => err instanceof ApiBuildError && /map to the route slug/.test(String(err)),
+    );
+  });
+});
+
+describe("api resilience — malformed operationId/tag recovers, never crashes the walk", () => {
+  const badMetaSpec = JSON.stringify({
+    openapi: "3.0.3",
+    info: { title: "Bad meta", version: "1.0.0" },
+    paths: {
+      "/widgets": { get: { operationId: 7, tags: [42], responses: { "200": { description: "ok" } } } },
+    },
+  });
+
+  test("a non-string operationId and tag build without throwing", async () => {
+    const model = await buildApiModel({ collection: "badmeta", spec: badMetaSpec, label: "badmeta.json" });
+    for (const { coordinate } of getApiPageSlugs(model)) {
+      const props = getApiPageProps(model, coordinate);
+      assert.doesNotThrow(() => renderApiPageMarkdown(props), `page "${coordinate}" renders`);
+    }
+  });
+});
+
+describe("api resilience — non-string authored text fields render, never crash", () => {
+  const badTextSpec = JSON.stringify({
+    openapi: "3.0.3",
+    info: { title: 42, version: 1, description: { nested: true } },
+    paths: {
+      "/widgets": {
+        get: {
+          operationId: "listWidgets",
+          summary: 7,
+          description: [1, 2],
+          parameters: [{ name: "q", in: "query", description: 9, schema: { type: "string" } }],
+          responses: {
+            "200": {
+              description: 123,
+              content: { "application/json": { schema: { type: "object", properties: { id: { type: "string", description: {} } } } } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  test("a spec riddled with non-string text fields renders every page without throwing", async () => {
+    const model = await buildApiModel({ collection: "badtext", spec: badTextSpec, label: "badtext.json" });
+    for (const { coordinate } of getApiPageSlugs(model)) {
+      const props = getApiPageProps(model, coordinate);
+      assert.doesNotThrow(() => renderApiPageMarkdown(props), `page "${coordinate}" renders`);
+    }
+  });
+
+  test("a numeric info.version is stringified, not dropped", async () => {
+    const model = await buildApiModel({ collection: "numver", spec: badTextSpec, label: "numver.json" });
+    const root = getApiPageProps(model, "numver");
+    assert.equal(root.kind, "api");
+    if (root.kind === "api") assert.equal(root.version, "1");
+  });
+});
+
+describe("api resilience — a route-hostile author identity is fatal", () => {
+  // A spec-legal `operationId`/schema name/tag can still be hostile to the URL
+  // route its slug becomes: a `..` traversal segment escapes the `/api` mount,
+  // and a delimiter/control char (`#`, `?`, `\`, a tab) either terminates the
+  // path (query/fragment) or is invalid raw. The slug is emitted into hrefs and
+  // static-path routes UNENCODED, so the right response is a pointed build error
+  // asking the author to rename — not a silently mangled URL.
+  function specWithOperationId(operationId: string): string {
+    return JSON.stringify({
+      openapi: "3.0.3",
+      info: { title: "Hostile", version: "1.0.0" },
+      paths: {
+        "/widgets": {
+          get: { operationId, responses: { "200": { description: "ok" } } },
+        },
+      },
+    });
+  }
+
+  test("an operationId with a `..` traversal segment fails with a pointed error", async () => {
+    await assert.rejects(
+      () => buildApiModel({ collection: "hostile", spec: specWithOperationId("../admin"), label: "hostile.json" }),
+      (err: unknown) => {
+        assert.ok(err instanceof ApiBuildError, "throws the named build error");
+        assert.ok(
+          err.diagnostics.some((d) => d.level === "error" && /route|path segment|escape/i.test(d.message)),
+          "the error names the route-safety fault",
+        );
+        return true;
+      },
+    );
+  });
+
+  test("a benign dotted operationId (e.g. users.list) is still allowed", async () => {
+    // Dots INSIDE a segment are legal (rule 3); only a `.`/`..`/empty SEGMENT is
+    // rejected. Guards against over-rejecting normal identifiers.
+    await assert.doesNotReject(() =>
+      buildApiModel({ collection: "dotted", spec: specWithOperationId("users.list"), label: "dotted.json" }),
+    );
+  });
+
+  test("an operationId with a URL delimiter (`#`) is fatal", async () => {
+    // `foo#bar` renders href `/api/foo#bar`, where `#bar` is a fragment, not
+    // part of the route — the delimiter must be rejected, not emitted raw.
+    await assert.rejects(
+      () => buildApiModel({ collection: "hash", spec: specWithOperationId("foo#bar"), label: "hash.json" }),
+      (err: unknown) => {
+        assert.ok(err instanceof ApiBuildError, "throws the named build error");
+        assert.ok(
+          err.diagnostics.some((d) => d.level === "error" && /#|delimiter|unsafe/i.test(d.message)),
+          "the error names the delimiter fault",
+        );
+        return true;
+      },
+    );
+  });
+
+  function specWithSchemaName(name: string): string {
+    return JSON.stringify({
+      openapi: "3.0.3",
+      info: { title: "Hostile schema", version: "1.0.0" },
+      paths: {},
+      components: { schemas: { [name]: { type: "object", properties: { a: { type: "string" } } } } },
+    });
+  }
+
+  test("a schema name with a traversal segment is fatal", async () => {
+    await assert.rejects(
+      () => buildApiModel({ collection: "hostileschema", spec: specWithSchemaName("../secret"), label: "hostileschema.json" }),
+      (err: unknown) => err instanceof ApiBuildError,
+    );
+  });
+
+  test("a schema name with a backslash is fatal (would need mangling to route safely)", async () => {
+    // Backslash isn't a path separator, but it's invalid raw in a URL segment
+    // and the slug is emitted unencoded — reject rather than silently escape.
+    await assert.rejects(
+      () => buildApiModel({ collection: "bs", spec: specWithSchemaName("Trail\\"), label: "bs.json" }),
+      (err: unknown) => err instanceof ApiBuildError,
+    );
+  });
+
+  test("a schema name with a control character (tab) is fatal", async () => {
+    await assert.rejects(
+      () => buildApiModel({ collection: "tab", spec: specWithSchemaName("Tab\tX"), label: "tab.json" }),
+      (err: unknown) => err instanceof ApiBuildError,
+    );
+  });
+
+  test("a percent-encoded traversal (`%2e%2e/admin`) is fatal, not just literal `..`", async () => {
+    await assert.rejects(
+      () => buildApiModel({ collection: "pct", spec: specWithOperationId("%2e%2e/admin"), label: "pct.json" }),
+      (err: unknown) => err instanceof ApiBuildError,
+    );
+  });
+
+  test("a mixed-case percent-encoded traversal (`%2E%2E`) is fatal", async () => {
+    await assert.rejects(
+      () => buildApiModel({ collection: "pctmix", spec: specWithOperationId("%2E%2E/admin"), label: "pctmix.json" }),
+      (err: unknown) => err instanceof ApiBuildError,
+    );
+  });
+
+  test("a fallback path with a percent-encoded traversal is fatal", async () => {
+    const spec = JSON.stringify({
+      openapi: "3.0.3",
+      info: { title: "Encoded path", version: "1.0.0" },
+      paths: { "/%2e%2e/admin": { get: { responses: { "200": { description: "ok" } } } } },
+    });
+    await assert.rejects(
+      () => buildApiModel({ collection: "encpath", spec, label: "encpath.json" }),
+      (err: unknown) => err instanceof ApiBuildError,
+    );
+  });
+
+  test("a missing-operationId fallback on a route-hostile path is fatal", async () => {
+    // The fallback coordinate embeds the raw path, so `/../../admin` would
+    // become slug `GET /../../admin` and escape the mount — the fallback must
+    // face the same route check as an authored identity.
+    const spec = JSON.stringify({
+      openapi: "3.0.3",
+      info: { title: "Hostile path", version: "1.0.0" },
+      paths: { "/../../admin": { get: { responses: { "200": { description: "ok" } } } } },
+    });
+    await assert.rejects(
+      () => buildApiModel({ collection: "hostilepath", spec, label: "hostilepath.json" }),
+      (err: unknown) => {
+        assert.ok(err instanceof ApiBuildError, "throws the named build error");
+        assert.ok(
+          err.diagnostics.some((d) => d.level === "error" && /route|path segment|escape/i.test(d.message)),
+          "the error names the route-safety fault",
+        );
+        return true;
+      },
     );
   });
 });

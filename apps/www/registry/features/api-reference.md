@@ -56,8 +56,9 @@ if the user only has a URL, have them save it into the repo first.
 ### Q2. Confirm the collection name + URL prefix (default: `api`).
 
 The collection name doubles as the URL prefix, so `api` mounts the reference at
-`/api`. It **must** be lowercase `a-z0-9-_`, must not collide with an existing
-collection, and must not be `docs` or `partials` (reserved). This recipe writes
+`/api`. It **must** be lowercase letters, digits, and dashes (`a-z0-9-`), must
+not collide with an existing collection, and must not be `docs` or `partials`
+(reserved). This recipe writes
 its routes under `src/pages/<collection>/` — substitute your chosen name for
 `api` everywhere below if it differs.
 
@@ -269,6 +270,13 @@ response-example status toggle), rendering any page
 kind — operation, schema, section, or the root overview. Everything it draws is
 pre-resolved on the view-model; the components hold only the look.
 
+`getApiPage` also returns the page's versioning identity — `collection`,
+`version`, and `coordinate`. Threading them into `NimbusHead` emits the
+canonical + cross-version alternates on the coordinate axis, and into
+`ApiLayout` lights up the version picker and the deprecated-version banner. A
+single-version spec returns `version: null`, so both features stay dormant with
+no extra wiring.
+
 `ApiLayout` renders the three-column region, not the document shell — the page
 supplies `<html>`/`<head>` and the site stylesheet, and a header of height
 `3.5rem` so the layout's `sticky top-14` offsets line up. If your site already has
@@ -277,9 +285,11 @@ instead of the standalone shell below — and omit the shell's `codeCopy()`
 `<script>` if that base layout already calls it (`BaseLayout` does), since two
 `codeCopy()` calls stack a second copy button on every code block.
 
-At `< lg` the nav lives in a left-slide drawer that `ApiLayout` opens from a
+At `< md` the nav lives in a left-slide drawer that `ApiLayout` opens from a
 trigger marked `data-menu-btn` — without one, the API reference has no mobile
-navigation. The standalone shell below includes a `lg:hidden` hamburger for this;
+navigation (`ApiLayout` switches to the desktop sidebar at `md` and closes the
+drawer at that same breakpoint, so the trigger must hide there too). The
+standalone shell below includes a `md:hidden` hamburger for this;
 if you mount `ApiLayout` in your own base layout instead, render that layout's
 menu trigger on the API route (in a `create-nimbus-docs` starter, pass
 `<Header showSidebar />`). The starter's `globals.css` already hides a stray
@@ -292,12 +302,18 @@ Write `src/pages/api/[...slug].astro`:
 ---
 import "@/styles/globals.css";
 import { getApiStaticPaths, getApiPage } from "@cloudflare/nimbus-docs";
+import NimbusHead from "@cloudflare/nimbus-docs/components/NimbusHead.astro";
 import { ApiLayout } from "@/components/ui/api-layout";
 
 export const prerender = true;
 export const getStaticPaths = getApiStaticPaths("api");
 
-const { page, nav } = await getApiPage(Astro);
+// `getApiPage` returns the page + nav plus the versioning identity
+// (`collection`/`version`/`coordinate`) — thread it into both NimbusHead (for
+// canonical + cross-version alternates on the coordinate axis) and ApiLayout
+// (for the version picker + deprecated-version banner). For an unversioned
+// spec `version` is null and both features stay dormant.
+const { page, nav, collection, version, coordinate } = await getApiPage(Astro);
 ---
 
 <!doctype html>
@@ -305,8 +321,14 @@ const { page, nav } = await getApiPage(Astro);
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{page.title} · API</title>
-    <link rel="alternate" type="text/markdown" href={page.markdownHref} />
+    <NimbusHead
+      title={`${page.title} · API`}
+      description={page.description}
+      markdownUrl={page.markdownHref}
+      collection={collection}
+      apiVersion={version ?? undefined}
+      coordinate={coordinate}
+    />
   </head>
   <body class="bg-background text-foreground antialiased">
     <header class="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-border bg-background/80 px-6 backdrop-blur">
@@ -314,7 +336,7 @@ const { page, nav } = await getApiPage(Astro);
         type="button"
         data-menu-btn
         aria-label="Open navigation"
-        class="-ml-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent lg:hidden"
+        class="-ml-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent md:hidden"
       >
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
           <path d="M3 6h18M3 12h18M3 18h18" />
@@ -322,7 +344,7 @@ const { page, nav } = await getApiPage(Astro);
       </button>
       <a href="/api" class="font-mono text-sm font-semibold no-underline">{nav.collection}</a>
     </header>
-    <ApiLayout page={page} nav={nav} />
+    <ApiLayout page={page} nav={nav} collection={collection} version={version} coordinate={coordinate} />
   </body>
 </html>
 

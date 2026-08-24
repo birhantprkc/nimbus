@@ -124,6 +124,38 @@ describe("derived example + code samples", () => {
     assert.deepEqual(page.samples, [{ lang: "go", label: "Go", source: "client.Ping(ctx)" }]);
   });
 
+  test("duplicate x-codeSamples langs collapse first-wins so the picker stays coherent", async () => {
+    // The rail's language <select> keys panels by lang; two `python` entries
+    // would emit two options with the same value and reveal both panels at once.
+    const spec = {
+      ...baseSpec,
+      paths: {
+        "/ping": {
+          get: {
+            operationId: "ping",
+            "x-codeSamples": [
+              { lang: "python", label: "Python (requests)", source: "requests.get()" },
+              { lang: "python", label: "Python (httpx)", source: "httpx.get()" },
+              { lang: "go", label: "Go", source: "client.Ping(ctx)" },
+            ],
+            responses: { "200": { description: "ok" } },
+          },
+        },
+      },
+    };
+    const page = await operationPage(spec, "ping");
+    assert.deepEqual(
+      page.samples.map((s) => s.lang),
+      ["python", "go"],
+      "one entry per language, first-wins",
+    );
+    assert.equal(
+      page.samples.find((s) => s.lang === "python").label,
+      "Python (requests)",
+      "the first python snippet survives",
+    );
+  });
+
   test("a bodyless operation still yields samples but no example", async () => {
     const spec = {
       ...baseSpec,
@@ -261,6 +293,42 @@ describe("resilience — best-effort, never fatal", () => {
     });
     const basicCurl = basic.find((s) => s.lang === "curl");
     assert.match(basicCurl.source, /Authorization: Basic <token>/);
+  });
+
+  test("an empty security alternative wins: OR-of-AND means no credentials", async () => {
+    const tools = await loadSampleTools();
+    assert.ok(tools, "sample tools resolve — assertion is meaningful, not skipped");
+
+    // security: [{}, { apiKey: [] }] — anonymous is a valid (and simplest) call,
+    // so the sample must NOT inject the apiKey header even though a scheme exists.
+    const out = buildOperationSamples(tools, {
+      method: "get",
+      path: "/x",
+      auth: [[], [{ scheme: "apiKey", scopes: [] }]],
+      securitySchemes: { apiKey: { type: "apiKey", in: "header", name: "X-Api-Key" } },
+      params: [],
+    });
+    const curl = out.find((s) => s.lang === "curl");
+    assert.ok(curl, "curl sample present");
+    assert.doesNotMatch(curl.source, /X-Api-Key/i, "no apiKey header for an anonymous-allowed op");
+    assert.doesNotMatch(curl.source, /<value>/, "no credential placeholder injected");
+  });
+
+  test("no empty alternative: the credential IS injected (auth not disabled wholesale)", async () => {
+    const tools = await loadSampleTools();
+    assert.ok(tools);
+
+    // security: [{ apiKey: [] }] — required, no anonymous fallback → header present.
+    const out = buildOperationSamples(tools, {
+      method: "get",
+      path: "/x",
+      auth: [[{ scheme: "apiKey", scopes: [] }]],
+      securitySchemes: { apiKey: { type: "apiKey", in: "header", name: "X-Api-Key" } },
+      params: [],
+    });
+    const curl = out.find((s) => s.lang === "curl");
+    assert.ok(curl, "curl sample present");
+    assert.match(curl.source, /X-Api-Key: <value>/, "required apiKey still injected");
   });
 
   test("the markdown twin neutralizes a hostile x-codeSamples lang", async () => {
