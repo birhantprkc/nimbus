@@ -109,6 +109,16 @@ class ModelView {
   }
 }
 
+const viewCache = new WeakMap<DocsModel, ModelView>();
+function viewOf(model: DocsModel): ModelView {
+  let view = viewCache.get(model);
+  if (!view) {
+    view = new ModelView(model);
+    viewCache.set(model, view);
+  }
+  return view;
+}
+
 const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
 
 /** RFC 4648 base32 (lowercase, unpadded) of a string's UTF-16 code units, two
@@ -555,7 +565,7 @@ export function projectPageProps(
   model: DocsModel,
   coordinate: Coordinate,
 ): ApiPageProps {
-  return projectPageWithView(new ModelView(model), coordinate);
+  return projectPageWithView(viewOf(model), coordinate);
 }
 
 // A `ModelView` indexes every node's children up front, so building one per page
@@ -679,7 +689,7 @@ function projectNavBase(model: DocsModel): ApiNavItem[] {
   const cached = navBaseCache.get(model);
   if (cached) return cached;
 
-  const view = new ModelView(model);
+  const view = viewOf(model);
   const toItem = (nav: NavNode): ApiNavItem => {
     const node = view.node(nav.coordinate);
     const item: ApiNavItem = {
@@ -715,7 +725,7 @@ export function projectNav(
     return { apiSchemaVersion, collection: model.collection, items: base };
   }
 
-  const ancestors = ancestorsOf(new ModelView(model), activeCoordinate);
+  const ancestors = ancestorsOf(viewOf(model), activeCoordinate);
   const onPath = new Set<Coordinate>(ancestors);
   onPath.add(activeCoordinate);
 
@@ -822,7 +832,7 @@ export function fieldCitations(
 ): Array<{ coordinate: string; slug: string; anchor: string }> {
   const out: Array<{ coordinate: string; slug: string; anchor: string }> = [];
   const seen = new Set<string>();
-  const view = new ModelView(model);
+  const view = viewOf(model);
   for (const pageCoord of model.pages.pages) {
     const slug = model.pages.slugs.get(pageCoord) ?? "";
     for (const root of pageFieldRoots(projectPageWithView(view, pageCoord))) {
