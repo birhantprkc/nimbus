@@ -283,6 +283,16 @@ export class SchemaResolver {
     return content ? primaryMediaSchema(content) : undefined;
   }
 
+  /** The raw (ref-preserving) schema for one specific media type of a body/
+   *  response holder — the additional-media counterpart to `rawContentSchema`. */
+  rawMediaSchema(holder: unknown, mediaType: string): OpenApiSchema | undefined {
+    const resolved = this.rawDeref(holder as OpenApiSchema | undefined);
+    const content = isPlainObject(resolved)
+      ? (resolved.content as Record<string, { schema?: OpenApiSchema }> | undefined)
+      : undefined;
+    return content?.[mediaType]?.schema;
+  }
+
   private unionOf(schema: OpenApiSchema | undefined): UnionShape | undefined {
     if (!schema) return undefined;
     const folded = foldAllOf(schema);

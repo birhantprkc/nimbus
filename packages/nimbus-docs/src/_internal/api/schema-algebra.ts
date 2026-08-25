@@ -122,17 +122,48 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** The one media selection rule: `application/json` if it carries a schema, else
- *  the first declared media. Every other media accessor derives from this so the
- *  schema, the media type, and the example never disagree about which media won. */
+const MEDIA_PRECEDENCE = [
+  "application/json",
+  "application/x-www-form-urlencoded",
+  "multipart/form-data",
+];
+
+function mediaRank(mediaType: string): number {
+  const m = mediaType.toLowerCase();
+  const i = MEDIA_PRECEDENCE.indexOf(m);
+  if (i !== -1) return i;
+  if (m.startsWith("text/")) return MEDIA_PRECEDENCE.length;
+  return MEDIA_PRECEDENCE.length + 1;
+}
+
+/** Every media entry of a `content` map in a deterministic, declaration-order-
+ *  INDEPENDENT order: schema-bearing first, then a fixed media precedence, then
+ *  media type lexically. So which media "wins" never depends on spec key order —
+ *  the coordinate a body field owns stays stable across author reorderings. */
+export function orderedMediaEntries(
+  content: Record<string, OpenApiMediaType> | undefined,
+): Array<{ mediaType: string; media: OpenApiMediaType }> {
+  if (!content) return [];
+  return Object.entries(content)
+    .map(([mediaType, media]) => ({ mediaType, media }))
+    .sort((a, b) => {
+      const sa = a.media.schema ? 0 : 1;
+      const sb = b.media.schema ? 0 : 1;
+      if (sa !== sb) return sa - sb;
+      const ra = mediaRank(a.mediaType);
+      const rb = mediaRank(b.mediaType);
+      if (ra !== rb) return ra - rb;
+      return a.mediaType < b.mediaType ? -1 : a.mediaType > b.mediaType ? 1 : 0;
+    });
+}
+
+/** The primary media type — the first of `orderedMediaEntries`. Every other media
+ *  accessor derives from this so the schema, the media type, and the example never
+ *  disagree about which media won. */
 export function primaryMediaEntry(
   content: Record<string, OpenApiMediaType> | undefined,
 ): { mediaType: string; media: OpenApiMediaType } | undefined {
-  if (!content) return undefined;
-  const json = content["application/json"];
-  if (json?.schema) return { mediaType: "application/json", media: json };
-  const first = Object.entries(content)[0];
-  return first ? { mediaType: first[0], media: first[1] } : undefined;
+  return orderedMediaEntries(content)[0];
 }
 
 export function primaryMediaSchema(

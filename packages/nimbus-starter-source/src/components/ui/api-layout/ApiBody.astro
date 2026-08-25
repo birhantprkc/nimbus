@@ -16,6 +16,7 @@ import { Banner } from "@/components/ui/banner";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ApiFieldList, ApiUnionExplorer } from "@/components/ui/api-field-row";
 import { PageActions } from "@/components/ui/page-actions";
+import Code from "@/components/ui/code/Code.astro";
 import ApiEndpointCard from "./ApiEndpointCard.astro";
 import { authFields } from "./auth";
 import { cn } from "@/lib/cn";
@@ -29,6 +30,16 @@ interface Props {
 const { page } = Astro.props;
 
 const detail = (v: unknown): string => JSON.stringify(v);
+
+const mediaBadge = (mediaType: string): string =>
+  (mediaType.split("/").pop() ?? mediaType).toUpperCase();
+
+const exampleCode = (e: { mediaType: string; value: unknown }): string =>
+  typeof e.value === "string" && !e.mediaType.includes("json")
+    ? e.value
+    : JSON.stringify(e.value, null, 2);
+const exampleLang = (e: { mediaType: string }): "json" | "text" =>
+  e.mediaType.includes("json") ? "json" : "text";
 
 // HTTP status (or a range like "4XX") → semantic text colour: 2xx success, 3xx
 // info, 4xx/5xx danger, else neutral. Keyed on the leading digit so ranges and
@@ -99,12 +110,33 @@ const deprecationHtml = page.deprecated
       ))}
 
       {page.bodyUnion ? (
-        <ApiFieldList as="h2" title="Request body" badge="JSON" collapsible>
+        <ApiFieldList as="h2" title="Request body" badge={mediaBadge(page.bodyMediaType ?? "application/json")} collapsible>
           <ApiUnionExplorer union={page.bodyUnion} />
         </ApiFieldList>
       ) : page.body.length > 0 ? (
-        <ApiFieldList as="h2" title="Request body" badge="JSON" fields={page.body} truncated={page.bodyTruncated} />
+        <ApiFieldList as="h2" title="Request body" badge={mediaBadge(page.bodyMediaType ?? "application/json")} fields={page.body} truncated={page.bodyTruncated} />
       ) : null}
+
+      {page.additionalBodies?.map((body) => (
+        <section id={body.anchor} class="scroll-mt-24">
+          <div class="mb-2 flex items-center gap-2">
+            <h2 class="text-sm font-normal text-muted-foreground" aria-label={`Request body (${body.mediaType})`}>Request body</h2>
+            <span class="font-mono text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{mediaBadge(body.mediaType)}</span>
+          </div>
+          {body.union ? (
+            <ApiFieldList collapsible>
+              <ApiUnionExplorer union={body.union} />
+            </ApiFieldList>
+          ) : body.fields.length > 0 ? (
+            <ApiFieldList fields={body.fields} truncated={body.truncated} />
+          ) : null}
+          {body.example && (
+            <div class="mt-2 overflow-hidden rounded-lg bg-card ring ring-border">
+              <Code code={exampleCode(body.example)} lang={exampleLang(body.example)} />
+            </div>
+          )}
+        </section>
+      ))}
 
       {page.responses.length > 0 && (
         <section class="scroll-mt-24">

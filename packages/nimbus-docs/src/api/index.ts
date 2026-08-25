@@ -47,6 +47,7 @@ export type {
   ApiAuthView,
   ApiCodeSampleView,
   ApiExampleView,
+  ApiRequestBodyView,
   ApiResponseView,
   ApiBreadcrumb,
   ApiRef,

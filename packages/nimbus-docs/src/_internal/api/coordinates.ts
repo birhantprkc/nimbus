@@ -97,6 +97,20 @@ export function bodyFieldCoordinate(op: Coordinate, path: string): Coordinate {
   return joinPath(op, path);
 }
 
+/** Non-primary media body node = `<op>.<mediaToken>` (primary keeps rule 1's short form). */
+export function bodyMediaCoordinate(op: Coordinate, mediaToken: string): Coordinate {
+  return joinPath(op, mediaToken);
+}
+
+/** Field of a non-primary media body = `<op>.<mediaToken>.<dotted path>`. */
+export function bodyMediaFieldCoordinate(
+  op: Coordinate,
+  mediaToken: string,
+  path: string,
+): Coordinate {
+  return joinPath(op, mediaToken, path);
+}
+
 /** Parameter = `<op>.<location>.<name>`. */
 export function parameterCoordinate(
   op: Coordinate,
@@ -224,6 +238,17 @@ export function tagRouteSegment(tag: string): string {
 /** True when a top-level body property name reads like a coordinate prefix. */
 export function isShadowingBodyProperty(name: string): boolean {
   return SHADOWING_NAMES.has(name);
+}
+
+/** URL/coordinate-safe token for a media type (lowercased, non-alphanumerics
+ *  collapsed to `-`); an empty projection falls back to a deterministic hash.
+ *  Two media types that collapse to one token are caught by `registerSlug`. */
+export function mediaTypeToken(mediaType: string): string {
+  const cleaned = mediaType
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return cleaned === "" ? `media-${fnv1a36(mediaType)}` : cleaned;
 }
 
 // --- The registry -------------------------------------------------------------

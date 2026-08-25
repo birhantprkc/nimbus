@@ -306,13 +306,29 @@ export function renderApiPageMarkdown(props: ApiPageProps): string {
       for (const group of props.parameters) {
         renderFieldSection(group.label, group.fields, out, group.truncated);
       }
+      const hasAdditional = (props.additionalBodies?.length ?? 0) > 0;
+      const bodyHeading =
+        hasAdditional && props.bodyMediaType
+          ? `Request body (${props.bodyMediaType})`
+          : "Request body";
       if (props.bodyUnion) {
-        out.push("## Request body", "");
+        out.push(`## ${bodyHeading}`, "");
         renderUnion(props.bodyUnion, out);
       } else {
-        renderFieldSection("Request body", props.body, out, props.bodyTruncated);
+        renderFieldSection(bodyHeading, props.body, out, props.bodyTruncated);
       }
       if (props.example) renderExample("## Example request", props.example, out);
+      for (const body of props.additionalBodies ?? []) {
+        out.push(`## Request body (${body.mediaType})`, "");
+        if (body.union) {
+          renderUnion(body.union, out);
+        } else {
+          for (const field of body.fields) renderField(field, 0, out);
+          if (body.truncated) renderOmitted(body.truncated.total, body.fields.length, out);
+          if (body.fields.length > 0) out.push("");
+        }
+        if (body.example) renderExample("### Example", body.example, out);
+      }
       if (props.samples.length > 0) {
         out.push("## Code samples", "");
         for (const sample of props.samples) {

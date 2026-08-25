@@ -15,6 +15,7 @@ import type {
   NodeKind,
   OperationFacts,
   ParameterFacts,
+  RequestBodyFacts,
   ResponseFacts,
   ScalarShape,
   SchemaFacts,
@@ -37,6 +38,7 @@ import {
   type ApiPageProps,
   type ApiParamGroup,
   type ApiRef,
+  type ApiRequestBodyView,
   type ApiResponseView,
   type ApiRootPage,
   type ApiScalarView,
@@ -491,6 +493,29 @@ function deriveHeaderName(scheme: SecuritySchemeFacts | undefined): string | und
   return undefined;
 }
 
+function additionalBodyViews(view: ModelView, opCoord: Coordinate): ApiRequestBodyView[] {
+  const nodes = view.childrenOf(opCoord).filter((n) => n.kind === "requestBody");
+  const out: ApiRequestBodyView[] = [];
+  for (const node of nodes) {
+    const f = node.facts as RequestBodyFacts;
+    const bounded = boundFields(topLevelFields(view, node.id));
+    const union = f.union ? unionView(view, f.union, true) : undefined;
+    const exampleValue = f.example ? jsonOrOmit(f.example.value) : undefined;
+    const body: ApiRequestBodyView = {
+      mediaType: f.mediaType,
+      anchor: coordinateAnchor(`requestBody-${leafName(node.id)}`),
+      fields: bounded.fields,
+    };
+    if (bounded.truncated) body.truncated = { total: bounded.total };
+    if (union) body.union = union;
+    if (f.example && exampleValue !== undefined) {
+      body.example = { mediaType: f.example.mediaType, value: exampleValue };
+    }
+    out.push(body);
+  }
+  return out;
+}
+
 function responseViews(view: ModelView, opCoord: Coordinate): ApiResponseView[] {
   const responses = view.childrenOf(opCoord).filter((n) => n.kind === "response");
   return responses.map((node) => {
@@ -602,6 +627,9 @@ function projectPageWithView(
         if (value !== undefined) page.example = { mediaType: f.example.mediaType, value };
       }
       if (f.bodyUnion) page.bodyUnion = unionView(view, f.bodyUnion, true);
+      if (f.bodyMediaType) page.bodyMediaType = f.bodyMediaType;
+      const additionalBodies = additionalBodyViews(view, node.id);
+      if (additionalBodies.length > 0) page.additionalBodies = additionalBodies;
       if (f.server) page.server = f.server.replace(/\/+$/, "");
       if (webhookKey !== undefined) page.isWebhook = true;
       if (f.deprecated) page.deprecated = true;
@@ -806,6 +834,11 @@ function pageFieldRoots(page: ApiPageProps): ApiFieldView[] {
   if (page.kind === "operation") {
     const roots: ApiFieldView[] = [...page.parameters.flatMap((g) => g.fields)];
     if (!page.bodyUnion) roots.push(...page.body);
+    // Each additional media body renders `fields` XOR its union explorer, same as
+    // the primary — so a multipart field is a live anchor, not a dead fragment.
+    for (const b of page.additionalBodies ?? []) {
+      if (!b.union) roots.push(...b.fields);
+    }
     for (const r of page.responses) {
       roots.push(...(r.headers ?? []));
       if (!r.bodyUnion) roots.push(...r.fields);

@@ -27,6 +27,7 @@ export type NodeKind =
   | "field"
   | "schema"
   | "response"
+  | "requestBody"
   | "errorCode"
   | "change";
 
@@ -80,6 +81,7 @@ export type Facts =
   | FieldFacts
   | SchemaFacts
   | ResponseFacts
+  | RequestBodyFacts
   | ErrorCodeFacts
   | ChangeFacts;
 
@@ -137,6 +139,9 @@ export interface OperationFacts {
    * a discriminated body. Without it the union collapses to an empty body.
    */
   bodyUnion?: UnionShape;
+  /** The primary request body's media type, when the operation has a body — so
+   *  the renderer labels it correctly instead of assuming JSON. */
+  bodyMediaType?: string;
   /** Response children, all statuses. */
   responses: Coordinate[];
   /** Minimal valid request — computed, can't lie. */
@@ -268,6 +273,19 @@ export interface ResponseFacts {
    * top-level `oneOf`/`anyOf` — symmetric with `OperationFacts.bodyUnion`, so a
    * union response renders its variants instead of an empty body section.
    */
+  union?: UnionShape;
+}
+
+/**
+ * A non-primary request-body media type (e.g. a `multipart/form-data` variant
+ * beside the primary JSON body). Its fields are child `field` nodes, exactly as
+ * a response's are — so the whole field→view→citation pipeline is reused. The
+ * primary media type is not one of these; it stays on `OperationFacts`.
+ */
+export interface RequestBodyFacts {
+  kind: "requestBody";
+  mediaType: string;
+  example?: DerivedExample;
   union?: UnionShape;
 }
 

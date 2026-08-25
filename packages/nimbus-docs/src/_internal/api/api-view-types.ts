@@ -144,6 +144,13 @@ export interface ApiOperationPage extends ApiPageBase {
   bodyTruncated?: { total: number };
   /** The body's union shape, when the request body is a top-level `oneOf`/`anyOf`. */
   bodyUnion?: ApiUnionView;
+  /** The primary request body's media type, so the renderer labels it correctly
+   *  instead of assuming JSON. Present when the operation has a request body. */
+  bodyMediaType?: string;
+  /** Request bodies for media types BEYOND the primary (e.g. a `multipart/form-data`
+   *  variant beside JSON). Each renders its own field list/example; the fields are
+   *  fully citable under their own coordinates. Absent for a single-media body. */
+  additionalBodies?: ApiRequestBodyView[];
   responses: ApiResponseView[];
   /** Derived minimal request body, for the request example display. */
   example?: ApiExampleView;
@@ -154,6 +161,18 @@ export interface ApiOperationPage extends ApiPageBase {
 export interface ApiExampleView {
   mediaType: string;
   value: JsonValue;
+}
+
+export interface ApiRequestBodyView {
+  mediaType: string;
+  anchor: string;
+  fields: ApiFieldView[];
+  /** Set only when `fields` hit `FIELD_INLINE_CEILING` (see `ApiParamGroup`). */
+  truncated?: { total: number };
+  /** The body's union shape, when this media type is a top-level `oneOf`/`anyOf`. */
+  union?: ApiUnionView;
+  /** Derived example for this media type, when the engine could resolve one. */
+  example?: ApiExampleView;
 }
 
 export interface ApiCodeSampleView {

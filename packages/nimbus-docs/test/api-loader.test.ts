@@ -158,6 +158,27 @@ describe("apiCollection loader — thin index", () => {
   });
 });
 
+describe("canonical routing — one URL per page, no duplicate or /index alias", () => {
+  test("every page resolves to a unique URL and the root is the bare collection path", () => {
+    const slugs = getApiPageSlugs(smallco);
+    const root = slugs.find((s) => s.slug === "");
+    assert.ok(root, "model exposes an api-root page (empty slug)");
+    const base = getApiPageProps(smallco, root!.coordinate).href;
+    assert.ok(!/\/index$/.test(base), `root URL "${base}" must be the bare collection path, not an /index alias`);
+
+    const hrefs = slugs.map((s) => getApiPageProps(smallco, s.coordinate).href);
+    assert.equal(new Set(hrefs).size, hrefs.length, "two coordinates share a URL — the SEO duplicate a canonical would have to paper over");
+    assert.equal(hrefs.filter((h) => h === base).length, 1, "exactly one page owns the canonical root URL");
+    assert.ok(!hrefs.includes(`${base}/index`), "no page is served at the /index duplicate of the root");
+  });
+
+  test("the root's markdown twin lives at <root>/index.md without minting an HTML /index route", () => {
+    const root = getApiPageSlugs(smallco).find((s) => s.slug === "")!;
+    const props = getApiPageProps(smallco, root.coordinate);
+    assert.equal(props.markdownHref, `${props.href}/index.md`);
+  });
+});
+
 describe("round-trip completeness (pageSlugs ⊆ domain(pageProps))", () => {
   test("every enumerated coordinate projects without throwing, stamped with the schema version", () => {
     const slugs = getApiPageSlugs(smallco);
