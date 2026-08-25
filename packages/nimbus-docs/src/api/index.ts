@@ -17,6 +17,7 @@ import {
   projectNav,
   projectPageProps,
   pageSlugs,
+  fieldCitations,
   indexPages,
   type ApiModel,
   type ApiNav,
@@ -210,6 +211,16 @@ export function getApiPageSlugs(
   model: ApiModel,
 ): Array<{ coordinate: string; slug: string }> {
   return pageSlugs(unwrap(model));
+}
+
+/** Every field coordinate that resolves to a rendered in-page anchor, as
+ *  `{ coordinate, slug, anchor }`. The citation index turns each into
+ *  `<pageUrl>#<anchor>`; fields the renderer omits (truncated/inline) are never
+ *  surfaced. */
+export function getApiFieldCitations(
+  model: ApiModel,
+): Array<{ coordinate: string; slug: string; anchor: string }> {
+  return fieldCitations(unwrap(model));
 }
 
 /** Each page's slug plus display title/description, in one pass. The loader

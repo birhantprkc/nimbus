@@ -21,13 +21,14 @@ interface Props {
   part?: "all" | "signature" | "meta";
   /** False inside a `<summary>` — linked types render as plain colour there. */
   interactive?: boolean;
+  anchored?: boolean;
 }
 
-const { field, part = "all", interactive = true } = Astro.props;
+const { field, part = "all", interactive = true, anchored = true } = Astro.props;
 
 const showSignature = part !== "meta";
 const showMeta = part !== "signature";
-const showAnchor = part === "all" && interactive;
+const showAnchor = part === "all" && interactive && anchored;
 
 const toks = typeTokens(field);
 const preview = hasChildPreview(field);

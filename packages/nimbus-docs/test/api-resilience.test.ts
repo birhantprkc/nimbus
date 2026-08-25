@@ -233,21 +233,67 @@ describe("api resilience — two pages that collide on a route slug are fatal", 
   });
 });
 
-describe("api resilience — malformed operationId/tag recovers, never crashes the walk", () => {
-  const badMetaSpec = JSON.stringify({
+describe("api resilience — a non-string tag recovers; a non-string operationId is fatal", () => {
+  // A non-string TAG degrades (the op parents to the collection root) — a
+  // display-label problem never crashes the walk. A non-string operationId is
+  // different: it yields no stable, routable identity, so it must fail the build
+  // (an operation needs an operationId to get a URL/citation coordinate).
+  const badTagSpec = JSON.stringify({
     openapi: "3.0.3",
-    info: { title: "Bad meta", version: "1.0.0" },
+    info: { title: "Bad tag", version: "1.0.0" },
     paths: {
-      "/widgets": { get: { operationId: 7, tags: [42], responses: { "200": { description: "ok" } } } },
+      "/widgets": { get: { operationId: "listWidgets", tags: [42], responses: { "200": { description: "ok" } } } },
     },
   });
 
-  test("a non-string operationId and tag build without throwing", async () => {
-    const model = await buildApiModel({ collection: "badmeta", spec: badMetaSpec, label: "badmeta.json" });
+  test("a non-string tag recovers (op parents to root) and every page renders", async () => {
+    const model = await buildApiModel({ collection: "badtag", spec: badTagSpec, label: "badtag.json" });
     for (const { coordinate } of getApiPageSlugs(model)) {
       const props = getApiPageProps(model, coordinate);
       assert.doesNotThrow(() => renderApiPageMarkdown(props), `page "${coordinate}" renders`);
     }
+  });
+
+  test("a non-string operationId fails with a pointed error", async () => {
+    const badOpIdSpec = JSON.stringify({
+      openapi: "3.0.3",
+      info: { title: "Bad opId", version: "1.0.0" },
+      paths: {
+        "/widgets": { get: { operationId: 7, responses: { "200": { description: "ok" } } } },
+      },
+    });
+    await assert.rejects(
+      () => buildApiModel({ collection: "badopid", spec: badOpIdSpec, label: "badopid.json" }),
+      (err: unknown) => {
+        assert.ok(err instanceof ApiBuildError, "throws the named build error");
+        assert.ok(
+          err.diagnostics.some((d) => d.level === "error" && /operationId/i.test(d.message)),
+          "the error names the missing/invalid operationId",
+        );
+        return true;
+      },
+    );
+  });
+
+  test("an empty-string operationId fails with a coherent (not self-contradictory) message", async () => {
+    const emptyOpIdSpec = JSON.stringify({
+      openapi: "3.0.3",
+      info: { title: "Empty opId", version: "1.0.0" },
+      paths: {
+        "/widgets": { get: { operationId: "", responses: { "200": { description: "ok" } } } },
+      },
+    });
+    await assert.rejects(
+      () => buildApiModel({ collection: "emptyopid", spec: emptyOpIdSpec, label: "emptyopid.json" }),
+      (err: unknown) => {
+        assert.ok(err instanceof ApiBuildError);
+        assert.ok(
+          err.diagnostics.some((d) => d.level === "error" && /empty operationId/i.test(d.message)),
+          "the error names the empty operationId, not 'non-string (string)'",
+        );
+        return true;
+      },
+    );
   });
 });
 

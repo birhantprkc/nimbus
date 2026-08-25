@@ -153,6 +153,7 @@ function renderField(field: ApiFieldView, depth: number, out: string[]): void {
     if (field.union.discriminator) {
       out.push(`${pad}  - discriminator: ${inlineCode(field.union.discriminator)}`);
     }
+    return;
   }
 
   for (const child of field.children) renderField(child, depth + 1, out);

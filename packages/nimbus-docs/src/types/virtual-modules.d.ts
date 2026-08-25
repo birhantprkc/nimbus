@@ -23,6 +23,15 @@ declare module "virtual:nimbus/config" {
   export const root: string;
 }
 
+declare module "virtual:nimbus/coordinates" {
+  // The coordinate-citation index, keyed `collection:coordinate` /
+  // `collection@version:coordinate` → site-absolute URL. Its own module (not
+  // `virtual:nimbus/config`) so it stays out of the runtime Worker bundle —
+  // imported only by prerendered agent-surface code. See `load-citation-index.ts`.
+  export const coordinates: Record<string, string>;
+  export const manifest: import("../types.js").CoordinatesManifest;
+}
+
 declare module "virtual:nimbus/icons" {
   export type Icon = string;
   export const config: { include: Record<string, string[]> };

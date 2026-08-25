@@ -8,6 +8,7 @@ import {
   responseCoordinate,
   responseFieldCoordinate,
   sectionCoordinate,
+  tagRouteSegment,
 } from "./coordinates.js";
 import {
   HTTP_METHODS,
@@ -65,15 +66,18 @@ function addOperation(
   } else {
     opCoord = fallbackOperationCoordinate(method, path);
     ctx.registry.register(opCoord, "operation", { source: sourceBase });
-    // A fallback coordinate embeds the raw path; flag a route-hostile one here
-    // since register()'s check only fires for author identities.
-    ctx.registry.flagRouteFault(opCoord, opCoord, sourceBase);
+    // The generated fallback embeds "METHOD /path", which is never a safe URL
+    // route segment (the space alone disqualifies it), so an operation without a
+    // stable operationId cannot be given a routable, citeable coordinate. Fail
+    // the build with actionable guidance rather than emit a broken route.
     const cause =
       op.operationId === undefined
         ? "has no operationId"
-        : `has a non-string operationId (${typeof op.operationId})`;
-    ctx.registry.addWarning(
-      `Operation ${method.toUpperCase()} ${path} ${cause}; using fallback coordinate "${opCoord}".`,
+        : op.operationId === ""
+          ? "has an empty operationId"
+          : `has a non-string operationId (${typeof op.operationId})`;
+    ctx.registry.addError(
+      `Operation ${method.toUpperCase()} ${path} ${cause}. Every operation needs a stable string operationId to get a routable, citeable coordinate; the generated fallback "${opCoord}" is not a safe URL path segment. Add an operationId in the spec.`,
       opCoord,
       sourceBase,
     );
@@ -95,7 +99,7 @@ function addOperation(
   const parentSection = tag ? sectionCoordinate(tag) : apiCoordinate(ctx.collection);
   ctx.node(opCoord, "operation", parentSection, facts, sourceBase);
 
-  const slug = tag ? `${tag}/${opCoord}` : opCoord;
+  const slug = tag ? `${tagRouteSegment(tag)}/${opCoord}` : opCoord;
   ctx.page(opCoord, slug);
   ctx.attachToNav(tag, opCoord, asString(op.summary) ?? opCoord);
 }

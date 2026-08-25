@@ -67,7 +67,7 @@ const entries: { value?: string; variant: ApiVariant }[] =
                 )}
                 <ul class="ft-list ft-children">
                   {fields.map((f) => (
-                    <ApiFieldRow field={f} depth={depth + 1} />
+                    <ApiFieldRow field={f} depth={depth + 1} anchored={false} />
                   ))}
                 </ul>
               </div>

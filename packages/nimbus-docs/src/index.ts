@@ -43,7 +43,10 @@ import {
   collectionLabel as resolveCollectionSlug,
   collectionMountPrefix as resolveCollectionPrefix,
 } from "./_internal/collection-mount.js";
-import { renderEntryAsMarkdown } from "./_internal/transform.js";
+import {
+  renderEntryAsMarkdown,
+  type RenderEntryAsMarkdownOptions,
+} from "./_internal/transform.js";
 import { buildCorpusMarkdown } from "./_internal/corpus.js";
 import {
   assembleBreadcrumbs,
@@ -66,6 +69,7 @@ import {
 import type {
   ApiVersionStatus,
   Breadcrumb,
+  CoordinatesManifest,
   NimbusConfig,
   PrevNext,
   PrevNextOverrides,
@@ -132,6 +136,32 @@ export { sidebarHash };
 
 /** Render an Astro content entry's raw MDX body as clean markdown. */
 export { renderEntryAsMarkdown };
+
+/**
+ * `renderEntryAsMarkdown` with the coordinate-citation index loaded and
+ * passed through, so `api.ref:` citations resolve. Prerendered routes only.
+ */
+export async function getEntryMarkdown(
+  entry: Parameters<typeof renderEntryAsMarkdown>[0],
+  options: Omit<RenderEntryAsMarkdownOptions, "citationIndex"> = {},
+): Promise<string> {
+  const { loadCitationIndex } = await import("./_internal/api/load-citation-index.js");
+  return renderEntryAsMarkdown(entry, {
+    ...options,
+    citationIndex: await loadCitationIndex(),
+  });
+}
+
+/**
+ * This site's published coordinate manifest (local collections only), served at
+ * `/nimbus-api/coordinates.json`. Prerendered routes only.
+ */
+export async function getCoordinatesManifest(): Promise<CoordinatesManifest> {
+  const { loadCoordinatesManifest } = await import(
+    "./_internal/api/load-citation-index.js"
+  );
+  return loadCoordinatesManifest();
+}
 
 /**
  * The canonical Shiki transformer chain — diff / highlight / focus /
@@ -425,7 +455,8 @@ export async function getIndexedTopLevel(): Promise<IndexedTopLevel> {
 export async function renderIndexedEntryMarkdown(item: IndexedEntry): Promise<string> {
   const apiCollections = await loadApiCollections();
   if (!apiCollections.includes(item.collection)) {
-    return renderEntryAsMarkdown(item.entry);
+    const { loadCitationIndex } = await import("./_internal/api/load-citation-index.js");
+    return renderEntryAsMarkdown(item.entry, { citationIndex: await loadCitationIndex() });
   }
   const { getApiModel, getApiPageProps, renderApiPageMarkdown } = await import(
     "./api/index.js"

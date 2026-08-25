@@ -50,19 +50,17 @@ const currentSiblingUrl = versionAlternates?.canonical?.url ?? null;
 //   - Otherwise → mark as a Pagefind body, plus emit per-version and
 //     per-status filters so the search UI can scope by them.
 const pagefindAttrs: Record<string, string> = {};
+// The status filter rides its own element below: an inline `name:value` filter
+// captures to the end of the string, so a second inline filter can't share the
+// attribute (it would corrupt the version value to "v1, status:deprecated").
+const pagefindDeprecated =
+  effectiveSearchable && !versionStatus?.isHidden && Boolean(versionStatus?.isDeprecated);
 if (!effectiveSearchable || versionStatus?.isHidden) {
   pagefindAttrs["data-pagefind-ignore"] = "";
 } else {
   pagefindAttrs["data-pagefind-body"] = "";
   if (versionStatus) {
     pagefindAttrs["data-pagefind-filter"] = `version:${versionStatus.version}`;
-    if (versionStatus.isDeprecated) {
-      // Pagefind supports multiple filter attributes on the same element
-      // via `data-pagefind-filter` repeated as a comma-separated list in
-      // the value. The status filter pairs with the version filter so a
-      // search UI can offer "exclude deprecated" as a default toggle.
-      pagefindAttrs["data-pagefind-filter"] += `, status:deprecated`;
-    }
   }
 }
 
@@ -198,6 +196,7 @@ const hasPagination = Astro.slots.has("pagination");
               {banner && <Banner content={banner.content} variant={banner.type} dismissible={banner.dismissible} />}
               <Breadcrumbs items={breadcrumbs} class="pb-2" />
               <div {...pagefindAttrs}>
+                {pagefindDeprecated && <span hidden data-pagefind-filter="status:deprecated"></span>}
                 {hasPageTitle ? (
                   <slot name="page-title" />
                 ) : (

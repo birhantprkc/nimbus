@@ -1135,10 +1135,29 @@ describe("anchors: injective + readable", () => {
     assert.equal(coordinateAnchor("create.source.card"), "create.source.card");
   });
 
-  test("lossy projections are disambiguated by a hash", () => {
+  test("lossy projections are disambiguated by a lossless base32 suffix", () => {
     assert.notEqual(coordinateAnchor("a/b"), coordinateAnchor("a-b"));
     assert.notEqual(coordinateAnchor("a:b"), coordinateAnchor("a b"));
-    assert.match(coordinateAnchor("a/b"), /^a-b-[0-9a-z]+$/);
+    assert.match(coordinateAnchor("a/b"), /^a-b--[a-z2-7]+$/);
+  });
+
+  test("the suffix is truly injective, not a 32-bit hash that can collide", () => {
+    assert.notEqual(coordinateAnchor("op.a+(|^!!"), coordinateAnchor("op.a}}]*!!"));
+  });
+
+  test("lone surrogates and U+FFFD stay distinct (UTF-16 units, not folded UTF-8)", () => {
+    const anchors = new Set([
+      coordinateAnchor("op.x\uD800"),
+      coordinateAnchor("op.x\uDC00"),
+      coordinateAnchor("op.x\uFFFD"),
+    ]);
+    assert.equal(anchors.size, 3);
+  });
+
+  test("the empty-projection fallback never collides with a `root` coordinate", () => {
+    assert.equal(coordinateAnchor("root"), "root");
+    assert.match(coordinateAnchor("!!!"), /^root--[a-z2-7]+$/);
+    assert.notEqual(coordinateAnchor("root!"), coordinateAnchor("!root"));
   });
 });
 

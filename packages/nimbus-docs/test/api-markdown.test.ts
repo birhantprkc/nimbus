@@ -201,6 +201,23 @@ describe("api markdown emitter", () => {
     assert.match(md, /- `b` → \[B\]\(\/disc\/schemas\/B\)/);
   });
 
+  test("a union field renders its variants XOR its children — no hidden coordinates leak", () => {
+    const md = renderApiPageMarkdown(
+      schema([
+        field({
+          name: "source",
+          coordinate: "c.source",
+          type: "one of",
+          union: { kind: "oneOf", variants: [{ label: "Card" }, { label: "Bank" }] },
+          children: [field({ name: "leak", coordinate: "c.source.leak" })],
+          childCount: 1,
+        }),
+      ]),
+    );
+    assert.match(md, /one of: `Card`, `Bank`/);
+    assert.doesNotMatch(md, /c\.source\.leak/);
+  });
+
   test("a backtick in a variant's schema name cannot corrupt the link", async () => {
     const model = await buildApiModel({
       collection: "inj",

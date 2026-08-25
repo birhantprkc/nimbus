@@ -168,13 +168,18 @@ export function isCollectionName(name: string): boolean {
 /**
  * Why an author identity is unsafe as a raw URL path segment, or `undefined`
  * when safe. Slugs are emitted into routes unencoded, so unsafe identities are
- * rejected (not mangled): whitespace, control chars, `% \ ? #`, and
- * `.`/`..`/empty segments (which escape the mount). Dots inside a segment are
- * fine, so `users.list` passes.
+ * rejected (not mangled): any whitespace (interior included — it cannot survive
+ * a URL segment and is dropped by the citation-path gate), control chars,
+ * `% \ ? #`, and `.`/`..`/empty segments (which escape the mount). Dots inside a
+ * segment are fine, so `users.list` passes. A `/` is intentionally allowed (a
+ * multi-segment identity like `list/all` routes fine; distinctness is enforced
+ * by `registerSlug`). Applied to machine identifiers the author owns directly
+ * (operationId, schema name, webhook key); tags route through `tagRouteSegment`
+ * instead, since a tag is a display label.
  */
 export function routeIdentityFault(identity: string): string | undefined {
-  if (identity !== identity.trim()) {
-    return `"${identity}" has leading or trailing whitespace — unsafe as a URL path segment. Rename it in the spec.`;
+  if (/\s/.test(identity)) {
+    return `"${identity}" contains whitespace — unsafe as a URL path segment (identifiers become URL segments verbatim). Rename it in the spec.`;
   }
   if (/[\u0000-\u001f\u007f\\?#%]/.test(identity)) {
     return `"${identity}" contains a control character, a percent sign, or one of \\ ? # — unsafe as a URL path segment. Rename it in the spec.`;
@@ -185,6 +190,35 @@ export function routeIdentityFault(identity: string): string | undefined {
     }
   }
   return undefined;
+}
+
+/** Deterministic FNV-1a → base36, for tag-route slugs whose projection empties
+ *  out; a slug collision is caught by `registerSlug` as a pointed build error. */
+function fnv1a36(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+
+/**
+ * URL-safe routing segment for a tag. A tag is a human display label, not a
+ * stable machine identifier, so its ROUTE is a slugified projection while its
+ * coordinate (`tags.<tag>`) stays opaque and citeable. Runs of URL-unsafe
+ * characters collapse to a single `-` (mirroring `coordinateAnchor`); a
+ * projection that empties out (a non-Latin label) or would be a `.`/`..`
+ * traversal falls back to a deterministic hash so the segment is always a
+ * single, safe path component. Two tags that collapse to the same segment are
+ * caught by `registerSlug` as a pointed build error.
+ */
+export function tagRouteSegment(tag: string): string {
+  const cleaned = tag
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[.-]+|[.-]+$/g, "");
+  return cleaned === "" ? `tag-${fnv1a36(tag)}` : cleaned;
 }
 
 /** True when a top-level body property name reads like a coordinate prefix. */
@@ -324,9 +358,15 @@ export class CoordinateRegistry {
     );
   }
 
-  /** Record a front-end warning (e.g. missing `operationId` → fallback used). */
+  /** Record a front-end warning (non-gating). */
   addWarning(message: string, coordinate?: Coordinate, source?: string): void {
     this.warn(message, coordinate, source);
+  }
+
+  /** Record a build-blocking error from a caller (public counterpart to
+   *  `addWarning`, for faults the pure builders can't detect). */
+  addError(message: string, coordinate?: Coordinate, source?: string): void {
+    this.error(message, coordinate, source);
   }
 
   has(coordinate: Coordinate): boolean {

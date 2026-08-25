@@ -143,6 +143,10 @@ describe("api version config — rejected", () => {
       "collection named `partials` collides with the built-in content collection",
       [{ collection: "partials", spec: "./openapi.yaml" }],
     ],
+    [
+      "collection named `nimbus-api` collides with the published coordinate manifest route",
+      [{ collection: "nimbus-api", spec: "./openapi.yaml" }],
+    ],
   ];
 
   for (const [name, api] of cases) {

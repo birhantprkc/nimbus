@@ -109,14 +109,32 @@ class ModelView {
   }
 }
 
-/** Deterministic FNV-1a → base36, for disambiguating lossy anchor projections. */
-function shortHash(input: string): string {
-  let h = 0x811c9dc5;
+const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
+
+/** RFC 4648 base32 (lowercase, unpadded) of a string's UTF-16 code units, two
+ *  bytes each. A JS string IS its sequence of UTF-16 code units, so this is a
+ *  genuine bijection on *every* string — unlike a UTF-8 encoding, which folds
+ *  lone surrogates onto U+FFFD and would collide. The alphabet excludes `-`, so
+ *  the result is a lossless, injective, fragment-safe anchor disambiguator. */
+function base32(input: string): string {
+  let bits = 0;
+  let value = 0;
+  let out = "";
+  const push = (byte: number): void => {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += BASE32[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  };
   for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
+    const code = input.charCodeAt(i);
+    push((code >>> 8) & 0xff);
+    push(code & 0xff);
   }
-  return (h >>> 0).toString(36);
+  if (bits > 0) out += BASE32[(value << (5 - bits)) & 31];
+  return out;
 }
 
 /**
@@ -124,9 +142,13 @@ function shortHash(input: string): string {
  * grammar permits case-only twins), `.`/`_`/`-` survive, and every other run of
  * characters collapses to a single `-`. Coordinates are globally unique, so a
  * lossless projection is already injective; when the cleaning step is *lossy*
- * (a disallowed character was rewritten) a deterministic hash of the raw
- * coordinate is appended so two coordinates can never share an anchor. Anchors
- * are permanent once shipped — this injectivity is part of that contract.
+ * (a disallowed character was rewritten) a `--` separator and a base32 encoding
+ * of the *raw* coordinate are appended. `cleaned` never contains `--` (runs of
+ * `-` are collapsed and the ends are trimmed) and base32 never emits `-`, so the
+ * first `--` unambiguously splits anchor into prefix and a bijective suffix: the
+ * raw coordinate — hence the anchor — is recoverable. This is true injectivity
+ * over *every* JS string (the suffix encodes UTF-16 code units, not folded
+ * UTF-8), not mere collision resistance, and anchors are permanent once shipped.
  */
 export function coordinateAnchor(coordinate: string): string {
   const cleaned = coordinate
@@ -134,7 +156,7 @@ export function coordinateAnchor(coordinate: string): string {
     .replace(/-{2,}/g, "-")
     .replace(/^-+|-+$/g, "");
   if (cleaned === coordinate && cleaned.length > 0) return cleaned;
-  return `${cleaned || "root"}-${shortHash(coordinate)}`;
+  return `${cleaned || "root"}--${base32(coordinate)}`;
 }
 
 function leafName(coordinate: Coordinate): string {
@@ -533,7 +555,16 @@ export function projectPageProps(
   model: DocsModel,
   coordinate: Coordinate,
 ): ApiPageProps {
-  const view = new ModelView(model);
+  return projectPageWithView(new ModelView(model), coordinate);
+}
+
+// A `ModelView` indexes every node's children up front, so building one per page
+// is O(nodes) per call. Callers that project many pages in a row (the citation
+// index) build ONE view and reuse it here — O(nodes) once, not once per page.
+function projectPageWithView(
+  view: ModelView,
+  coordinate: Coordinate,
+): ApiPageProps {
   const node = view.node(coordinate);
   if (!node) throw new Error(`No API node for coordinate "${coordinate}".`);
 
@@ -728,4 +759,75 @@ export function indexPages(model: DocsModel): ApiPageIndexEntry[] {
       description: node ? descriptionOf(node) : undefined,
     };
   });
+}
+
+function walkFieldCitations(
+  field: ApiFieldView,
+  slug: string,
+  seen: Set<string>,
+  out: Array<{ coordinate: string; slug: string; anchor: string }>,
+): void {
+  if (!seen.has(field.coordinate)) {
+    seen.add(field.coordinate);
+    out.push({ coordinate: field.coordinate, slug, anchor: field.anchor });
+  }
+  // `ApiFieldRow` renders `field.union ? <ApiUnionExplorer> : <children>` — the
+  // same XOR the page uses for its body. So when a field carries a union, its
+  // own `children` (a sibling `properties` block) are NOT emitted as rows; stop
+  // here rather than index a coordinate that has no id on the page. The union's
+  // variant fields are the named component schema's OWN coordinates (see
+  // `variantView`), indexed canonically on that schema's page — never here.
+  if (field.union) return;
+  for (const child of field.children) walkFieldCitations(child, slug, seen, out);
+}
+
+/** The `ApiFieldView` roots a page renders as anchored rows (`id={field.anchor}`)
+ *  and OWNS — i.e. the field's canonical page. Mirrors the renderer's choices in
+ *  `api-layout/ApiBody.astro` exactly, so no coordinate is indexed that the page
+ *  does not emit an id for (a dead fragment) and none the page does emit is
+ *  missed:
+ *   - request body and each response body render `fields` XOR the union explorer
+ *     (`bodyUnion ? <ApiUnionExplorer> : <ApiFieldList>`), so the field list is
+ *     skipped whenever a union is present;
+ *   - a union's variants are named component schemas whose fields live on their
+ *     OWN schema pages, so they are never re-indexed here (that would attribute a
+ *     coordinate to the wrong page). */
+function pageFieldRoots(page: ApiPageProps): ApiFieldView[] {
+  if (page.kind === "operation") {
+    const roots: ApiFieldView[] = [...page.parameters.flatMap((g) => g.fields)];
+    if (!page.bodyUnion) roots.push(...page.body);
+    for (const r of page.responses) {
+      roots.push(...(r.headers ?? []));
+      if (!r.bodyUnion) roots.push(...r.fields);
+    }
+    return roots;
+  }
+  // A schema page renders its own `fields` (a pure-union schema simply has none);
+  // its union explorer, when present, links to component pages that carry the
+  // variant fields under their own coordinates.
+  if (page.kind === "schema") return [...page.fields];
+  return [];
+}
+
+/**
+ * Every field coordinate that resolves to a rendered in-page anchor, as
+ * `{ coordinate, slug, anchor }` — the citation index turns each into
+ * `<pageUrl>#<anchor>`. Derived by projecting each page and walking only the
+ * `ApiFieldView` lists the renderer emits AND the page canonically owns, so a
+ * citation can never point at a dead fragment or at the wrong page. One
+ * `ModelView` is shared across the projection (O(nodes) once). Coordinates are
+ * globally unique; the `seen` set is a defensive guard. */
+export function fieldCitations(
+  model: DocsModel,
+): Array<{ coordinate: string; slug: string; anchor: string }> {
+  const out: Array<{ coordinate: string; slug: string; anchor: string }> = [];
+  const seen = new Set<string>();
+  const view = new ModelView(model);
+  for (const pageCoord of model.pages.pages) {
+    const slug = model.pages.slugs.get(pageCoord) ?? "";
+    for (const root of pageFieldRoots(projectPageWithView(view, pageCoord))) {
+      walkFieldCitations(root, slug, seen, out);
+    }
+  }
+  return out;
 }

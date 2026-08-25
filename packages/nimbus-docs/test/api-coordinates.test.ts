@@ -32,16 +32,21 @@ import {
   isReservedNamespaceViolation,
   isCollectionName,
   isShadowingBodyProperty,
+  routeIdentityFault,
+  tagRouteSegment,
   type Diagnostic,
 } from "../src/_internal/api/coordinates.js";
 import {
   buildApiModel,
+  getApiFieldCitations,
   getApiPageProps,
   getApiPageSlugs,
   type ApiModel,
+  type ApiFieldView,
   type ApiOperationPage,
   type ApiSchemaPage,
 } from "../src/api/index.js";
+import { buildCitationIndex } from "../src/_internal/api/citation-index.js";
 
 function fixture(rel: string): string {
   return readFileSync(
@@ -161,6 +166,40 @@ describe("fallback operation coordinate (missing operationId)", () => {
       fallbackOperationCoordinate("GET", "/charges/{id}"),
       "GET /charges/{}",
     );
+  });
+});
+
+describe("routeIdentityFault: machine identifiers must be URL-safe segments", () => {
+  test("interior whitespace is rejected (not just leading/trailing)", () => {
+    assert.match(routeIdentityFault("create zone") ?? "", /whitespace/i);
+    assert.match(routeIdentityFault("GET /zones") ?? "", /whitespace/i);
+    assert.match(routeIdentityFault("a\tb") ?? "", /whitespace/i);
+  });
+  test("a clean dotted identifier passes", () => {
+    assert.equal(routeIdentityFault("users.list"), undefined);
+    assert.equal(routeIdentityFault("createZone"), undefined);
+  });
+});
+
+describe("tagRouteSegment: a tag is a display label routed via a slug", () => {
+  test("a clean single-token tag is unchanged (case preserved)", () => {
+    assert.equal(tagRouteSegment("charges"), "charges");
+    assert.equal(tagRouteSegment("Accounts"), "Accounts");
+  });
+  test("spaces and other unsafe runs collapse to a single dash", () => {
+    assert.equal(tagRouteSegment("User Management"), "User-Management");
+    assert.equal(tagRouteSegment("API   Keys"), "API-Keys");
+  });
+  test("a traversal-shaped tag is neutralized, never a `.`/`..` segment", () => {
+    assert.equal(tagRouteSegment("../evil"), "evil");
+    assert.match(tagRouteSegment(".."), /^tag-[a-z0-9]+$/);
+  });
+  test("a projection that empties out falls back to a deterministic hash", () => {
+    const a = tagRouteSegment("日本語");
+    const b = tagRouteSegment("日本語");
+    assert.match(a, /^tag-[a-z0-9]+$/);
+    assert.equal(a, b);
+    assert.notEqual(tagRouteSegment("한국어"), a);
   });
 });
 
@@ -364,14 +403,21 @@ describe("CoordinateRegistry: case-only twins warn, never fail (rule 3)", () => 
 });
 
 describe("CoordinateRegistry: warnings that never gate the build", () => {
-  test("a missing operationId → fallback coordinate + a warning", () => {
+  test("addWarning records a diagnostic that never gates the build", () => {
     const reg = new CoordinateRegistry("api");
-    const coord = fallbackOperationCoordinate("GET", "/charges/{id}");
-    reg.register(coord, "operation");
-    reg.addWarning(`Operation is missing operationId; using "${coord}".`, coord);
+    reg.register("createCharge", "operation");
+    reg.addWarning("a non-gating advisory", "createCharge");
     assert.equal(reg.hasErrors(), false);
     assert.equal(warnings(reg.getDiagnostics()).length, 1);
-    reg.throwIfErrors();
+    assert.doesNotThrow(() => reg.throwIfErrors());
+  });
+
+  test("addError records a build-gating error", () => {
+    const reg = new CoordinateRegistry("api");
+    reg.register("createCharge", "operation");
+    reg.addError("a gating fault", "createCharge");
+    assert.equal(reg.hasErrors(), true);
+    assert.throws(() => reg.throwIfErrors(), (err: unknown) => err instanceof ApiBuildError);
   });
 
   test("a shadowing body property (`query`) is legal + warns", () => {
@@ -476,5 +522,161 @@ describe("grammar realized on the smallco fixture (end-to-end)", () => {
     const names = new Set(page.body.map((f) => f.coordinate));
     assert.ok(names.has("search.query"));
     assert.ok(names.has("search.static:wan"));
+  });
+
+  test("field citations match the fields the RENDERER emits ids for — no dead fragments, no missing ones", () => {
+    const rendered = new Map<string, string>();
+    const walk = (f: ApiFieldView): void => {
+      rendered.set(f.coordinate, f.anchor);
+      if (f.union) return;
+      for (const child of f.children) walk(child);
+    };
+    for (const { coordinate } of getApiPageSlugs(model)) {
+      const page = getApiPageProps(model, coordinate);
+      if (page.kind === "operation") {
+        page.parameters.forEach((g) => g.fields.forEach(walk));
+        if (!page.bodyUnion) page.body.forEach(walk);
+        page.responses.forEach((r) => {
+          (r.headers ?? []).forEach(walk);
+          if (!r.bodyUnion) r.fields.forEach(walk);
+        });
+      } else if (page.kind === "schema") {
+        page.fields.forEach(walk);
+      }
+    }
+
+    const indexed = new Map(getApiFieldCitations(model).map((f) => [f.coordinate, f.anchor]));
+    assert.ok(indexed.size > 10, "the fixture exercises a non-trivial field set");
+    assert.deepEqual([...indexed.keys()].sort(), [...rendered.keys()].sort());
+    for (const [coordinate, anchor] of indexed) {
+      assert.equal(anchor, rendered.get(coordinate), `anchor for "${coordinate}" matches the rendered field`);
+    }
+  });
+});
+
+describe("field citations: a body that is BOTH an object and a union (dead-fragment guard)", () => {
+  const spec: Record<string, unknown> = {
+    openapi: "3.1.0",
+    info: { title: "Both", version: "1.0.0" },
+    paths: {
+      "/pay": {
+        post: {
+          operationId: "pay",
+          responses: {
+            "200": {
+              description: "ok",
+              content: {
+                "application/json": {
+                  schema: {
+                    properties: { rbase: { type: "string" } },
+                    oneOf: [{ $ref: "#/components/schemas/A" }, { $ref: "#/components/schemas/B" }],
+                  },
+                },
+              },
+            },
+          },
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: {
+                  properties: { base: { type: "string" } },
+                  oneOf: [{ $ref: "#/components/schemas/A" }, { $ref: "#/components/schemas/B" }],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    components: {
+      schemas: {
+        A: { type: "object", properties: { a: { type: "string" } } },
+        B: { type: "object", properties: { b: { type: "string" } } },
+      },
+    },
+  };
+
+  test("the hidden object properties are NOT indexed; the union's named variants stay citeable on their own pages", async () => {
+    const { index } = await buildCitationIndex([{ collection: "t", spec }], ".");
+
+    assert.equal(index.get("t:pay.base"), undefined, "request body property is not a dead fragment");
+    assert.equal(index.get("t:pay.response.200.rbase"), undefined, "response body property is not a dead fragment");
+
+    assert.ok(index.get("t:pay"), "the operation page is citeable");
+    assert.equal(index.get("t:A.a"), "/t/schemas/A#A.a", "a variant field cites its own schema page");
+    assert.equal(index.get("t:B.b"), "/t/schemas/B#B.b");
+  });
+
+  test("a NESTED field that is both an object and a union hides its children too", async () => {
+    const nested: Record<string, unknown> = {
+      openapi: "3.1.0",
+      info: { title: "Nested", version: "1.0.0" },
+      paths: {
+        "/pay": {
+          post: {
+            operationId: "pay",
+            requestBody: {
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      source: {
+                        properties: { hidden: { type: "string" } },
+                        oneOf: [{ $ref: "#/components/schemas/A" }, { $ref: "#/components/schemas/B" }],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      components: {
+        schemas: {
+          A: { type: "object", properties: { a: { type: "string" } } },
+          B: { type: "object", properties: { b: { type: "string" } } },
+        },
+      },
+    };
+    const { index } = await buildCitationIndex([{ collection: "t", spec: nested }], ".");
+    assert.ok(index.get("t:pay.source"), "the union field itself is citeable (its row has an id)");
+    assert.equal(index.get("t:pay.source.hidden"), undefined, "the hidden sibling child is not a dead fragment");
+    assert.equal(index.get("t:A.a"), "/t/schemas/A#A.a", "variant fields stay canonical on their schema pages");
+  });
+});
+
+describe("a spaced tag routes via a slug while its coordinate stays opaque", () => {
+  const spec: Record<string, unknown> = {
+    openapi: "3.0.3",
+    info: { title: "Spaced tag", version: "1.0.0" },
+    paths: {
+      "/keys": {
+        get: {
+          operationId: "listKeys",
+          tags: ["User Management"],
+          responses: { "200": { description: "ok" } },
+        },
+      },
+    },
+  };
+
+  test("the section coordinate keeps the raw label; its route slug is slugified", async () => {
+    const model = await buildApiModel({ collection: "kx", spec, label: "kx.json" });
+    const pages = getApiPageSlugs(model);
+    const section = pages.find((p) => p.coordinate === "tags.User Management");
+    assert.ok(section, "the section coordinate is the opaque `tags.<label>`");
+    assert.equal(section.slug, "tags/User-Management");
+    // The operation under the spaced tag routes under the slugified segment too.
+    const op = pages.find((p) => p.coordinate === "listKeys");
+    assert.equal(op?.slug, "User-Management/listKeys");
+  });
+
+  test("the section lands in the citation index at a safe, citeable URL", async () => {
+    const { index } = await buildCitationIndex([{ collection: "kx", spec }], ".");
+    // The opaque coordinate (with a space) is the citation key; the URL is safe.
+    assert.equal(index.get("kx:tags.User Management"), "/kx/tags/User-Management");
+    assert.equal(index.get("kx:listKeys"), "/kx/User-Management/listKeys");
   });
 });

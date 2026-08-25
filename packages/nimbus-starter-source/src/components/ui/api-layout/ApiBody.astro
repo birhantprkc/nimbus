@@ -65,9 +65,10 @@ const deprecationHtml = page.deprecated
   : null;
 ---
 
-<Breadcrumbs items={page.breadcrumbs} endsAtCurrentPage={false} class="pb-2" />
-
-{deprecationHtml && <Banner variant="caution" content={deprecationHtml} />}
+<div data-pagefind-ignore>
+  <Breadcrumbs items={page.breadcrumbs} endsAtCurrentPage={false} class="pb-2" />
+  {deprecationHtml && <Banner variant="caution" content={deprecationHtml} />}
+</div>
 
 {/* Header order (locked): title → description → endpoint → page actions. The
     endpoint bar carries the sidebar method chip + verb + path; page actions sit

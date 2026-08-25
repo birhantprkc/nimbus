@@ -9,7 +9,7 @@
  * generate conflicting `[...slug]` paths at root.
  */
 
-import { getIndexedEntries, renderEntryAsMarkdown, type IndexedEntry } from "@cloudflare/nimbus-docs";
+import { getIndexedEntries, getEntryMarkdown, type IndexedEntry } from "@cloudflare/nimbus-docs";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
@@ -46,7 +46,7 @@ export async function GET({ props }: { props: SlugProps }) {
       ? rawImage
       : config.socialImage;
 
-  const markdown = renderEntryAsMarkdown(entry);
+  const markdown = await getEntryMarkdown(entry);
 
   const body = [
     "---",

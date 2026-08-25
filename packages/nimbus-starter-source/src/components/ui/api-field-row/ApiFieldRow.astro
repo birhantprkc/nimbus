@@ -18,9 +18,10 @@ import "./field-tree.css";
 interface Props {
   field: ApiFieldView;
   depth?: number;
+  anchored?: boolean;
 }
 
-const { field, depth = 0 } = Astro.props;
+const { field, depth = 0, anchored = true } = Astro.props;
 
 const AUTO_OPEN_DEPTH = 1;
 const expandable = isExpandable(field);
@@ -29,7 +30,7 @@ const showMeta = hasFieldMeta(field);
 const omitted = field.childCount - field.children.length;
 ---
 
-<li id={field.anchor} class:list={["ft-item scroll-mt-24", expandable && "is-parent"]}>
+<li id={anchored ? field.anchor : undefined} class:list={["ft-item", anchored && "scroll-mt-24", expandable && "is-parent"]}>
   {
     expandable ? (
       <Fragment>
@@ -54,7 +55,7 @@ const omitted = field.childCount - field.children.length;
             ) : (
               <ul class="ft-list ft-children">
                 {field.children.map((child) => (
-                  <Astro.self field={child} depth={depth + 1} />
+                  <Astro.self field={child} depth={depth + 1} anchored={anchored} />
                 ))}
                 {/* Only fires when a container hits the inline-field ceiling — a safety net, never a normal spec. */}
                 {field.truncated && (
@@ -69,13 +70,13 @@ const omitted = field.childCount - field.children.length;
             )}
           </div>
         </details>
-        <ApiAnchor anchor={field.anchor} name={field.name} />
+        {anchored && <ApiAnchor anchor={field.anchor} name={field.name} />}
       </Fragment>
     ) : (
       <div class="ft-row">
         <ApiChevron empty />
         <div class="ft-content">
-          <ApiPropertyMeta field={field} part="all" />
+          <ApiPropertyMeta field={field} part="all" anchored={anchored} />
         </div>
       </div>
     )

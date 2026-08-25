@@ -58,6 +58,7 @@ const RUNTIME_EXPORTS = [
   "apiSchemaVersion",
   "buildApiModel",
   "clearApiModelCache",
+  "getApiFieldCitations",
   "getApiModel",
   "getApiNav",
   "getApiPageIndex",

@@ -79,6 +79,75 @@ export interface NimbusConfig {
    * hermetic/offline-safe).
    */
   api?: ApiSpec[];
+  /**
+   * Remote API references this site only *cites* — it does not build or publish
+   * them. Each entry names a `collection` and points at another Nimbus site's
+   * published `coordinates.json` (the {@link NimbusConfig.api} half emits one at
+   * `/nimbus-api/coordinates.json`). Its coordinates fold into the citation
+   * citation index so a guide can write `api.ref:<collection>:<coordinate>` for an
+   * API defined in a different repo.
+   *
+   * Ingestion is best-effort: an unreachable or malformed manifest is warned and
+   * skipped, and citations into it degrade to `#` — a remote going offline never
+   * wedges this site's build (unlike a broken *local* citation, which fails).
+   */
+  apiReferences?: ApiReference[];
+}
+
+/**
+ * The published coordinate manifest — the cross-repo citation-index contract a
+ * Nimbus site serves at `/nimbus-api/coordinates.json` and a consumer folds in
+ * via {@link NimbusConfig.apiReferences}. Bump `version` only on a breaking read
+ * change.
+ */
+export interface CoordinatesManifest {
+  version: 1;
+  collections: Record<
+    string,
+    {
+      /** The family-default version id, or `null` for an unversioned collection. */
+      defaultVersion: string | null;
+      /**
+       * One entry per coordinate. The coordinate is the map key (opaque — may
+       * contain any character, including `@` or spaces), so the encoding is
+       * lossless. `url` is the family-default target; `versions` maps a version
+       * id to its per-version target.
+       */
+      entries: Record<
+        string,
+        {
+          url?: string;
+          versions?: Record<string, string>;
+        }
+      >;
+    }
+  >;
+}
+
+/**
+ * One remote coordinate manifest this site cites but does not own. See
+ * {@link NimbusConfig.apiReferences}.
+ */
+export interface ApiReference {
+  /**
+   * The collection name used in citations here. **Must match the collection key
+   * the remote site publishes** in its `coordinates.json` — it is both the
+   * citation namespace (`api.ref:<collection>:…`) and the lookup key into the
+   * fetched manifest.
+   */
+  collection: string;
+  /**
+   * The remote manifest: an `https:` URL fetched at build, or a local file path
+   * (relative to the project root) for a vendored/offline copy. The manifest
+   * shape is the `coordinates.json` this framework publishes.
+   */
+  manifest: string;
+  /**
+   * Absolute origin (e.g. `https://api.example.com`) prepended to the manifest's
+   * site-absolute paths, so cross-repo citations resolve to fully-qualified
+   * URLs. Omit when the remote site shares this origin.
+   */
+  origin?: string;
 }
 
 /**

@@ -210,6 +210,8 @@ const apiVersionSpecSchema = z.object({
   label: z.string().optional(),
 });
 
+const RESERVED_COLLECTION_NAMES = new Set(["docs", "partials", "nimbus-api"]);
+
 const apiSpecSchema = z
   .object({
     collection: z
@@ -219,9 +221,9 @@ const apiSpecSchema = z
         /^[a-z0-9-]+$/,
         '"api[].collection" must be lowercase letters, digits, and dashes only (it becomes the URL prefix and the coordinate namespace)',
       )
-      .refine((c) => c !== "docs" && c !== "partials", {
+      .refine((c) => !RESERVED_COLLECTION_NAMES.has(c), {
         error:
-          '"api[].collection" must not be "docs" or "partials" — those names are reserved for the built-in content collections and would collide',
+          '"api[].collection" must not be "docs", "partials", or "nimbus-api" — "docs"/"partials" are the built-in content collections, and "/nimbus-api" is reserved for the published coordinate manifest; each would collide',
       }),
     spec: specSourceSchema.optional(),
     label: z.string().optional(),
@@ -307,6 +309,58 @@ const apiSchema = z
     });
   });
 
+const apiReferenceSchema = z.object({
+  collection: z
+    .string({ error: '"apiReferences[].collection" must be a non-empty string' })
+    .min(1, '"apiReferences[].collection" must be a non-empty string')
+    .regex(
+      /^[a-z0-9-]+$/,
+      '"apiReferences[].collection" must be lowercase letters, digits, and dashes only (it is the coordinate namespace citations resolve against)',
+    )
+    .refine((c) => !RESERVED_COLLECTION_NAMES.has(c), {
+      error:
+        '"apiReferences[].collection" must not be "docs", "partials", or "nimbus-api" — those names are reserved',
+    }),
+  manifest: z
+    .string({ error: '"apiReferences[].manifest" must be a string' })
+    .min(1, '"apiReferences[].manifest" must be a non-empty string (an https URL or a local file path)')
+    .refine(
+      (m) => {
+        const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(m);
+        return !scheme || scheme[1]?.toLowerCase() === "https";
+      },
+      {
+        error:
+          '"apiReferences[].manifest" must be an https URL or a local file path — http:// (and other network schemes) are rejected, since the manifest is fetched at build and a plaintext transport lets a network attacker forge the coordinate contract',
+      },
+    ),
+  origin: z
+    .string()
+    .refine(isAbsoluteHttpUrl, {
+      message:
+        '"apiReferences[].origin" must be an absolute http(s) URL with a host, e.g. "https://api.example.com"',
+    })
+    .optional(),
+});
+
+const apiReferencesSchema = z
+  .array(apiReferenceSchema)
+  .optional()
+  .superRefine((entries, ctx) => {
+    if (!entries) return;
+    const seen = new Set<string>();
+    entries.forEach((entry, i) => {
+      if (seen.has(entry.collection)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [i, "collection"],
+          message: `duplicate apiReferences collection "${entry.collection}" — each remote reference needs a unique collection name`,
+        });
+      }
+      seen.add(entry.collection);
+    });
+  });
+
 const nimbusConfigSchema = withStrictKeys(
   z.object({
     site: z
@@ -344,12 +398,26 @@ const nimbusConfigSchema = withStrictKeys(
     search: searchSchema,
     versions: versionsSchema,
     api: apiSchema,
+    apiReferences: apiReferencesSchema,
   }),
   {
     removedKeys: REMOVED_CONFIG_KEYS,
     contextLabel: "Config field",
   },
-);
+).superRefine((data, ctx) => {
+  // A remote reference must not shadow a locally-built collection.
+  const cfg = data as { api?: { collection?: string }[]; apiReferences?: { collection?: string }[] };
+  const local = new Set((cfg.api ?? []).map((e) => e.collection));
+  (cfg.apiReferences ?? []).forEach((ref, i) => {
+    if (ref.collection && local.has(ref.collection)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["apiReferences", i, "collection"],
+        message: `apiReferences collection "${ref.collection}" collides with a local api collection — a citation namespace resolves to one source, and the local spec wins`,
+      });
+    }
+  });
+});
 
 export function validateNimbusConfig(input: unknown): NimbusConfig {
   const result = nimbusConfigSchema.safeParse(input);

@@ -18,6 +18,7 @@ import {
   CoordinateRegistry,
   apiCoordinate,
   sectionCoordinate,
+  tagRouteSegment,
   type Diagnostic,
 } from "./coordinates.js";
 import {
@@ -98,12 +99,15 @@ export async function parseOpenApi(source: SpecSource): Promise<ParseResult> {
   const parser = await loadParser();
   const label = source.label ?? source.collection;
 
-  // Resilience principle: the ONLY fatal condition is "the spec cannot be
-  // walked" (see `assertWalkable`). Validation deviations and unresolved
-  // `$ref`s are downgraded to loud warnings and we render anyway — matching
-  // what best-in-class renderers do. A real-world spec must not be rejected
-  // over a handful of pedantic deviations (e.g. Cloudflare's lowercase `4xx`
-  // response keys); it renders everywhere else, so it renders here.
+  // Resilience principle: a spec that CAN be walked renders — validation
+  // deviations and unresolved `$ref`s are downgraded to loud warnings, matching
+  // what best-in-class renderers do. A real-world spec must not be rejected over
+  // a handful of pedantic deviations (e.g. Cloudflare's lowercase `4xx` response
+  // keys); it renders everywhere else, so it renders here. The two fatal
+  // conditions are "the spec cannot be walked" (see `assertWalkable`) and an
+  // identity that cannot become a stable URL/citation coordinate (a route-unsafe
+  // operationId/schema/webhook key, or an operation with no usable operationId —
+  // see `routeIdentityFault` and the fallback branch in `operations.ts`).
   const preDiagnostics: Diagnostic[] = [];
   let walker: Walker | undefined;
 
@@ -484,7 +488,10 @@ class Walker implements ParseContext {
       ? sectionCoordinate(parentTag)
       : apiCoordinate(this.collection);
     this.registry.register(coord, "section", { source: `#/tags/${tag}` });
-    this.registry.flagRouteFault(tag, coord, `#/tags/${tag}`);
+    // A tag is a display label, not a machine identifier, so its route is a
+    // slugified projection (`tagRouteSegment`) rather than a verbatim,
+    // route-faulted segment — a spaced tag like "User Management" routes cleanly
+    // while its coordinate stays opaque and citeable.
     this.node(coord, "section", parent, {
       kind: "section",
       name: tag,
@@ -492,7 +499,7 @@ class Walker implements ParseContext {
     });
     // A nav-only category (page === false) is a grouping node with a model node
     // for ancestry but no page — so it is never routed and carries no href.
-    if (page) this.page(coord, `tags/${tag}`);
+    if (page) this.page(coord, `tags/${tagRouteSegment(tag)}`);
     this.navByTag.set(tag, { coordinate: coord, label: tag, kind: "section", children: [] });
   }
 

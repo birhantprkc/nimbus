@@ -42,6 +42,17 @@ const currentSiblingUrl =
 const hasRail =
   page.kind === "operation" &&
   (page.samples.length > 0 || page.responses.some((r) => r.example !== undefined));
+
+const pagefindAttrs: Record<string, string> = {};
+const pagefindDeprecated = !versionStatus?.isHidden && Boolean(versionStatus?.isDeprecated);
+if (versionStatus?.isHidden) {
+  pagefindAttrs["data-pagefind-ignore"] = "";
+} else {
+  pagefindAttrs["data-pagefind-body"] = "";
+  if (versionStatus) {
+    pagefindAttrs["data-pagefind-filter"] = `version:${versionStatus.version}`;
+  }
+}
 ---
 
 <div class="flex w-full">
@@ -55,14 +66,17 @@ const hasRail =
   </aside>
 
   <div class="flex min-w-0 flex-1 flex-col 2xl:flex-row">
-    <main id="main-content" tabindex="-1" class="min-w-0 flex-1">
+    <main id="main-content" tabindex="-1" class="min-w-0 flex-1" {...pagefindAttrs}>
       <div class="mx-auto max-w-(--nb-content-max) px-4 md:px-8 2xl:px-16 pt-8 pb-12">
+        {pagefindDeprecated && <span hidden data-pagefind-filter="status:deprecated"></span>}
         {versionStatus?.isDeprecated && (
-          <Banner
-            variant="caution"
-            class="mt-0 mb-6"
-            content={`<strong>${versionStatus.version}</strong> is deprecated. <a href="${currentSiblingUrl ?? "/"}">See the latest version</a>.`}
-          />
+          <div data-pagefind-ignore>
+            <Banner
+              variant="caution"
+              class="mt-0 mb-6"
+              content={`<strong>${versionStatus.version}</strong> is deprecated. <a href="${currentSiblingUrl ?? "/"}">See the latest version</a>.`}
+            />
+          </div>
         )}
         <ApiBody page={page} />
       </div>
