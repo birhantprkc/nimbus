@@ -70,7 +70,6 @@ import type {
   ApiVersionStatus,
   Breadcrumb,
   CoordinatesManifest,
-  NimbusConfig,
   PrevNext,
   PrevNextOverrides,
   ResolvedVersions,
