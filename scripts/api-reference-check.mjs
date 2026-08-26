@@ -574,9 +574,15 @@ async function assertNoSourceShortcut() {
   );
 }
 
-// Diagnostic for the frozen-lock invariant: when `nimbus-docs add` mutates the
-// consumer lock, print which lines the resolver added and removed so a CI-only
-// (e.g. Linux-specific) drift is debuggable without re-running by hand.
+// Drop the config-derived, registry-npmjs `tarball:` field (pinned pnpm 9.0.0
+// format) so the frozen-lock invariant holds regardless of the runner's registry.
+function normalizeLockForComparison(lock) {
+  return lock.replace(
+    /, tarball: https:\/\/registry\.npmjs\.org\/[^},]*\}/g,
+    "}",
+  );
+}
+
 function reportLockDiff(before, after, cap = 60) {
   const beforeLines = before.split("\n");
   const afterLines = after.split("\n");
@@ -1387,13 +1393,14 @@ async function execute() {
     !frozenLock.includes("link:"),
     "consumer lock contains link: source shortcut",
   );
-  const lockHash = sha256(frozenLock);
+  const lockHash = sha256(normalizeLockForComparison(frozenLock));
   await run("pnpm", ["install", "--frozen-lockfile"], {
     cwd: site,
     timeoutMs: 15 * 60_000,
   });
   assert(
-    sha256(await readFile(lockPath)) === lockHash,
+    sha256(normalizeLockForComparison(await readFile(lockPath, "utf8"))) ===
+      lockHash,
     "frozen install changed the consumer lock",
   );
   const canonicalSite = await realpath(site);
@@ -1451,8 +1458,10 @@ async function execute() {
   } finally {
     await stopRecord(registry.record);
   }
-  const postAddLock = await readFile(lockPath, "utf8");
-  if (postAddLock !== frozenLock) reportLockDiff(frozenLock, postAddLock);
+  const postAddLock = normalizeLockForComparison(await readFile(lockPath, "utf8"));
+  const normalizedFrozen = normalizeLockForComparison(frozenLock);
+  if (postAddLock !== normalizedFrozen)
+    reportLockDiff(normalizedFrozen, postAddLock);
   assert(
     sha256(postAddLock) === lockHash,
     "registry add changed the frozen consumer lock",
@@ -1516,7 +1525,8 @@ async function execute() {
     `build output is missing API indexing diagnostic: ${indexDiagnostic}`,
   );
   assert(
-    sha256(await readFile(lockPath)) === lockHash,
+    sha256(normalizeLockForComparison(await readFile(lockPath, "utf8"))) ===
+      lockHash,
     "typecheck/build changed the frozen consumer lock",
   );
 
@@ -1526,7 +1536,8 @@ async function execute() {
   await assertArtifactsAndSmoke(join(site, "dist"));
   await assertBasePathMetadata();
   assert(
-    sha256(await readFile(lockPath)) === lockHash,
+    sha256(normalizeLockForComparison(await readFile(lockPath, "utf8"))) ===
+      lockHash,
     "non-root-base build changed the frozen consumer lock",
   );
   ok(
