@@ -574,6 +574,27 @@ async function assertNoSourceShortcut() {
   );
 }
 
+// Diagnostic for the frozen-lock invariant: when `nimbus-docs add` mutates the
+// consumer lock, print which lines the resolver added and removed so a CI-only
+// (e.g. Linux-specific) drift is debuggable without re-running by hand.
+function reportLockDiff(before, after, cap = 60) {
+  const beforeLines = before.split("\n");
+  const afterLines = after.split("\n");
+  const beforeSet = new Set(beforeLines);
+  const afterSet = new Set(afterLines);
+  const removed = beforeLines.filter((line) => !afterSet.has(line) && line.trim());
+  const added = afterLines.filter((line) => !beforeSet.has(line) && line.trim());
+  process.stderr.write(
+    `${PREFIX} lock drift: ${removed.length} line(s) removed, ${added.length} added\n`,
+  );
+  for (const line of removed.slice(0, cap)) process.stderr.write(`  - ${line}\n`);
+  if (removed.length > cap)
+    process.stderr.write(`  … ${removed.length - cap} more removed\n`);
+  for (const line of added.slice(0, cap)) process.stderr.write(`  + ${line}\n`);
+  if (added.length > cap)
+    process.stderr.write(`  … ${added.length - cap} more added\n`);
+}
+
 function configExport(source) {
   const marker = "export default defineConfig(";
   const start = source.indexOf(marker);
@@ -1430,8 +1451,10 @@ async function execute() {
   } finally {
     await stopRecord(registry.record);
   }
+  const postAddLock = await readFile(lockPath, "utf8");
+  if (postAddLock !== frozenLock) reportLockDiff(frozenLock, postAddLock);
   assert(
-    sha256(await readFile(lockPath)) === lockHash,
+    sha256(postAddLock) === lockHash,
     "registry add changed the frozen consumer lock",
   );
   const addOutput = `${addResult.stdout}\n${addResult.stderr}`;
