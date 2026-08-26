@@ -151,7 +151,7 @@ import nimbusConfig from "./nimbus.config";
 working directory — builds from a monorepo root or `--root` resolve correctly).
 `spec` may also be an inline OpenAPI object. Add a `label` for a friendlier name
 in build diagnostics; it defaults to the collection name. To mount more than one
-spec, add more entries to the array — each becomes its own collection in 4c.
+spec, add more entries to the array and explicitly register each one in 4c.
 
 > **Why the `/config` entry?** `@cloudflare/nimbus-docs/config` exports only the
 > identity `defineConfig` with no side effects, so a `nimbus.config.ts` imported
@@ -159,26 +159,31 @@ spec, add more entries to the array — each becomes its own collection in 4c.
 > the integration (mdx/sitemap/…) into the content layer. Importing `defineConfig`
 > from the main `@cloudflare/nimbus-docs` barrel would.
 
-### 4c. Derive the collection from that same config
+### 4c. Register the collection explicitly from that same config
 
-In `src/content.config.ts`, import the config and map its `api[]` list into
-collections — no second spec declaration:
+In `src/content.config.ts`, import the config, find the entry selected in 4b,
+and register it under an explicitly visible collection key. This keeps the spec
+declaration in one place while allowing Nimbus's static collection-name parser
+to include the API reference in agent indexes:
 
 ```ts
 import { apiCollection } from "@cloudflare/nimbus-docs/content";
 import nimbus from "../nimbus.config";
 
+const apiConfig = nimbus.api?.find((entry) => entry.collection === "api");
+if (!apiConfig) throw new Error('Missing the "api" entry in nimbus.config.ts');
+
 export const collections = {
   // …docs, partials…
-  ...Object.fromEntries(
-    (nimbus.api ?? []).map((a) => [a.collection, defineCollection(apiCollection(a))]),
-  ),
+  api: defineCollection(apiCollection(apiConfig)),
 };
 ```
 
 The import path is relative to `src/content.config.ts` (`../nimbus.config` for a
-root-level config). Every `api[]` entry becomes a collection keyed by its
-`collection` name, so adding a spec in 4b needs no change here.
+root-level config). If Q2 chose another collection name, substitute it in the
+lookup and the object key (quote the key if it contains a dash). For multiple
+specs, add one explicit lookup and literal collection key per `api[]` entry;
+Nimbus does not discover collection names hidden behind a dynamic spread.
 
 ### 4d. Scaffold the `.md` twin route
 
@@ -187,9 +192,10 @@ alternate for every API page — the render comes from Nimbus's emitter via
 `renderIndexedEntryMarkdown` (which handles both prose and API collections), so
 do **not** prepend a `# title`; the emitter already renders the page heading.
 
+<!-- api-reference-fixture:src/pages/api/[...slug]/index.md.ts -->
 ```ts
 /**
- * Per-page `/api/<slug>/index.md` — the clean-markdown alternate for every
+ * Per-page `/api/<slug>/index.md` - the clean-markdown alternate for every
  * entry of the `api` reference collection. Sibling to the primary-collection
  * twin at `pages/[...slug]/index.md.ts`; filtering to `api` keeps the two
  * rest routes from generating conflicting paths.
@@ -199,12 +205,15 @@ import {
   getIndexedEntries,
   renderIndexedEntryMarkdown,
   type IndexedEntry,
+  withBase,
 } from "@cloudflare/nimbus-docs";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
 
 const API_COLLECTION = "api";
+const absoluteUrl = (path: string) =>
+  new URL(withBase(path, import.meta.env.BASE_URL), config.site).href;
 
 interface SlugProps {
   item: IndexedEntry;
@@ -215,7 +224,7 @@ export async function getStaticPaths() {
   return indexed
     .filter((item) => item.collection === API_COLLECTION)
     .map((item) => ({
-      // The root overview has entry id "index" → emit at `/api/index.md`
+      // The root overview has entry id "index" -> emit at `/api/index.md`
       // (undefined rest segment). Every other page emits at
       // `/api/<id>/index.md`.
       params: {
@@ -236,20 +245,20 @@ export async function GET({ props }: { props: SlugProps }) {
     `title: ${JSON.stringify(title)}`,
     ...(description ? [`description: ${JSON.stringify(description)}`] : []),
     ...(config.socialImage
-      ? [`image: ${JSON.stringify(new URL(config.socialImage, config.site).href)}`]
+      ? [`image: ${JSON.stringify(absoluteUrl(config.socialImage))}`]
       : []),
     ...(version ? [`version: ${JSON.stringify(version)}`] : []),
     "---",
     "",
     "> Documentation Index",
-    `> Fetch the complete documentation index at: ${new URL("/llms.txt", config.site).href}`,
+    `> Fetch the complete documentation index at: ${absoluteUrl("/llms.txt")}`,
     "> Use this file to discover all available pages before exploring further.",
     "",
     markdown,
     "",
-    // API pages have no authored `.mdx` source, so `sourceUrl` is undefined —
+    // API pages have no authored `.mdx` source, so `sourceUrl` is undefined -
     // fall back to the `.md` twin's own URL.
-    `Source: ${new URL(sourceUrl ?? markdownUrl, config.site).href}`,
+    `Source: ${absoluteUrl(sourceUrl ?? markdownUrl)}`,
     "",
   ].join("\n");
 
@@ -277,84 +286,40 @@ canonical + cross-version alternates on the coordinate axis, and into
 single-version spec returns `version: null`, so both features stay dormant with
 no extra wiring.
 
-`ApiLayout` renders the three-column region, not the document shell — the page
-supplies `<html>`/`<head>` and the site stylesheet, and a header of height
-`3.5rem` so the layout's `sticky top-14` offsets line up. If your site already has
-a base layout with a header + global styles, mount `<ApiLayout />` inside it
-instead of the standalone shell below — and omit the shell's `codeCopy()`
-`<script>` if that base layout already calls it (`BaseLayout` does), since two
-`codeCopy()` calls stack a second copy button on every code block.
-
-At `< md` the nav lives in a left-slide drawer that `ApiLayout` opens from a
-trigger marked `data-menu-btn` — without one, the API reference has no mobile
-navigation (`ApiLayout` switches to the desktop sidebar at `md` and closes the
-drawer at that same breakpoint, so the trigger must hide there too). The
-standalone shell below includes a `md:hidden` hamburger for this;
-if you mount `ApiLayout` in your own base layout instead, render that layout's
-menu trigger on the API route (in a `create-nimbus-docs` starter, pass
-`<Header showSidebar />`). The starter's `globals.css` already hides a stray
-`data-menu-btn` on pages with no drawer, so the trigger is safe to render
-site-wide.
+`ApiLayout` renders the three-column region, not the document shell. The
+generated starter's `BaseLayout` already owns metadata, global styles, search,
+theme, agent directives, and page-wide copy-button wiring; its `Header` provides
+the mobile-menu trigger. Compose the route through that normal shell as shown
+below. If the project has replaced either component, adapt the imports and
+markup to its equivalent shell while preserving every prop passed here.
 
 Write `src/pages/api/[...slug].astro`:
 
+<!-- api-reference-fixture:src/pages/api/[...slug].astro -->
 ```astro
 ---
-import "@/styles/globals.css";
-import { getApiStaticPaths, getApiPage } from "@cloudflare/nimbus-docs";
-import NimbusHead from "@cloudflare/nimbus-docs/components/NimbusHead.astro";
+import { getApiPage, getApiStaticPaths } from "@cloudflare/nimbus-docs";
+import Header from "@/components/Header.astro";
 import { ApiLayout } from "@/components/ui/api-layout";
+import BaseLayout from "@/layouts/BaseLayout.astro";
 
 export const prerender = true;
 export const getStaticPaths = getApiStaticPaths("api");
 
-// `getApiPage` returns the page + nav plus the versioning identity
-// (`collection`/`version`/`coordinate`) — thread it into both NimbusHead (for
-// canonical + cross-version alternates on the coordinate axis) and ApiLayout
-// (for the version picker + deprecated-version banner). For an unversioned
-// spec `version` is null and both features stay dormant.
 const { page, nav, collection, version, coordinate } = await getApiPage(Astro);
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <NimbusHead
-      title={`${page.title} · API`}
-      description={page.description}
-      markdownUrl={page.markdownHref}
-      collection={collection}
-      apiVersion={version ?? undefined}
-      coordinate={coordinate}
-    />
-  </head>
-  <body class="bg-background text-foreground antialiased">
-    <header class="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-border bg-background/80 px-6 backdrop-blur">
-      <button
-        type="button"
-        data-menu-btn
-        aria-label="Open navigation"
-        class="-ml-1 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent md:hidden"
-      >
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-          <path d="M3 6h18M3 12h18M3 18h18" />
-        </svg>
-      </button>
-      <a href="/api" class="font-mono text-sm font-semibold no-underline">{nav.collection}</a>
-    </header>
-    <ApiLayout page={page} nav={nav} collection={collection} version={version} coordinate={coordinate} />
-  </body>
-</html>
-
-<script>
-  // Page-wide copy buttons, wired once from the shell (not the component) so
-  // every Shiki block — code rail and description fences alike — gets exactly
-  // one button. See code-copy.ts: "Call codeCopy() once (e.g. from BaseLayout)."
-  import { codeCopy } from "@cloudflare/nimbus-docs/client";
-  codeCopy();
-</script>
+<BaseLayout
+  title={`${page.title} · API`}
+  description={page.description}
+  markdownUrl={page.markdownHref}
+  collection={collection}
+  apiVersion={version ?? undefined}
+  coordinate={coordinate}
+>
+  <Header showSidebar collection={collection} />
+  <ApiLayout page={page} nav={nav} collection={collection} version={version} coordinate={coordinate} />
+</BaseLayout>
 ```
 
 The nav is handled by `ApiSidebar` inside `ApiLayout` — there's no separate
