@@ -44,7 +44,11 @@ export function isAbsoluteUrl(href: string): boolean {
 export function withBase(path: string, base: string): string {
   if (isAbsoluteUrl(path)) return path;
   if (path.startsWith("#") || path.startsWith("?")) return path;
-  const prefix = base.replace(/\/+$/, "");
+  // Trim trailing slashes with a linear scan rather than a `/\/+$/` regex,
+  // which CodeQL flags as polynomial backtracking on slash-heavy input.
+  let end = base.length;
+  while (end > 0 && base[end - 1] === "/") end--;
+  const prefix = base.slice(0, end);
   if (!prefix) return path;
   const [pathname, suffix] = splitSuffix(path);
   const normalized = pathname.startsWith("/") ? pathname : `/${pathname}`;
