@@ -19,9 +19,9 @@
  * hrefs are returned unchanged by `toBrowserHref` — they aren't HTML
  * document routes and adding a slash would break them.
  *
- * Keep these out of the public API: starter components consume hrefs the
- * framework already shaped. Authors don't (and shouldn't) call these
- * directly.
+ * `withBase` is public because starter-owned layouts and routes must apply the
+ * same sub-path rule as framework-owned metadata. The route-shape helpers stay
+ * internal: starter components consume hrefs the framework already shaped.
  */
 
 /**
@@ -33,6 +33,26 @@
  */
 export function isAbsoluteUrl(href: string): boolean {
   return /^([a-z][a-z0-9+\-.]*:|\/\/)/i.test(href);
+}
+
+/**
+ * Prefix a site-root-relative path with Astro's configured base path.
+ * External URLs and paths that already include the base pass through.
+ *
+ * Pass `import.meta.env.BASE_URL` as `base` from an Astro component or route.
+ */
+export function withBase(path: string, base: string): string {
+  if (isAbsoluteUrl(path)) return path;
+  if (path.startsWith("#") || path.startsWith("?")) return path;
+  const prefix = base.replace(/\/+$/, "");
+  if (!prefix) return path;
+  const [pathname, suffix] = splitSuffix(path);
+  const normalized = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  const based =
+    normalized === prefix || normalized.startsWith(`${prefix}/`)
+      ? normalized
+      : `${prefix}${normalized}`;
+  return `${based}${suffix}`;
 }
 
 /**

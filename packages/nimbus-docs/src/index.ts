@@ -37,7 +37,7 @@ import {
   sidebarHash,
 } from "./_internal/sidebar.js";
 import { entryRouteUrl } from "./_internal/astro-slug.js";
-import { toBrowserHref } from "./_internal/url.js";
+import { toBrowserHref, withBase } from "./_internal/url.js";
 import {
   PRIMARY_COLLECTION,
   collectionLabel as resolveCollectionSlug,
@@ -132,6 +132,9 @@ export { defineConfig } from "./config.js";
 
 /** Deterministic short hash of the sidebar structure (for sessionStorage invalidation). */
 export { sidebarHash };
+
+/** Prefix a site-root-relative URL with Astro's configured base path. */
+export { withBase };
 
 /** Render an Astro content entry's raw MDX body as clean markdown. */
 export { renderEntryAsMarkdown };
@@ -491,9 +494,10 @@ export async function renderIndexedEntryMarkdown(item: IndexedEntry): Promise<st
  *
  * The starter route stays policy-free and ~10 lines; a site that wants a
  * different corpus (per-version, filtered, chunked) reshapes its own route
- * on top of `getIndexedEntries()` + `renderEntryAsMarkdown()`.
+ * on top of `getIndexedEntries()` + `renderEntryAsMarkdown()`. Pass Astro's
+ * `import.meta.env.BASE_URL` as `base` when the site supports sub-path deploys.
  */
-export async function renderCorpusMarkdown(): Promise<string> {
+export async function renderCorpusMarkdown(options?: { base?: string }): Promise<string> {
   const config = await loadNimbusConfig();
   const versions = await getVersions();
   const entries = await getIndexedEntries();
@@ -522,6 +526,7 @@ export async function renderCorpusMarkdown(): Promise<string> {
     title: config.title,
     description: config.description,
     site: config.site,
+    base: options?.base,
   });
 }
 

@@ -7,7 +7,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { toBrowserHref, toRouteKey } from "../src/_internal/url.js";
+import { toBrowserHref, toRouteKey, withBase } from "../src/_internal/url.js";
+
+test("withBase prefixes internal paths and is idempotent", () => {
+  assert.equal(withBase("/api/index.md", "/docs/"), "/docs/api/index.md");
+  assert.equal(withBase("api/index.md", "/docs/"), "/docs/api/index.md");
+  assert.equal(withBase("/docs/api/index.md", "/docs/"), "/docs/api/index.md");
+  assert.equal(withBase("/docs?x=1#top", "/docs/"), "/docs?x=1#top");
+  assert.equal(withBase("/api?x=1#top", "/docs/"), "/docs/api?x=1#top");
+});
+
+test("withBase leaves root-base and external URLs unchanged", () => {
+  assert.equal(withBase("/api/index.md", "/"), "/api/index.md");
+  assert.equal(withBase("https://example.com/api", "/docs/"), "https://example.com/api");
+  assert.equal(withBase("//cdn.example.com/api", "/docs/"), "//cdn.example.com/api");
+  assert.equal(withBase("#top", "/docs/"), "#top");
+  assert.equal(withBase("?x=1", "/docs/"), "?x=1");
+});
 
 // ---------------------------------------------------------------------------
 // toRouteKey — slashless canonical form for path comparisons

@@ -319,7 +319,11 @@ export const MANIFESTS = {
     registryDependencies: ["api-sidebar", "api-field-row", "api-code-rail", "badge", "banner", "breadcrumbs", "page-actions", "layer-card", "version-switcher", "cn"],
     // Optional peers of nimbus-docs's API engine, installed only when a site opts
     // into the reference
-    dependencies: ["@scalar/openapi-parser", "openapi-sampler", "@readme/httpsnippet"],
+    dependencies: [
+      "@scalar/openapi-parser@0.28.12",
+      "openapi-sampler@1.7.4",
+      "@readme/httpsnippet@11.4.0",
+    ],
   },
 
   diagram: {

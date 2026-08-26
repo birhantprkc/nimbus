@@ -85,6 +85,20 @@ test("valid payload parses to a typed ComponentItem", async () => {
   assert.deepEqual(item.dependencies, ["clsx", "@astrojs/react"]);
 });
 
+test("exact dependency versions pass payload validation", async () => {
+  const dependencies = [
+    "@scalar/openapi-parser@0.28.12",
+    "openapi-sampler@1.7.4",
+    "@readme/httpsnippet@11.4.0",
+  ];
+  stubFetch({
+    contentType: "application/json",
+    json: { ...validPayload, dependencies },
+  });
+  const item = await fetchComponent("dialog");
+  assert.deepEqual(item.dependencies, dependencies);
+});
+
 test("payload missing files[] is rejected before use", async () => {
   const { files, ...noFiles } = validPayload;
   void files;

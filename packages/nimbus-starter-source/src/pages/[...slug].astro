@@ -10,6 +10,7 @@ import {
   getEditUrl,
   getLastUpdated,
   getTOC,
+  withBase,
 } from "@cloudflare/nimbus-docs";
 import { components } from "../components";
 
@@ -40,8 +41,9 @@ const lastUpdated = entry.data.lastUpdated ?? await getLastUpdated(entry);
 // ever sees its options object (or undefined), never `false`.
 const tocConfig = entry.data.tableOfContents;
 const toc = tocOn && tocConfig !== false ? getTOC(headings, tocConfig) : false;
-const markdownPath = `/${entry.id}/index.md`;
-const markdownUrl = Astro.site ? new URL(markdownPath, Astro.site).href : markdownPath;
+const markdownPath = entry.id === "index" ? "/index.md" : `/${entry.id}/index.md`;
+const basedMarkdownPath = withBase(markdownPath, import.meta.env.BASE_URL);
+const markdownUrl = Astro.site ? new URL(basedMarkdownPath, Astro.site).href : basedMarkdownPath;
 const socialImage = entry.data.socialImage ?? `/og/${entry.id}.png`;
 ---
 

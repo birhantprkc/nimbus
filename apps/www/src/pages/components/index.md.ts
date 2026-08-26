@@ -3,9 +3,13 @@
  * `[...slug]/index.md.ts` route does for content entries, but for the
  * hand-written /components page.
  */
+import { withBase } from "@cloudflare/nimbus-docs";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
+
+const absoluteUrl = (path: string) =>
+  new URL(withBase(path, import.meta.env.BASE_URL), config.site).href;
 
 const components = [
   "Aside", "Badge", "Card / CardGrid", "LayerCard", "Frame", "Embed",
@@ -22,7 +26,7 @@ export function GET() {
     "---",
     "",
     "> Documentation Index",
-    `> Fetch the complete documentation index at: ${new URL("/llms.txt", config.site).href}`,
+    `> Fetch the complete documentation index at: ${absoluteUrl("/llms.txt")}`,
     "> Use this file to discover all available pages before exploring further.",
     "",
     "# Components",
@@ -31,7 +35,7 @@ export function GET() {
     "",
     ...components.map((c) => `- ${c}`),
     "",
-    `Source: ${new URL("/components/index.md", config.site).href}`,
+    `Source: ${absoluteUrl("/components/index.md")}`,
     "",
   ].join("\n");
 

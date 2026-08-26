@@ -21,6 +21,7 @@ import ApiEndpointCard from "./ApiEndpointCard.astro";
 import { authFields } from "./auth";
 import { cn } from "@/lib/cn";
 import { renderMarkdown } from "@cloudflare/nimbus-docs/markdown";
+import { withBase } from "@cloudflare/nimbus-docs";
 import type { ApiPageProps } from "@cloudflare/nimbus-docs/api";
 
 interface Props {
@@ -28,6 +29,7 @@ interface Props {
 }
 
 const { page } = Astro.props;
+const markdownUrl = withBase(page.markdownHref, import.meta.env.BASE_URL);
 
 const detail = (v: unknown): string => JSON.stringify(v);
 
@@ -95,7 +97,7 @@ const deprecationHtml = page.deprecated
     <ApiEndpointCard method={page.method} path={page.path} server={page.server} isWebhook={page.isWebhook} />
   )}
 
-  <PageActions markdownUrl={page.markdownHref} />
+  <PageActions markdownUrl={markdownUrl} />
 </div>
 
 <div class="mt-8 flex flex-col gap-8">

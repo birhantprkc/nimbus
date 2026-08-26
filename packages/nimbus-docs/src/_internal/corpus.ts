@@ -7,6 +7,8 @@
  * version/hidden filtering; this module only formats.
  */
 
+import { withBase } from "./url.js";
+
 export interface CorpusBlock {
   /** Display title — becomes the block's `#`-level heading. */
   title: string;
@@ -30,6 +32,8 @@ export interface CorpusHeader {
    * emitted site-relative (dev builds without `site` still work).
    */
   site?: string | undefined;
+  /** Astro base path applied before URLs are made absolute. */
+  base?: string | undefined;
 }
 
 /**
@@ -48,8 +52,10 @@ export function buildCorpusMarkdown(
   blocks: CorpusBlock[],
   header: CorpusHeader,
 ): string {
-  const abs = (p: string): string =>
-    header.site ? new URL(p, header.site).href : p;
+  const abs = (p: string): string => {
+    const based = withBase(p, header.base ?? "/");
+    return header.site ? new URL(based, header.site).href : based;
+  };
 
   const lines: string[] = [`# ${header.title}`, ""];
   if (header.description) lines.push(`> ${header.description}`, "");
