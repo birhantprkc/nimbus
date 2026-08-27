@@ -126,14 +126,3 @@ export function constraintPairs(c: ApiConstraint | undefined): ConstraintPair[] 
 export function isExpandable(field: ApiFieldView): boolean {
   return Boolean(field.union) || field.children.length > 0 || field.truncated;
 }
-
-/** Whether a field carries body content (description, constraints, default, or
- *  example) — used to decide if an expanded field needs a meta block. */
-export function hasFieldMeta(field: ApiFieldView): boolean {
-  return (
-    Boolean(field.description) ||
-    constraintPairs(field.constraints).length > 0 ||
-    field.default !== undefined ||
-    field.example !== undefined
-  );
-}

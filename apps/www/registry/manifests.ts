@@ -292,7 +292,7 @@ export const MANIFESTS = {
     title: "ApiFieldRow",
     description:
       "One `ApiFieldView` rendered recursively, plus a titled `ApiFieldList` group. Type links, required/nullable/deprecated flags, constraints/enum/default/example, nested children with omitted-count. Anchored by the field's coordinate id. Reads the view-model only.",
-    registryDependencies: ["badge", "cn"],
+    registryDependencies: [],
   },
 
   "api-sidebar": {

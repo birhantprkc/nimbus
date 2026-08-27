@@ -1,98 +1,80 @@
 ---
-/**
- * ApiFieldList — a titled, anchored property group (params, request body, schema
- * fields, response fields) rendered as a filetree. Holds a list of
- * `ApiFieldRow`s, or slotted content (the body-union explorer) when `fields` is
- * omitted. Sets the `ft-root` geometry variables and hosts the single
- * Expand/Collapse-all control; the mechanism (toggle + hash deep-linking) is
- * wired by `api-field-row.client.ts`. `title` is optional — omit it where an
- * ancestor already names the group so the badge/controls stand alone.
- */
-import { cn } from "@/lib/cn";
 import ApiFieldRow from "./ApiFieldRow.astro";
 import { isExpandable } from "./type-display";
 import type { ApiFieldView } from "@cloudflare/nimbus-docs/api";
-import "./field-tree.css";
+import "./field-list.css";
 
 interface Props {
-  /** Group heading. Omit when an ancestor already labels the group. */
   title?: string;
   fields?: ApiFieldView[];
   anchor?: string;
-  /** Heading level, so the group sits correctly under its page/section. */
   as?: "h2" | "h3" | "h4";
-  /** A small pill beside the title — e.g. the body media type (`JSON`). */
   badge?: string;
-  /** Force the Expand/Collapse-all controls (for slotted, non-`fields` content). */
   collapsible?: boolean;
-  /** Present when the engine capped this list at the inline-field ceiling; keeps
-   *  the "N omitted" note in parity with the markdown twin. Non-firing on real
-   *  specs (the ceiling sits above the largest observed page). */
   truncated?: { total: number };
   class?: string;
 }
 
-const { title, fields, anchor, as = "h3", badge, collapsible, truncated, class: className } = Astro.props;
-// Title-less groups drop to a plain span so the badge/controls carry no heading.
-const HeadTag = title ? as : "span";
+const {
+  title,
+  fields,
+  anchor,
+  as: HeadTag = "h3",
+  badge,
+  collapsible,
+  class: className,
+  truncated,
+} = Astro.props;
 
 const hasFields = fields !== undefined;
-const empty = hasFields && fields!.length === 0;
-const showControls = collapsible ?? (hasFields && fields!.some(isExpandable));
-const omitted = truncated && hasFields ? truncated.total - fields!.length : 0;
-const hasHead = Boolean(title) || Boolean(badge) || showControls;
+if (hasFields && fields.length === 0) return;
+
+const showControls = collapsible ?? (hasFields && fields.some(isExpandable));
+const omitted = truncated ? truncated.total - (fields?.length ?? 0) : 0;
+const TitleTag = title ? HeadTag : "span";
 ---
 
-{
-  !empty && (
-    <section id={anchor} class={cn("ft-root scroll-mt-24", className)} data-api-section>
-      {hasHead && (
-        <div class="mb-2 flex items-center justify-between gap-3">
-          <HeadTag class="flex items-center gap-2 text-sm font-normal text-muted-foreground">
-            {title}
-            {badge && <span class="font-mono text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{badge}</span>}
-          </HeadTag>
-          {showControls && (
-            <button
-              type="button"
-              data-api-toggle-all
-              data-nb-expanded="false"
-              class="group/toggle flex cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <span class="group-data-[nb-expanded=true]/toggle:hidden">Expand all</span>
-              <span class="hidden group-data-[nb-expanded=true]/toggle:inline">Collapse all</span>
-              <svg class="size-3.5 group-data-[nb-expanded=true]/toggle:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="m7 15 5 5 5-5" />
-                <path d="m7 9 5-5 5 5" />
-              </svg>
-              <svg class="hidden size-3.5 group-data-[nb-expanded=true]/toggle:inline" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="m7 20 5-5 5 5" />
-                <path d="m7 4 5 5 5-5" />
-              </svg>
-            </button>
-          )}
-        </div>
+<section
+  id={anchor}
+  class:list={["fl-root scroll-mt-24", className]}
+  data-api-section
+>
+  {(title || badge || showControls) && (
+    <div class="fl-head">
+      <TitleTag class="fl-title">
+        {title}
+        {badge && <span class="fl-badge">{badge}</span>}
+      </TitleTag>
+      {showControls && (
+        <button
+          type="button"
+          class="fl-toggle group/toggle"
+          data-api-toggle-all
+          data-nb-expanded="true"
+          aria-label="Toggle all fields"
+        >
+          <span class="group-data-[nb-expanded=true]/toggle:hidden">Expand all</span>
+          <span class="hidden group-data-[nb-expanded=true]/toggle:inline">Collapse all</span>
+          <svg class="hidden group-data-[nb-expanded=true]/toggle:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/></svg>
+          <svg class="group-data-[nb-expanded=true]/toggle:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
+        </button>
       )}
-      {hasFields ? (
-        <ul class="ft-list">
-          {fields!.map((field: ApiFieldView) => (
-            <ApiFieldRow field={field} depth={0} />
-          ))}
-          {omitted > 0 && (
-            <li class="ft-item">
-              <div class="ft-row">
-                <span class="ft-chevbox" aria-hidden="true" />
-                <div class="ft-content text-xs text-muted-foreground">… {omitted} more field(s) omitted</div>
-              </div>
-            </li>
-          )}
-        </ul>
-      ) : (
-        <slot />
+    </div>
+  )}
+
+  {hasFields ? (
+    <ul class="fl-list">
+      {fields.map((field) => (
+        <ApiFieldRow field={field} depth={0} />
+      ))}
+      {omitted > 0 && (
+        <li class="fl-truncated">… {omitted} more field(s) omitted</li>
       )}
-    </section>
-  )
-}
+    </ul>
+  ) : (
+    <slot />
+  )}
+</section>
 
 <script>
   import "./api-field-row.client";
