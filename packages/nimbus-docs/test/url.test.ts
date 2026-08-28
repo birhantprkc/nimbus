@@ -7,7 +7,31 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { toBrowserHref, toRouteKey } from "../src/_internal/url.js";
+import { toBrowserHref, toRouteKey, withBase } from "../src/_internal/url.js";
+
+test("withBase prefixes internal paths and is idempotent", () => {
+  assert.equal(withBase("/api/index.md", "/docs/"), "/docs/api/index.md");
+  assert.equal(withBase("api/index.md", "/docs/"), "/docs/api/index.md");
+  assert.equal(withBase("/docs/api/index.md", "/docs/"), "/docs/api/index.md");
+  assert.equal(withBase("/docs?x=1#top", "/docs/"), "/docs?x=1#top");
+  assert.equal(withBase("/api?x=1#top", "/docs/"), "/docs/api?x=1#top");
+});
+
+test("withBase does not double-prefix an already-absolute, already-based URL (NimbusHead markdownUrl path)", () => {
+  // NimbusHead re-applies withBase to a caller-pre-absolutized markdownUrl;
+  // the absolute-URL short-circuit must keep it single-based.
+  const abs = "https://docs.acme.dev/docs/guide/index.md";
+  assert.equal(withBase(abs, "/docs/"), abs);
+  assert.equal(new URL(withBase(abs, "/docs/")).pathname, "/docs/guide/index.md");
+});
+
+test("withBase leaves root-base and external URLs unchanged", () => {
+  assert.equal(withBase("/api/index.md", "/"), "/api/index.md");
+  assert.equal(withBase("https://example.com/api", "/docs/"), "https://example.com/api");
+  assert.equal(withBase("//cdn.example.com/api", "/docs/"), "//cdn.example.com/api");
+  assert.equal(withBase("#top", "/docs/"), "#top");
+  assert.equal(withBase("?x=1", "/docs/"), "?x=1");
+});
 
 // ---------------------------------------------------------------------------
 // toRouteKey — slashless canonical form for path comparisons
@@ -30,6 +54,17 @@ test("toRouteKey strips query and hash so two hrefs that differ only in their ta
   assert.equal(toRouteKey("/cli#install"), "/cli");
   assert.equal(toRouteKey("/cli/#install"), "/cli");
   assert.equal(toRouteKey("/cli/?ref=sidebar#install"), "/cli");
+});
+
+test("toRouteKey decodes percent-encoded segments so an encoded request path matches its decoded tree href (CJK)", () => {
+  assert.equal(toRouteKey("/%E6%8C%87%E5%8D%97/"), "/指南");
+  assert.equal(toRouteKey("/指南/"), "/指南");
+  assert.equal(toRouteKey("/%E6%8C%87%E5%8D%97/"), toRouteKey("/指南/"));
+});
+
+test("toRouteKey leaves malformed percent sequences untouched", () => {
+  assert.equal(toRouteKey("/50%25off"), "/50%off");
+  assert.equal(toRouteKey("/bad%zz"), "/bad%zz");
 });
 
 // ---------------------------------------------------------------------------

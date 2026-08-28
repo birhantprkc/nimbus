@@ -1,5 +1,4 @@
 import { defineConfig } from "astro/config";
-import icon from "astro-icon";
 import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
 import nimbus, { defineConfig as defineNimbusConfig } from "@cloudflare/nimbus-docs";
@@ -38,7 +37,7 @@ const nimbusConfig = defineNimbusConfig({
 
 export default defineConfig({
   output: "static",
-  integrations: [icon(), react(), nimbus(nimbusConfig)],
+  integrations: [react(), nimbus(nimbusConfig)],
   vite: {
     // Tailwind v4 via its Vite plugin (replaces the PostCSS plugin, which
     // doesn't build under Astro 7's Vite 8 bundler).

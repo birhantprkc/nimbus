@@ -61,7 +61,9 @@ const server = createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  process.stdout.write(`[serve-registry] http://localhost:${PORT}\n`);
+  const address = server.address();
+  const boundPort = typeof address === "object" && address ? address.port : PORT;
+  process.stdout.write(`[serve-registry] http://localhost:${boundPort}\n`);
   process.stdout.write(`[serve-registry] serving ${REGISTRY_DIR}\n`);
 });
 

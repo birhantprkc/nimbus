@@ -495,5 +495,6 @@ export const componentsSchema = z.object({
         ? 'Missing "tagline" in frontmatter — one-sentence summary shown under the title.'
         : `"tagline" must be a string, received ${typeof iss.input}`,
   }),
+  overview: z.string().optional(),
   props: z.array(componentPropSchema).default([]),
 });

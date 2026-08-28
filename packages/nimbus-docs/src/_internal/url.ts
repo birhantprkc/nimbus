@@ -19,9 +19,9 @@
  * hrefs are returned unchanged by `toBrowserHref` — they aren't HTML
  * document routes and adding a slash would break them.
  *
- * Keep these out of the public API: starter components consume hrefs the
- * framework already shaped. Authors don't (and shouldn't) call these
- * directly.
+ * `withBase` is public because starter-owned layouts and routes must apply the
+ * same sub-path rule as framework-owned metadata. The route-shape helpers stay
+ * internal: starter components consume hrefs the framework already shaped.
  */
 
 /**
@@ -33,6 +33,30 @@
  */
 export function isAbsoluteUrl(href: string): boolean {
   return /^([a-z][a-z0-9+\-.]*:|\/\/)/i.test(href);
+}
+
+/**
+ * Prefix a site-root-relative path with Astro's configured base path.
+ * External URLs and paths that already include the base pass through.
+ *
+ * Pass `import.meta.env.BASE_URL` as `base` from an Astro component or route.
+ */
+export function withBase(path: string, base: string): string {
+  if (isAbsoluteUrl(path)) return path;
+  if (path.startsWith("#") || path.startsWith("?")) return path;
+  // Trim trailing slashes with a linear scan rather than a `/\/+$/` regex,
+  // which CodeQL flags as polynomial backtracking on slash-heavy input.
+  let end = base.length;
+  while (end > 0 && base[end - 1] === "/") end--;
+  const prefix = base.slice(0, end);
+  if (!prefix) return path;
+  const [pathname, suffix] = splitSuffix(path);
+  const normalized = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  const based =
+    normalized === prefix || normalized.startsWith(`${prefix}/`)
+      ? normalized
+      : `${prefix}${normalized}`;
+  return `${based}${suffix}`;
 }
 
 /**
@@ -51,6 +75,15 @@ function hasFileExtension(pathname: string): boolean {
   if (dot <= 0) return false;
   const ext = lastSegment.slice(dot + 1);
   return ext.length > 0 && ext.length <= 6 && /^[a-zA-Z0-9]+$/.test(ext);
+}
+
+/** `decodeURIComponent` that returns its input untouched on malformed sequences. */
+export function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 /** Split an href into `[pathname, suffix]` where `suffix` is the `?…#…` tail. */
@@ -74,12 +107,14 @@ function splitSuffix(href: string): [string, string] {
  *
  * Strips query and hash so callers can compare two hrefs that differ only
  * in their tail. Root stays `"/"` — that's identity, not a trailing-slash
- * artifact.
+ * artifact. Percent-encoded segments are decoded so an encoded request path
+ * (`/%E6%8C%87%E5%8D%97/`) matches its decoded tree href (`/指南/`).
  */
 export function toRouteKey(href: string): string {
   const [pathname] = splitSuffix(href);
-  if (pathname.length <= 1) return pathname || "/";
-  return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  const decoded = safeDecode(pathname);
+  if (decoded.length <= 1) return decoded || "/";
+  return decoded.endsWith("/") ? decoded.slice(0, -1) : decoded;
 }
 
 /**

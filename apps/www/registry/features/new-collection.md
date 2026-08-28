@@ -28,6 +28,12 @@ an optional RSS feed — is a different shape. Use `nimbus-docs add changelog` f
 Use this recipe only if the user explicitly wants a changelog rendered as a
 plain doc tree.
 
+**For an OpenAPI spec, this is also the wrong recipe.** This recipe makes a
+tree of hand-authored MDX pages. If the user wants their API reference
+*generated from an OpenAPI/Swagger document* — pages per operation and schema,
+`.md` twins, llms coverage — use `nimbus-docs add api-reference`. Use this
+recipe for `api` only when they're writing the API docs by hand.
+
 **This recipe owns the whole setup of a non-version collection.** You
 will create the content directory, register the collection in
 `content.config.ts`, scaffold the page + `.md` alternate routes, and
@@ -192,6 +198,7 @@ import {
   getEditUrl,
   getLastUpdated,
   getTOC,
+  withBase,
 } from "@cloudflare/nimbus-docs";
 import { components } from "../../components";
 
@@ -214,7 +221,8 @@ const editUrl = await getEditUrl(entry);
 const lastUpdated = entry.data.lastUpdated ?? await getLastUpdated(entry);
 const toc = getTOC(headings, entry.data.tableOfContents);
 const markdownPath = `/<prefix>/${entry.id}/index.md`;
-const markdownUrl = Astro.site ? new URL(markdownPath, Astro.site).href : markdownPath;
+const basedMarkdownPath = withBase(markdownPath, import.meta.env.BASE_URL);
+const markdownUrl = Astro.site ? new URL(basedMarkdownPath, Astro.site).href : basedMarkdownPath;
 const socialImage = entry.data.socialImage ?? `/og/<prefix>/${entry.id}.png`;
 ---
 
@@ -268,12 +276,19 @@ Write `src/pages/<prefix>/[...slug]/index.md.ts`:
  * .md alternate at src/pages/[...slug]/index.md.ts.
  */
 
-import { getIndexedEntries, renderEntryAsMarkdown, type IndexedEntry } from "@cloudflare/nimbus-docs";
+import {
+  getIndexedEntries,
+  renderEntryAsMarkdown,
+  type IndexedEntry,
+  withBase,
+} from "@cloudflare/nimbus-docs";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
 
 const COLLECTION = "<collection>";
+const absoluteUrl = (path: string) =>
+  new URL(withBase(path, import.meta.env.BASE_URL), config.site).href;
 
 interface SlugProps {
   item: IndexedEntry;
@@ -306,19 +321,19 @@ export async function GET({ props }: { props: SlugProps }) {
     `title: ${JSON.stringify(title)}`,
     ...(description ? [`description: ${JSON.stringify(description)}`] : []),
     ...(socialImage
-      ? [`image: ${JSON.stringify(new URL(socialImage, config.site).href)}`]
+      ? [`image: ${JSON.stringify(absoluteUrl(socialImage))}`]
       : []),
     "---",
     "",
     "> Documentation Index",
-    `> Fetch the complete documentation index at: ${new URL("/llms.txt", config.site).href}`,
+    `> Fetch the complete documentation index at: ${absoluteUrl("/llms.txt")}`,
     "> Use this file to discover all available pages before exploring further.",
     "",
     `# ${title}`,
     "",
     markdown,
     "",
-    `Source: ${new URL(`${url}/index.md`, config.site).href}`,
+    `Source: ${absoluteUrl(`${url}/index.md`)}`,
     "",
   ].join("\n");
 

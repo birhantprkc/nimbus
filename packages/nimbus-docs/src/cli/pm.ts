@@ -99,7 +99,7 @@ export function updateCommand(cwd = process.cwd()): string {
  * verb that both adds to package.json AND installs:
  *
  *   npm  install <deps...>
- *   pnpm add     <deps...>
+ *   pnpm add --ignore-workspace-root-check <deps...>
  *   yarn add     <deps...>
  *   bun  add     <deps...>
  */
@@ -122,7 +122,13 @@ export function addCommand(
     case "npm":
       return { bin: "npm", args: ["install", ...deps] };
     case "pnpm":
-      return { bin: "pnpm", args: ["add", ...deps] };
+      // Generated Nimbus sites carry pnpm-workspace.yaml for the build-script
+      // allowlist, so pnpm treats the site as a workspace root and otherwise
+      // refuses the add. This flag still targets cwd in nested monorepos.
+      return {
+        bin: "pnpm",
+        args: ["add", "--ignore-workspace-root-check", ...deps],
+      };
     case "yarn":
       return { bin: "yarn", args: ["add", ...deps] };
     case "bun":

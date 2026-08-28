@@ -10,7 +10,7 @@
  * Tab labels come from the `titles` prop; omit and they fall back to
  * "Tab 1", "Tab 2", etc.
  */
-import { Icon } from "astro-icon/components";
+import Icon from "@cloudflare/nimbus-docs/components/Icon.astro";
 import { cn } from "@/lib/cn";
 import type { HTMLAttributes } from "astro/types";
 import { LayerCard, LayerCardHeader } from "../layer-card";
@@ -30,8 +30,8 @@ const titlesAttr = titles ? JSON.stringify(titles) : undefined;
   class={cn("w-full my-4", className)}
   {...attrs}
 >
-  <template data-cg-icon-copy><Icon name="ph:copy" class="w-[18px] h-[18px]" is:inline /></template>
-  <template data-cg-icon-check><Icon name="ph:check" class="w-[18px] h-[18px]" is:inline /></template>
+  <template data-cg-icon-copy><Icon name="ph:copy" class="w-[18px] h-[18px]" /></template>
+  <template data-cg-icon-check><Icon name="ph:check" class="w-[18px] h-[18px]" /></template>
 
   <LayerCard>
     <LayerCardHeader role="tablist" aria-label="Code variants" data-cg-tablist />

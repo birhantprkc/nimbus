@@ -230,6 +230,16 @@ body {
 
 /* ---- Focus indicators ---- */
 @layer base {
+	/* Default the outline to the focus ring's resting values so turning the
+	   ring on (outline-style: none → solid) changes nothing a transition can
+	   animate — no color/width/offset flash under transition-colors/-all. */
+	*,
+	::before,
+	::after {
+		outline-color: var(--nb-ring);
+		outline-width: 2px;
+		outline-offset: 2px;
+	}
 	:focus-visible {
 		outline: 2px solid var(--nb-ring);
 		outline-offset: 2px;
