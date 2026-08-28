@@ -48,6 +48,7 @@ import {
   type RenderEntryAsMarkdownOptions,
 } from "./_internal/transform.js";
 import { buildCorpusMarkdown } from "./_internal/corpus.js";
+import { isDiscoverable } from "./_internal/discoverability.js";
 import {
   assembleBreadcrumbs,
   breadcrumbsFromUrl,
@@ -135,6 +136,9 @@ export { sidebarHash };
 
 /** Prefix a site-root-relative URL with Astro's configured base path. */
 export { withBase };
+
+/** The `noindex` visibility contract — filter custom index/corpus routes with this. */
+export { isDiscoverable };
 
 /** Render an Astro content entry's raw MDX body as clean markdown. */
 export { renderEntryAsMarkdown };
@@ -277,9 +281,9 @@ export interface IndexedTopLevel {
 }
 
 /**
- * Cross-collection entry list for the agent-facing routes
- * (`llms.txt`, per-page `.md` alternates, future `llms-full.txt` and
- * `rag.jsonl`). Implements the indexing baseline of the two-layer
+ * Cross-collection entry list backing the agent-facing routes
+ * (`llms.txt`, per-page `.md` alternates, `llms-full.txt`) and internal
+ * link validation. Implements the indexing baseline of the two-layer
  * architecture documented at `/features/llms-txt`:
  *
  *   - **Multi-collection by default, zero opt-in.** Iterates every
@@ -288,11 +292,9 @@ export interface IndexedTopLevel {
  *   - **Schema-tolerant.** Reads `title` and `description` if present;
  *     falls back to the entry id for the title and omits the
  *     description otherwise.
- *   - **Per-page filters baked in.** Drops entries with `draft: true`;
- *     absent fields read as the docs-schema default (`draft: false`).
- *     All published pages are indexed — there is no per-page opt-out.
- *     A page that genuinely shouldn't be agent-readable should be kept
- *     out of the content collection entirely.
+ *   - **Drops `draft: true` only.** Keeps `noindex: true` pages — they
+ *     stay valid link targets, version landing pages, and navigable.
+ *     Discovery surfaces filter them via `isDiscoverable`, not here.
  *
  * The returned shape is identical regardless of which factory created
  * the collection: hand-rolled `defineCollection({ loader, schema })`
@@ -390,7 +392,9 @@ export async function getIndexedEntries(): Promise<IndexedEntry[]> {
  *     This matches the URL convention (`/api/...`, `/blog/...`).
  */
 export async function getIndexedTopLevel(): Promise<IndexedTopLevel> {
-  const items = await getIndexedEntries();
+  const items = (await getIndexedEntries()).filter((item) =>
+    isDiscoverable(item.entry),
+  );
   const versions = await getVersions();
 
   // Build two buckets keyed by their URL-facing slug:
@@ -485,7 +489,8 @@ export async function renderIndexedEntryMarkdown(item: IndexedEntry): Promise<st
  * Scope matches the root `llms.txt`: the primary `docs` collection plus
  * every secondary collection, **excluding** non-current version collections
  * (`docs-<v>`) — old versions keep their own per-version surfaces and never
- * multiply this document.
+ * multiply this document — and **excluding** `noindex: true` pages (see
+ * {@link isDiscoverable}), which stay addressable but off discovery surfaces.
  *
  * Contract (see `buildCorpusMarkdown` for the collation rules):
  *   - Entries are sorted by `url`; output is deterministic across rebuilds.
@@ -508,8 +513,9 @@ export async function renderCorpusMarkdown(options?: { base?: string }): Promise
   const versionSlugs = new Set(versions?.others ?? []);
   const included = entries.filter(
     (item) =>
-      item.collection === PRIMARY_COLLECTION ||
-      !versionSlugs.has(resolveCollectionSlug(item.collection, versions)),
+      isDiscoverable(item.entry) &&
+      (item.collection === PRIMARY_COLLECTION ||
+        !versionSlugs.has(resolveCollectionSlug(item.collection, versions))),
   );
 
   const blocks = await Promise.all(
