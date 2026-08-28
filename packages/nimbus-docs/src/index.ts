@@ -11,6 +11,7 @@
  */
 
 import {
+  loadApiCollections,
   loadIndexedCollections,
   loadNimbusConfig,
   loadVersionAlternates,
@@ -36,13 +37,16 @@ import {
   sidebarHash,
 } from "./_internal/sidebar.js";
 import { entryRouteUrl } from "./_internal/astro-slug.js";
-import { toBrowserHref } from "./_internal/url.js";
+import { toBrowserHref, withBase } from "./_internal/url.js";
 import {
   PRIMARY_COLLECTION,
   collectionLabel as resolveCollectionSlug,
   collectionMountPrefix as resolveCollectionPrefix,
 } from "./_internal/collection-mount.js";
-import { renderEntryAsMarkdown } from "./_internal/transform.js";
+import {
+  renderEntryAsMarkdown,
+  type RenderEntryAsMarkdownOptions,
+} from "./_internal/transform.js";
 import { buildCorpusMarkdown } from "./_internal/corpus.js";
 import {
   assembleBreadcrumbs,
@@ -63,8 +67,9 @@ import {
 } from "./_internal/valid-internal-links.js";
 
 import type {
+  ApiVersionStatus,
   Breadcrumb,
-  NimbusConfig,
+  CoordinatesManifest,
   PrevNext,
   PrevNextOverrides,
   ResolvedVersions,
@@ -80,6 +85,8 @@ export { nimbus as default } from "./integration.js";
 export type { NimbusIntegrationOptions } from "./integration.js";
 
 export type {
+  ApiVersionSpec,
+  ApiVersionStatus,
   BadgeVariant,
   Breadcrumb,
   NimbusConfig,
@@ -119,17 +126,44 @@ export type { Heading } from "./_internal/partial-headings.js";
 export { getHeadingsFromHtml } from "./_internal/rendered-headings.js";
 
 /**
- * Define a typed Nimbus config. Returns the config unchanged but inferred.
+ * Define a typed Nimbus config.
  */
-export function defineConfig<T extends NimbusConfig>(config: T): T {
-  return config;
-}
+export { defineConfig } from "./config.js";
 
 /** Deterministic short hash of the sidebar structure (for sessionStorage invalidation). */
 export { sidebarHash };
 
+/** Prefix a site-root-relative URL with Astro's configured base path. */
+export { withBase };
+
 /** Render an Astro content entry's raw MDX body as clean markdown. */
 export { renderEntryAsMarkdown };
+
+/**
+ * `renderEntryAsMarkdown` with the coordinate-citation index loaded and
+ * passed through, so `api.ref:` citations resolve. Prerendered routes only.
+ */
+export async function getEntryMarkdown(
+  entry: Parameters<typeof renderEntryAsMarkdown>[0],
+  options: Omit<RenderEntryAsMarkdownOptions, "citationIndex"> = {},
+): Promise<string> {
+  const { loadCitationIndex } = await import("./_internal/api/load-citation-index.js");
+  return renderEntryAsMarkdown(entry, {
+    ...options,
+    citationIndex: await loadCitationIndex(),
+  });
+}
+
+/**
+ * This site's published coordinate manifest (local collections only), served at
+ * `/nimbus-api/coordinates.json`. Prerendered routes only.
+ */
+export async function getCoordinatesManifest(): Promise<CoordinatesManifest> {
+  const { loadCoordinatesManifest } = await import(
+    "./_internal/api/load-citation-index.js"
+  );
+  return loadCoordinatesManifest();
+}
 
 /**
  * The canonical Shiki transformer chain — diff / highlight / focus /
@@ -291,6 +325,13 @@ export async function getIndexedEntries(): Promise<IndexedEntry[]> {
       const data = (entry.data ?? {}) as Record<string, unknown>;
       if (data.draft === true) continue;
 
+      // A versioned API family stamps a per-entry `data.version`; prefer it over
+      // the docs-axis `getCurrentVersion` (which is null for API collections).
+      const entryVersion =
+        typeof data.version === "string"
+          ? data.version
+          : (collectionVersion ?? undefined);
+
       const title =
         typeof data.title === "string" && data.title.length > 0
           ? data.title
@@ -329,7 +370,7 @@ export async function getIndexedEntries(): Promise<IndexedEntry[]> {
         url: toBrowserHref(canonicalUrl),
         markdownUrl,
         sourceUrl,
-        version: collectionVersion ?? undefined,
+        version: entryVersion,
       });
     }
   }
@@ -406,6 +447,37 @@ export async function getIndexedTopLevel(): Promise<IndexedTopLevel> {
 }
 
 /**
+ * Render one indexed entry to clean Markdown, dispatching by collection.
+ * Prose entries render their MDX body via `renderEntryAsMarkdown`. OpenAPI
+ * reference entries carry no body, so their frozen view-model is projected and
+ * emitted through the `./api` seam — dynamic-imported so the engine and its
+ * parser stay out of the main bundle for prose-only sites. Both the corpus and
+ * the served `.md` twin route go through here, so the two never drift.
+ */
+export async function renderIndexedEntryMarkdown(item: IndexedEntry): Promise<string> {
+  const apiCollections = await loadApiCollections();
+  if (!apiCollections.includes(item.collection)) {
+    const { loadCitationIndex } = await import("./_internal/api/load-citation-index.js");
+    return renderEntryAsMarkdown(item.entry, { citationIndex: await loadCitationIndex() });
+  }
+  const { getApiModel, getApiPageProps, renderApiPageMarkdown } = await import(
+    "./api/index.js"
+  );
+  const apiData = item.entry.data as { coordinate?: string; version?: string };
+  const coordinate = apiData.coordinate;
+  if (typeof coordinate !== "string") {
+    throw new Error(
+      `nimbus-docs: API entry "${item.entry.id}" in collection "${item.collection}" ` +
+        `is missing its coordinate — the apiCollection() loader should have set it.`,
+    );
+  }
+  // A versioned family stamps `data.version`; pass it so the `.md` twin renders
+  // from the same version's model the HTML page does.
+  const model = await getApiModel(item.collection, apiData.version);
+  return renderApiPageMarkdown(getApiPageProps(model, coordinate));
+}
+
+/**
  * Render the full published corpus as one markdown document — the body of
  * the `llms-full.txt` route. One fetch hands an agent (or a RAG ingestion
  * job) every page as clean markdown, no crawling.
@@ -422,9 +494,10 @@ export async function getIndexedTopLevel(): Promise<IndexedTopLevel> {
  *
  * The starter route stays policy-free and ~10 lines; a site that wants a
  * different corpus (per-version, filtered, chunked) reshapes its own route
- * on top of `getIndexedEntries()` + `renderEntryAsMarkdown()`.
+ * on top of `getIndexedEntries()` + `renderEntryAsMarkdown()`. Pass Astro's
+ * `import.meta.env.BASE_URL` as `base` when the site supports sub-path deploys.
  */
-export async function renderCorpusMarkdown(): Promise<string> {
+export async function renderCorpusMarkdown(options?: { base?: string }): Promise<string> {
   const config = await loadNimbusConfig();
   const versions = await getVersions();
   const entries = await getIndexedEntries();
@@ -439,20 +512,22 @@ export async function renderCorpusMarkdown(): Promise<string> {
       !versionSlugs.has(resolveCollectionSlug(item.collection, versions)),
   );
 
-  return buildCorpusMarkdown(
-    included.map((item) => ({
+  const blocks = await Promise.all(
+    included.map(async (item) => ({
       title: item.title,
       description: item.description,
       url: item.url,
       markdownUrl: item.markdownUrl,
-      markdown: renderEntryAsMarkdown(item.entry),
+      markdown: await renderIndexedEntryMarkdown(item),
     })),
-    {
-      title: config.title,
-      description: config.description,
-      site: config.site,
-    },
   );
+
+  return buildCorpusMarkdown(blocks, {
+    title: config.title,
+    description: config.description,
+    site: config.site,
+    base: options?.base,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -907,6 +982,11 @@ import type { AstroGlobal, GetStaticPaths } from "astro";
  * filtered in production. Each path passes `{ entry }` as props so the
  * page component can access it via `getDocsPageProps(Astro)`.
  *
+ * A `cacheKey` derived from the entry's `digest` is included on each path
+ * so Astro's experimental incremental build cache can skip re-rendering
+ * unchanged pages. This is a no-op when `experimental.incrementalBuild` is
+ * not enabled in `astro.config.ts`.
+ *
  * Usage:
  *
  *   // src/pages/[...slug].astro
@@ -926,6 +1006,7 @@ export const getDocsStaticPaths: GetStaticPaths = async () => {
   return entries.map((entry) => ({
     params: { slug: entry.id },
     props: { entry },
+    cacheKey: String(entry.digest),
   }));
 };
 
@@ -1015,6 +1096,11 @@ export async function getRouteFlags(entry: {
  * filtered in production (same rule as `getDocsStaticPaths`). Each path
  * passes `{ entry }` as props for `getCollectionPageProps()`.
  *
+ * A `cacheKey` derived from the entry's `digest` is included on each path
+ * so Astro's experimental incremental build cache can skip re-rendering
+ * unchanged pages. This is a no-op when `experimental.incrementalBuild` is
+ * not enabled in `astro.config.ts`.
+ *
  * Usage:
  *
  *   // src/pages/api/[...slug].astro
@@ -1032,6 +1118,7 @@ export function getCollectionStaticPaths(collection: string): GetStaticPaths {
     return entries.map((entry) => ({
       params: { slug: entry.id },
       props: { entry },
+      cacheKey: String(entry.digest),
     }));
   };
 }
@@ -1079,6 +1166,150 @@ export async function getCollectionPageProps<C extends string>(
     options?.partialHeadings,
   );
   return { entry, Content, headings: merged };
+}
+
+// ---------------------------------------------------------------------------
+// API reference (version-aware routing)
+// ---------------------------------------------------------------------------
+
+/** One picker-facing version of an API family. Serializable — no engine types. */
+export interface ApiVersionInfo {
+  /** Version id (URL segment for non-default versions). */
+  version: string;
+  /** Display label for the picker (defaults to `version`). */
+  label: string;
+  /** Whether this is the family default (owns the bare `/<collection>` URL). */
+  isDefault: boolean;
+  /** Maturity status, or `null` when unset. */
+  status: ApiVersionStatus | null;
+  /** Hidden from picker/search/sitemap; reachable by direct URL. */
+  hidden: boolean;
+  /** Landing URL for this version (`/<collection>` or `/<collection>/<version>`). */
+  url: string;
+}
+
+/**
+ * `getStaticPaths` for an API reference route, spanning every version of the
+ * family. Companion to `getCollectionStaticPaths`, but version-aware: it emits
+ * one path per page per version, with the version segment already joined into
+ * the slug so a single `pages/<collection>/[...slug].astro` catch-all serves
+ * the default at `/<collection>/...` and each other version at
+ * `/<collection>/<version>/...`. Hidden versions are still generated (they stay
+ * reachable by direct URL) — the picker and sitemap omit them separately.
+ *
+ * Each path carries `{ collection, version, coordinate }` props; render the
+ * page with a single `getApiPage(Astro)` call (or, by hand, `getApiModel` +
+ * `getApiPageProps` + `getApiNav`).
+ *
+ * Usage:
+ *
+ *   // src/pages/api/[...slug].astro
+ *   export const prerender = true;
+ *   export const getStaticPaths = getApiStaticPaths("api");
+ */
+export function getApiStaticPaths(collection: string): GetStaticPaths {
+  return async () => {
+    const config = await loadNimbusConfig();
+    const entry = (config.api ?? []).find((a) => a.collection === collection);
+    if (!entry) {
+      throw new Error(
+        `nimbus-docs: getApiStaticPaths("${collection}") found no matching api collection in nimbus.config.ts.`,
+      );
+    }
+    const { resolveApiFamily, apiPageRoute } = await import(
+      "./_internal/api/resolve-versions.js"
+    );
+    const { getApiModel, getApiPageSlugs } = await import("./api/index.js");
+    const targets = resolveApiFamily(entry);
+    const paths: {
+      params: { slug: string | undefined };
+      props: { collection: string; version: string | null; coordinate: string };
+    }[] = [];
+    for (const target of targets) {
+      const model = await getApiModel(collection, target.version ?? undefined);
+      for (const { coordinate, slug } of getApiPageSlugs(model)) {
+        const { param } = apiPageRoute(target, slug);
+        paths.push({
+          params: { slug: param },
+          props: { collection, version: target.version, coordinate },
+        });
+      }
+    }
+    return paths;
+  };
+}
+
+/**
+ * Read an API route's `{ collection, version, coordinate }` from `Astro.props`,
+ * resolve the model for that version, and return the page + nav a route needs —
+ * the one-call companion to `getApiStaticPaths`, mirroring `getDocsPageProps`.
+ *
+ * Collapses the per-page model→props→nav dance and normalises the `version`
+ * `null`→`undefined` hand-off that `getApiModel` expects. Lives here (not on the
+ * `nimbus-docs/api` seam) so the seam's runtime surface stays fixed; it reaches
+ * the seam lazily, like `getApiStaticPaths`.
+ *
+ * Usage:
+ *
+ *   export const getStaticPaths = getApiStaticPaths("api");
+ *   const { page, nav, collection, version, coordinate } = await getApiPage(Astro);
+ *
+ * `collection`/`version`/`coordinate` are echoed back so a versioned layout can
+ * drive its version picker and deprecated-version banner from the same one call
+ * (they originate in the route props `getApiStaticPaths` stamps).
+ */
+export async function getApiPage(astro: AstroGlobal): Promise<{
+  page: import("./api/index.js").ApiPageProps;
+  nav: import("./api/index.js").ApiNav;
+  collection: string;
+  version: string | null;
+  coordinate: string;
+}> {
+  const { collection, version, coordinate } = astro.props as {
+    collection?: string;
+    version?: string | null;
+    coordinate?: string;
+  };
+  if (!collection || !coordinate) {
+    throw new Error(
+      "getApiPage(): expected `collection` and `coordinate` in Astro.props. " +
+        "Ensure your route uses `getStaticPaths = getApiStaticPaths(<collection>)`.",
+    );
+  }
+  const { getApiModel, getApiPageProps, getApiNav } = await import("./api/index.js");
+  const model = await getApiModel(collection, version ?? undefined);
+  return {
+    page: getApiPageProps(model, coordinate),
+    nav: getApiNav(model, coordinate),
+    collection,
+    version: version ?? null,
+    coordinate,
+  };
+}
+
+/**
+ * Return the versions of an API family for a picker, or `null` when the
+ * collection is unversioned or unknown. Ordered as declared; the default is
+ * flagged. Serializable — carries no engine internals.
+ */
+export async function getApiVersions(
+  collection: string,
+): Promise<ApiVersionInfo[] | null> {
+  const config = await loadNimbusConfig();
+  const entry = (config.api ?? []).find((a) => a.collection === collection);
+  if (!entry || !entry.versions) return null;
+  const { resolveApiFamily } = await import(
+    "./_internal/api/resolve-versions.js"
+  );
+  return resolveApiFamily(entry).map((t) => ({
+    version: t.version!,
+    label: t.label,
+    isDefault: t.isDefault,
+    status: t.status,
+    hidden: t.hidden,
+    // Trailing-slashed; a bare `/family/v2` would 307-redirect under directory builds.
+    url: toBrowserHref(t.mountPath),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -1186,6 +1417,28 @@ export async function getVersionAlternates(
   const table = await loadVersionAlternates();
   const key = `${collectionId}:${entryId}`;
   return table[key] ?? null;
+}
+
+/**
+ * API-family variant of {@link getVersionAlternates}. API alternates are keyed
+ * by `family@version:coordinate`, which the `(collection, entryId)` accessor
+ * cannot address. Pass the `version` and `coordinate` from
+ * {@link getApiStaticPaths}. Returns `null` for an unversioned family.
+ */
+export async function getApiVersionAlternates(
+  collection: string,
+  version: string | null,
+  coordinate: string,
+): Promise<VersionAlternateRecord | null> {
+  if (version == null) return null;
+  const config = await loadNimbusConfig();
+  const { resolveApiVersion } = await import(
+    "./_internal/api/resolve-versions.js"
+  );
+  const target = resolveApiVersion(config.api, collection, version);
+  if (!target) return null;
+  const table = await loadVersionAlternates();
+  return table[`${target.versionKey}:${coordinate}`] ?? null;
 }
 
 /**
@@ -1313,6 +1566,27 @@ export async function getVersionLandingUrl(
 export async function getVersionStatus(
   collectionId: string,
 ): Promise<VersionStatus | null> {
+  // API version key (`family@version`): version ids and family names never
+  // contain `@`, so a single `@` unambiguously marks the API axis. Resolve its
+  // status from the family so the head can `noindex` hidden versions and
+  // layouts can render the deprecated banner.
+  const at = collectionId.indexOf("@");
+  if (at > 0) {
+    const family = collectionId.slice(0, at);
+    const version = collectionId.slice(at + 1);
+    const apiVersions = await getApiVersions(family);
+    if (apiVersions) {
+      const match = apiVersions.find((v) => v.version === version);
+      if (!match) return null;
+      return {
+        version,
+        isCurrent: match.isDefault,
+        isDeprecated: match.status === "deprecated",
+        isHidden: match.hidden,
+      };
+    }
+  }
+
   const versions = await getVersions();
   if (!versions) return null;
   const version = await getCurrentVersion(collectionId);

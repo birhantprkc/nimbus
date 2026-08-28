@@ -359,6 +359,7 @@ import {
   getEditUrl,
   getLastUpdated,
   getTOC,
+  withBase,
 } from "@cloudflare/nimbus-docs";
 import { components } from "../../components";
 
@@ -378,7 +379,8 @@ const editUrl = await getEditUrl(entry);
 const lastUpdated = entry.data.lastUpdated ?? await getLastUpdated(entry);
 const toc = getTOC(headings, entry.data.tableOfContents);
 const markdownPath = `/<slug>/${entry.id}/index.md`;
-const markdownUrl = Astro.site ? new URL(markdownPath, Astro.site).href : markdownPath;
+const basedMarkdownPath = withBase(markdownPath, import.meta.env.BASE_URL);
+const markdownUrl = Astro.site ? new URL(basedMarkdownPath, Astro.site).href : basedMarkdownPath;
 const socialImage = entry.data.socialImage ?? `/og/<slug>/${entry.id}.png`;
 ---
 
@@ -442,12 +444,19 @@ treatment as v1 pages.
 Write `src/pages/<slug>/[...slug]/index.md.ts`:
 
 ```ts
-import { getIndexedEntries, renderEntryAsMarkdown, type IndexedEntry } from "@cloudflare/nimbus-docs";
+import {
+  getIndexedEntries,
+  renderEntryAsMarkdown,
+  type IndexedEntry,
+  withBase,
+} from "@cloudflare/nimbus-docs";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
 
 const COLLECTION = "docs-<slug>";
+const absoluteUrl = (path: string) =>
+  new URL(withBase(path, import.meta.env.BASE_URL), config.site).href;
 
 interface SlugProps {
   item: IndexedEntry;
@@ -480,20 +489,20 @@ export async function GET({ props }: { props: SlugProps }) {
     `title: ${JSON.stringify(title)}`,
     ...(description ? [`description: ${JSON.stringify(description)}`] : []),
     ...(socialImage
-      ? [`image: ${JSON.stringify(new URL(socialImage, config.site).href)}`]
+      ? [`image: ${JSON.stringify(absoluteUrl(socialImage))}`]
       : []),
     ...(version ? [`version: ${JSON.stringify(version)}`] : []),
     "---",
     "",
     "> Documentation Index",
-    `> Fetch the complete documentation index at: ${new URL("/llms.txt", config.site).href}`,
+    `> Fetch the complete documentation index at: ${absoluteUrl("/llms.txt")}`,
     "> Use this file to discover all available pages before exploring further.",
     "",
     `# ${title}`,
     "",
     markdown,
     "",
-    `Source: ${new URL(sourceUrl ?? markdownUrl, config.site).href}`,
+    `Source: ${absoluteUrl(sourceUrl ?? markdownUrl)}`,
     "",
   ].join("\n");
 

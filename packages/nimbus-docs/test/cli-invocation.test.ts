@@ -8,7 +8,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { CLI_PACKAGE, invocation, updateCommand } from "../src/cli/pm.js";
+import {
+  addCommand,
+  CLI_PACKAGE,
+  invocation,
+  updateCommand,
+} from "../src/cli/pm.js";
 import { getCommand, MANAGERS, type Manager } from "../src/lib/pkgm.js";
 
 const LOCKFILE: Record<Manager, string> = {
@@ -77,6 +82,17 @@ test("invocation() preserves a pipe verbatim", () => {
       invocation("add 404-page --print | claude", cwd),
       `pnpm dlx ${CLI_PACKAGE} add 404-page --print | claude`,
     );
+  });
+});
+
+test("pnpm dependency installs permit a generated workspace root", () => {
+  assert.deepEqual(addCommand("pnpm", ["example@1.0.0"]), {
+    bin: "pnpm",
+    args: [
+      "add",
+      "--ignore-workspace-root-check",
+      "example@1.0.0",
+    ],
   });
 });
 

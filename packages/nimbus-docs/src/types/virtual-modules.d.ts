@@ -19,6 +19,17 @@ declare module "virtual:nimbus/config" {
   export const config: import("../types.js").NimbusConfig;
   export const indexedCollections: readonly string[];
   export const versionAlternates: import("../_internal/version-alternates.js").VersionAlternatesTable;
+  export const apiCollections: readonly string[];
+  export const root: string;
+}
+
+declare module "virtual:nimbus/coordinates" {
+  // The coordinate-citation index, keyed `collection:coordinate` /
+  // `collection@version:coordinate` → site-absolute URL. Its own module (not
+  // `virtual:nimbus/config`) so it stays out of the runtime Worker bundle —
+  // imported only by prerendered agent-surface code. See `load-citation-index.ts`.
+  export const coordinates: Record<string, string>;
+  export const manifest: import("../types.js").CoordinatesManifest;
 }
 
 declare module "virtual:nimbus/icons" {
@@ -40,6 +51,7 @@ declare module "astro:content" {
     collection: C;
     data: Record<string, unknown>;
     body?: string;
+    digest?: number | string;
   }
 
   export interface SchemaContext {

@@ -14,6 +14,8 @@
 export { mount } from "./mount";
 export { makeDisclosure } from "./disclosure";
 export type { DisclosureOptions, DisclosureInstance } from "./disclosure";
+export { initDisclosureGroup } from "./disclosure-group";
+export type { DisclosureGroupConfig, DisclosureGroupInstance } from "./disclosure-group";
 export { initTabs } from "./tabs-controller";
 export type { TabsConfig, TabsInstance } from "./tabs-controller";
 export { lockScroll, unlockScroll } from "./scroll-lock";
@@ -21,3 +23,4 @@ export { generateId } from "./ids";
 export { FOCUSABLE } from "./dom";
 export { codeCopy } from "./code-copy";
 export { headingAnchors } from "./heading-anchors";
+export { readUrlParam, writeUrlParam } from "./url-param";

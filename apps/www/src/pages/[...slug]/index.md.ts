@@ -9,12 +9,19 @@
  * generate conflicting `[...slug]` paths at root.
  */
 
-import { getIndexedEntries, renderEntryAsMarkdown, type IndexedEntry } from "@cloudflare/nimbus-docs";
+import {
+  getIndexedEntries,
+  renderEntryAsMarkdown,
+  type IndexedEntry,
+  withBase,
+} from "@cloudflare/nimbus-docs";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
 
 const PRIMARY_COLLECTION = "docs";
+const absoluteUrl = (path: string) =>
+  new URL(withBase(path, import.meta.env.BASE_URL), config.site).href;
 
 interface SlugProps {
   item: IndexedEntry;
@@ -53,13 +60,13 @@ export async function GET({ props }: { props: SlugProps }) {
     `title: ${JSON.stringify(title)}`,
     ...(description ? [`description: ${JSON.stringify(description)}`] : []),
     ...(socialImage
-      ? [`image: ${JSON.stringify(new URL(socialImage, config.site).href)}`]
+      ? [`image: ${JSON.stringify(absoluteUrl(socialImage))}`]
       : []),
     ...(version ? [`version: ${JSON.stringify(version)}`] : []),
     "---",
     "",
     "> Documentation Index",
-    `> Fetch the complete documentation index at: ${new URL("/llms.txt", config.site).href}`,
+    `> Fetch the complete documentation index at: ${absoluteUrl("/llms.txt")}`,
     "> Use this file to discover all available pages before exploring further.",
     "",
     `# ${title}`,
@@ -67,7 +74,7 @@ export async function GET({ props }: { props: SlugProps }) {
     markdown,
     "",
     // Point at the authored source (`.mdx` twin) when it exists.
-    `Source: ${new URL(sourceUrl ?? markdownUrl, config.site).href}`,
+    `Source: ${absoluteUrl(sourceUrl ?? markdownUrl)}`,
     "",
   ].join("\n");
 

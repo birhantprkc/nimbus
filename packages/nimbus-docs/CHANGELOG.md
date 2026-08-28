@@ -1,5 +1,17 @@
 # @cloudflare/nimbus-docs
 
+## 0.11.0
+
+### Minor Changes
+
+- [#86](https://github.com/cloudflare/nimbus/pull/86) [`b4b0dc3`](https://github.com/cloudflare/nimbus/commit/b4b0dc3b8746bd148b82eca458fbc5a1f500acd7) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - `makeDisclosure` now marks closed content `inert` so collapsed regions leave the tab order, keeping keyboard focus out of hidden disclosure panels. Add a `manageInert` option (default `true`) to opt out for consumers that manage their own focus.
+
+- [#90](https://github.com/cloudflare/nimbus/pull/90) [`74702e0`](https://github.com/cloudflare/nimbus/commit/74702e07d1e74f9fa2f10a2d89b030801845567c) Thanks [@mvvmm](https://github.com/mvvmm)! - `getDocsStaticPaths` and `getCollectionStaticPaths` now include a `cacheKey` (derived from the entry's `digest`) on each returned path. This enables Astro's experimental incremental build cache to skip re-rendering unchanged pages. No-op when `experimental.incrementalBuild` is not enabled in `astro.config.ts`.
+
+### Patch Changes
+
+- [#95](https://github.com/cloudflare/nimbus/pull/95) [`79a8448`](https://github.com/cloudflare/nimbus/commit/79a8448e991dff458a3658aa91137ce62b0cfc8b) Thanks [@mvvmm](https://github.com/mvvmm)! - Bump `nanoid` to 3.3.18 to resolve GHSA-2v37-7h3g-55p8 (CVE-2026-67213): custom generators can loop indefinitely when size is zero.
+
 ## 0.10.0
 
 ### Minor Changes

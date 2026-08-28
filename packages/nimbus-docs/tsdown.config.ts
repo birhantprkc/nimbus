@@ -8,12 +8,14 @@ const pkg = JSON.parse(
 export default defineConfig({
   entry: {
     index: "src/index.ts",
+    config: "src/config.ts",
     content: "src/content.ts",
     schemas: "src/schemas.ts",
     types: "src/types.ts",
     client: "src/client/index.ts",
     markdown: "src/markdown/index.ts",
     react: "src/react/index.ts",
+    api: "src/api/index.ts",
     "lib/pkgm": "src/lib/pkgm.ts",
     "cli/index": "src/cli/index.ts",
   },
@@ -38,6 +40,11 @@ export default defineConfig({
     // consumer's Astro `<Code>` — otherwise `astro check` breaks downstream.
     "@shikijs/types",
     "@shikijs/transformers",
+    // Heavy OpenAPI parsers are optional peers, lazy-loaded by the `./api`
+    // engine through a computed specifier. Kept external so a prose-only build
+    // never resolves or bundles them.
+    "@scalar/openapi-parser",
+    "@readme/httpsnippet",
   ],
   // Bundle the remark-lint stack and github-slugger into dist so consuming
   // projects don't gain new transitive deps. Their logic is inlined into

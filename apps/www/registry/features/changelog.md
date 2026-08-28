@@ -716,7 +716,7 @@ route in 5j entirely.
 import { Icon } from "astro-icon/components";
 import ChangelogLayout from "@/layouts/ChangelogLayout.astro";
 import { Badge } from "@/components/ui/badge";
-import { getCollectionStaticPaths, getCollectionPageProps } from "@cloudflare/nimbus-docs";
+import { getCollectionStaticPaths, getCollectionPageProps, withBase } from "@cloudflare/nimbus-docs";
 import { components } from "@/components";
 
 export const prerender = true;
@@ -729,7 +729,8 @@ const iso = date.toISOString().slice(0, 10);
 const dateLabel = date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
 const markdownPath = `/changelog/${entry.id}/index.md`;
-const markdownUrl = Astro.site ? new URL(markdownPath, Astro.site).href : markdownPath;
+const basedMarkdownPath = withBase(markdownPath, import.meta.env.BASE_URL);
+const markdownUrl = Astro.site ? new URL(basedMarkdownPath, Astro.site).href : basedMarkdownPath;
 const socialImage = entry.data.socialImage ?? `/og/changelog/${entry.id}.png`;
 ---
 
@@ -937,12 +938,19 @@ export async function GET() {
  * Mirrors the primary docs alternate, scoped to the `changelog` collection,
  * adding the entry's date + tags to the frontmatter.
  */
-import { getIndexedEntries, renderEntryAsMarkdown, type IndexedEntry } from "@cloudflare/nimbus-docs";
+import {
+  getIndexedEntries,
+  renderEntryAsMarkdown,
+  type IndexedEntry,
+  withBase,
+} from "@cloudflare/nimbus-docs";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
 
 const COLLECTION = "changelog";
+const absoluteUrl = (path: string) =>
+  new URL(withBase(path, import.meta.env.BASE_URL), config.site).href;
 
 interface SlugProps {
   item: IndexedEntry;
@@ -975,18 +983,18 @@ export async function GET({ props }: { props: SlugProps }) {
     ...(description ? [`description: ${JSON.stringify(description)}`] : []),
     ...(date ? [`date: ${date}`] : []),
     ...(tags.length ? [`tags: [${tags.map((t) => JSON.stringify(t)).join(", ")}]`] : []),
-    ...(socialImage ? [`image: ${JSON.stringify(new URL(socialImage, config.site).href)}`] : []),
+    ...(socialImage ? [`image: ${JSON.stringify(absoluteUrl(socialImage))}`] : []),
     "---",
     "",
     "> Documentation Index",
-    `> Fetch the complete documentation index at: ${new URL("/llms.txt", config.site).href}`,
+    `> Fetch the complete documentation index at: ${absoluteUrl("/llms.txt")}`,
     "> Use this file to discover all available pages before exploring further.",
     "",
     `# ${title}`,
     "",
     markdown,
     "",
-    `Source: ${new URL(`${url}/index.md`, config.site).href}`,
+    `Source: ${absoluteUrl(`${url}/index.md`)}`,
     "",
   ].join("\n");
 
