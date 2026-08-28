@@ -53,9 +53,12 @@ sidebar nav:
 </nav>
 ```
 
-The `variant="sidebar"` mode renders below `md` only; the desktop
-header variant renders above `md`. Both placements are CSS-gated so
-you can ship both unconditionally and let the breakpoint pick.
+The `variant="sidebar"` mode has no built-in breakpoint gating — it
+inherits visibility from its container, so it works in a mobile drawer
+(shown below `md`) and in a persistent desktop sidebar (like the API
+reference's left column, shown above `md`) alike. The `header` variant
+is the dropdown for a top bar. Pass a `class` to gate visibility if a
+placement needs it.
 
 ### 3. Pass props through your layout chain
 

@@ -72,7 +72,18 @@ import {
   validateMdxContent,
 } from "./_internal/validate-mdx-content.js";
 import { validateNimbusConfig } from "./_internal/validate.js";
+import {
+  hiddenVersionPrefixes,
+  makeHiddenSitemapFilter,
+} from "./_internal/hidden-sitemap.js";
 import { virtualConfigPlugin } from "./_internal/virtual-config.js";
+import { virtualCoordinatesPlugin } from "./_internal/virtual-coordinates.js";
+import { citationPlugin } from "./_internal/api/citation-vite-plugin.js";
+import {
+  buildCitationIndex,
+  type CoordinatesManifest,
+} from "./_internal/api/citation-index.js";
+import { ingestApiReferences } from "./_internal/api/ingest-references.js";
 import { iconVirtualPlugin, type IconPluginOptions } from "./_internal/icon-virtual.js";
 import { scanCodeBlockLanguages } from "./_internal/scan-code-langs.js";
 import {
@@ -285,6 +296,11 @@ export function nimbus(
   let projectRootForBuild = "";
   let astroBaseForBuild = "";
 
+  // Built eagerly at config:setup, reassigned by the dev re-bake; both the
+  // citation plugin and virtual:nimbus/coordinates read it through a getter.
+  let citationIndex = new Map<string, string>();
+  let coordinatesManifest: CoordinatesManifest = { version: 1, collections: {} };
+
   return {
     name: "@cloudflare/nimbus-docs",
     hooks: {
@@ -388,10 +404,26 @@ export function nimbus(
         const contentConfigPath = path.join(srcDir, "content.config.ts");
         const rawCollections = await parseContentCollections(contentConfigPath);
         const collectionBases = await parseCollectionBases(contentConfigPath);
+        // API collections carry no MDX body, but they DO reach the agent index:
+        // their `.md` twins are served by `renderApiPageMarkdown` (dispatched in
+        // `renderIndexedEntryMarkdown`), so llms.txt/corpus links resolve. The
+        // reserved-name filter still applies; `null` (no parseable config) falls
+        // back to `["docs"]`, matching `getIndexedEntries()`.
         const indexedCollections =
-          rawCollections === null
-            ? ["docs"] // Fallback: brand-new project hasn't written content.config yet.
-            : filterIndexableCollections(rawCollections);
+          rawCollections === null ? ["docs"] : filterIndexableCollections(rawCollections);
+        // Which of those are API collections — render-time dispatch (prose vs
+        // emitter) keys off this, and `getApiModel` resolves specs against
+        // `projectRoot` (declared above — the loader's base), not `process.cwd()`.
+        const apiCollections = (config.api ?? []).map((entry) => entry.collection);
+
+        // Remote refs fold into the citation index but not the manifest (which republishes
+        // only local collections).
+        {
+          const { index, manifest } = await buildCitationIndex(config.api, projectRoot);
+          await ingestApiReferences(config.apiReferences, index, projectRoot, logger);
+          citationIndex = index;
+          coordinatesManifest = manifest;
+        }
 
         if (rawCollections === null) {
           logger.warn(
@@ -526,12 +558,33 @@ export function nimbus(
           );
         }
 
+        // API version families contribute their own coordinate-identity axis.
+        // Keys carry the `family@version` version key (an `@`), disjoint from
+        // every docs key, so the merge is a plain spread. Runs even when the
+        // site has no docs versions.
+        if (config.api?.some((e) => e.versions && e.versions.length > 1)) {
+          const { buildApiVersionAlternates } = await import(
+            "./_internal/api/api-alternates.js"
+          );
+          const apiAlternates = await buildApiVersionAlternates(
+            config.api,
+            projectRoot,
+          );
+          versionAlternates = { ...versionAlternates, ...apiAlternates };
+        }
+
         // MDX is always added; sitemap only when `site` is configured.
         integrationsToAdd.push(mdx(resolveMdxOptions(options.mdx)));
         const wantSitemap = options.sitemap !== false && Boolean(config.site);
         const sitemapOpts =
           typeof options.sitemap === "object" ? options.sitemap : undefined;
         if (wantSitemap) {
+          // Injected only when hidden versions exist, so an all-visible site's
+          // sitemap stays byte-identical (no `filter` key).
+          const hiddenPrefixes = hiddenVersionPrefixes(
+            config,
+            astroConfig.base,
+          );
           integrationsToAdd.push(
             sitemap({
               // Our public `SitemapSerialize` types `changefreq` as a
@@ -546,6 +599,9 @@ export function nimbus(
                 >["serialize"],
               }),
               ...(sitemapOpts?.customPages && { customPages: sitemapOpts.customPages }),
+              ...(hiddenPrefixes.length > 0 && {
+                filter: makeHiddenSitemapFilter(config, astroConfig.base),
+              }),
             }),
           );
         }
@@ -569,6 +625,10 @@ export function nimbus(
             }),
           );
         }
+
+        const citationContentDirs = ["src/content"].map((d) =>
+          path.isAbsolute(d) ? d : path.join(projectRoot, d),
+        );
 
         updateConfig({
           // Bridge `nimbusConfig.site` → Astro's top-level `site`. The
@@ -675,9 +735,21 @@ export function nimbus(
           vite: {
             plugins: [
               ...admonitionVitePlugins,
+              // HTML-path citation rewrite; runs before @astrojs/mdx compiles
+              // the file. Reads the current citation index so a dev re-bake applies.
+              citationPlugin({
+                contentDirs: citationContentDirs,
+                getCitationIndex: () => citationIndex,
+              }),
+              virtualCoordinatesPlugin(() => ({
+                coordinates: Object.fromEntries(citationIndex),
+                manifest: coordinatesManifest,
+              })),
               virtualConfigPlugin(config, {
                 indexedCollections,
                 versionAlternates,
+                apiCollections,
+                root: projectRoot,
               }),
               ...(options.icons !== false
                 ? [
@@ -739,6 +811,10 @@ export function nimbus(
             "  export const indexedCollections: readonly string[];",
             "  /** Build-time cross-version alternates table. See `getVersionAlternates()`. */",
             "  export const versionAlternates: VersionAlternatesTable;",
+            "  /** Subset of `indexedCollections` that are OpenAPI reference collections. Server-only. */",
+            "  export const apiCollections: readonly string[];",
+            "  /** Absolute project root (the loader's spec-resolution base). Build/server-only. */",
+            "  export const root: string;",
             "}",
             "",
           ].join("\n"),
@@ -787,6 +863,41 @@ export function nimbus(
         server.watcher.on("add", invalidate);
         server.watcher.on("change", invalidate);
         server.watcher.on("unlink", invalidate);
+
+        // Re-bake the citation index when a local spec OR a local apiReferences
+        // manifest changes; invalidateAll re-runs the citation transform and
+        // re-executes load-citation-index.ts.
+        const rebakePaths = new Set([
+          ...collectSpecFilePaths(config.api, projectRootForBuild),
+          ...collectLocalManifestPaths(config.apiReferences, projectRootForBuild),
+        ]);
+        if (rebakePaths.size > 0) {
+          const rebakeCitationIndex = async (file: string) => {
+            if (!rebakePaths.has(path.resolve(file))) return;
+            try {
+              const { index, manifest } = await buildCitationIndex(
+                config.api,
+                projectRootForBuild,
+              );
+              await ingestApiReferences(
+                config.apiReferences,
+                index,
+                projectRootForBuild,
+                server.config.logger,
+              );
+              citationIndex = index;
+              coordinatesManifest = manifest;
+              server.moduleGraph.invalidateAll();
+            } catch (err) {
+              server.config.logger.error(
+                `nimbus-docs: failed to re-bake citation index after a spec change: ${(err as Error).message}`,
+              );
+            }
+          };
+          server.watcher.on("add", rebakeCitationIndex);
+          server.watcher.on("change", rebakeCitationIndex);
+          server.watcher.on("unlink", rebakeCitationIndex);
+        }
       },
       "astro:build:start": () => {
         // Reset the per-build code-style registry so Shiki token classes
@@ -809,6 +920,12 @@ export function nimbus(
           projectRootForBuild,
           astroBaseForBuild,
           pages,
+          logger,
+        );
+
+        materializeCoordinatesManifest(
+          projectRootForBuild,
+          coordinatesManifest,
           logger,
         );
 
@@ -906,6 +1023,59 @@ function materializeRouteTruthFromPages(
   } catch (err) {
     logger.debug?.(
       `failed to write .nimbus/routes.json — internal-link will skip: ${(err as Error).message}`,
+    );
+  }
+}
+
+/** Absolute paths of every local spec file backing `config.api`. */
+function collectSpecFilePaths(
+  api: NimbusConfig["api"],
+  root: string,
+): Set<string> {
+  const paths = new Set<string>();
+  for (const entry of api ?? []) {
+    const specs = entry.versions
+      ? entry.versions.map((v) => v.spec)
+      : [entry.spec];
+    for (const spec of specs) {
+      if (typeof spec === "string") paths.add(path.resolve(root, spec));
+    }
+  }
+  return paths;
+}
+
+/** Absolute paths of every LOCAL `apiReferences[].manifest` (https URLs, which
+ *  are fetched not read, are skipped — they can't be file-watched). */
+function collectLocalManifestPaths(
+  apiReferences: NimbusConfig["apiReferences"],
+  root: string,
+): Set<string> {
+  const paths = new Set<string>();
+  for (const ref of apiReferences ?? []) {
+    if (typeof ref.manifest === "string" && !/^https:\/\//i.test(ref.manifest)) {
+      paths.add(path.resolve(root, ref.manifest));
+    }
+  }
+  return paths;
+}
+
+/** Best-effort write of the manifest to `<root>/.nimbus/coordinates.json`. */
+function materializeCoordinatesManifest(
+  projectRoot: string,
+  manifest: CoordinatesManifest,
+  logger: { debug?: (msg: string) => void },
+): void {
+  try {
+    const dir = path.join(projectRoot, ".nimbus");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "coordinates.json"),
+      JSON.stringify(manifest, null, 2) + "\n",
+      "utf8",
+    );
+  } catch (err) {
+    logger.debug?.(
+      `failed to write .nimbus/coordinates.json: ${(err as Error).message}`,
     );
   }
 }

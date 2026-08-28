@@ -68,6 +68,193 @@ export interface NimbusConfig {
    * deprecation banners.
    */
   versions?: VersionsConfig;
+  /**
+   * OpenAPI reference specs to mount as routed content collections. Each
+   * entry is the **single source of truth** for one spec: `content.config.ts`
+   * imports this list and maps it through `apiCollection()`, and the render
+   * side reads it back to re-derive the model. Absent means no API reference.
+   *
+   * `spec` is a **local file path** (resolved from the project root) or an
+   * **inline OpenAPI object**. Remote URLs are out of scope in v1 (builds stay
+   * hermetic/offline-safe).
+   */
+  api?: ApiSpec[];
+  /**
+   * Remote API references this site only *cites* — it does not build or publish
+   * them. Each entry names a `collection` and points at another Nimbus site's
+   * published `coordinates.json` (the {@link NimbusConfig.api} half emits one at
+   * `/nimbus-api/coordinates.json`). Its coordinates fold into the citation
+   * citation index so a guide can write `api.ref:<collection>:<coordinate>` for an
+   * API defined in a different repo.
+   *
+   * Ingestion is best-effort: an unreachable or malformed manifest is warned and
+   * skipped, and citations into it degrade to `#` — a remote going offline never
+   * wedges this site's build (unlike a broken *local* citation, which fails).
+   */
+  apiReferences?: ApiReference[];
+}
+
+/**
+ * The published coordinate manifest — the cross-repo citation-index contract a
+ * Nimbus site serves at `/nimbus-api/coordinates.json` and a consumer folds in
+ * via {@link NimbusConfig.apiReferences}. Bump `version` only on a breaking read
+ * change.
+ */
+export interface CoordinatesManifest {
+  version: 1;
+  collections: Record<
+    string,
+    {
+      /** The family-default version id, or `null` for an unversioned collection. */
+      defaultVersion: string | null;
+      /**
+       * One entry per coordinate. The coordinate is the map key (opaque — may
+       * contain any character, including `@` or spaces), so the encoding is
+       * lossless. `url` is the family-default target; `versions` maps a version
+       * id to its per-version target.
+       */
+      entries: Record<
+        string,
+        {
+          url?: string;
+          versions?: Record<string, string>;
+        }
+      >;
+    }
+  >;
+}
+
+/**
+ * One remote coordinate manifest this site cites but does not own. See
+ * {@link NimbusConfig.apiReferences}.
+ */
+export interface ApiReference {
+  /**
+   * The collection name used in citations here. **Must match the collection key
+   * the remote site publishes** in its `coordinates.json` — it is both the
+   * citation namespace (`api.ref:<collection>:…`) and the lookup key into the
+   * fetched manifest.
+   */
+  collection: string;
+  /**
+   * The remote manifest: an `https:` URL fetched at build, or a local file path
+   * (relative to the project root) for a vendored/offline copy. The manifest
+   * shape is the `coordinates.json` this framework publishes.
+   */
+  manifest: string;
+  /**
+   * Absolute origin (e.g. `https://api.example.com`) prepended to the manifest's
+   * site-absolute paths, so cross-repo citations resolve to fully-qualified
+   * URLs. Omit when the remote site shares this origin.
+   */
+  origin?: string;
+}
+
+/**
+ * An opt-in, explicitly versioned route convention for a collection's generated
+ * pages. `resource-action-v1` derives concise `<resource>/<action>` slugs from the OpenAPI
+ * path (see the API route convention docs); the `operationId` stays the
+ * permanent coordinate. Existing collections omit `routes` and keep today's
+ * `operationId`-based URLs unchanged.
+ */
+export interface ApiRoutePolicy {
+  /** The convention name. Its rules are frozen; a change ships as a new name. */
+  convention: "resource-action-v1";
+  /**
+   * Base path prefixes stripped (whole-segment, longest-match, case-sensitive)
+   * before classification, e.g. `["/v1"]` so `/v1/charges` derives `charges/…`.
+   */
+  stripPathPrefixes?: string[];
+  /**
+   * `operationId` → complete collection-relative slug. An override bypasses
+   * automatic derivation entirely — the escape hatch for ambiguous APIs,
+   * intentional vocabulary, and already-published routes.
+   */
+  operations?: Record<string, string>;
+}
+
+/**
+ * One OpenAPI reference spec, mounted as a content collection named
+ * `collection` at `/<collection>`. Declared once in `nimbus.config.ts`.
+ *
+ * For a single, unversioned reference, set `spec`. For a **version family**,
+ * set `versions` instead: the default version mounts at `/<collection>` and
+ * every other version mounts at `/<collection>/<version>`. Provide exactly one
+ * of `spec` or `versions`.
+ */
+export interface ApiSpec {
+  /** Collection name + base URL prefix, e.g. `"api"` → routes under `/api`. */
+  collection: string;
+  /**
+   * Local file path (relative to the project root) or an inline OpenAPI
+   * document object. Not a remote URL in v1. Omit when `versions` is set.
+   */
+  spec?: string | Record<string, unknown>;
+  /** Human label for build diagnostics (falls back to `collection`). */
+  label?: string;
+  /**
+   * Declares this collection as a version family. Pages are linked across
+   * versions by shared operation coordinate (same `operationId` ⇒ same logical
+   * page). Provide exactly one of `spec` or `versions`.
+   */
+  versions?: ApiVersionSpec[];
+  /**
+   * Require every operation to declare a stable `operationId`. When `false` (the
+   * default), an operation missing one warns and falls back to a path-derived
+   * coordinate so the spec still renders; that coordinate moves if the method,
+   * path, or a path parameter changes. Set `true` for specs you own to make the
+   * missing case a build error. A coordinate/URL collision is always fatal.
+   */
+  requireOperationId?: boolean;
+  /**
+   * Route convention for this collection's pages. Omit to keep the default
+   * `operationId`-based URLs. For a version family, set `routes` on each
+   * {@link ApiVersionSpec} instead — a family-level policy is rejected, since
+   * there is no implicit family/version merge.
+   */
+  routes?: ApiRoutePolicy;
+}
+
+/** Maturity/deprecation status for one API version. */
+export type ApiVersionStatus = "ga" | "beta" | "deprecated";
+
+/**
+ * One version within an {@link ApiSpec} family. Each version parses its own
+ * OpenAPI document. The default version owns the bare `/<collection>` URL and
+ * is the canonical target for cross-version links; others mount under
+ * `/<collection>/<version>`.
+ */
+export interface ApiVersionSpec {
+  /**
+   * Version id — lowercase letters, digits, and dashes. Becomes the URL
+   * segment for non-default versions and the default picker label. Permanent
+   * once shipped (it becomes part of every non-default URL).
+   */
+  version: string;
+  /** Local file path (relative to the project root) or inline OpenAPI object. */
+  spec: string | Record<string, unknown>;
+  /**
+   * Marks the family default — mounts at the bare `/<collection>` and is the
+   * canonical target for cross-version links. At most one version may set this;
+   * if none do, the first entry is the default. The default cannot be `hidden`.
+   */
+  default?: boolean;
+  /** Maturity status. `deprecated` renders a banner on every page in the version. */
+  status?: ApiVersionStatus;
+  /**
+   * Hidden versions stay reachable by direct URL but are omitted from the
+   * picker, search, and sitemap, and marked `noindex`. The default version
+   * cannot be hidden.
+   */
+  hidden?: boolean;
+  /** Display label override for the picker (defaults to `version`). */
+  label?: string;
+  /**
+   * Route convention for this version's pages. Each version carries its own
+   * policy; a shared route map may be imported into several versions, but every
+   * override key is validated against the concrete version receiving it.
+   */
+  routes?: ApiRoutePolicy;
 }
 
 /**
@@ -564,6 +751,13 @@ export interface BasePageProps {
    * the alternates lookup. Pass `entry.id` from your route.
    */
   entryId?: string;
+  /**
+   * API-version context for a page in a versioned API family. Pass the
+   * `version` and `coordinate` props from `getApiStaticPaths` (with
+   * `collection` = the family); leave unset for docs and unversioned APIs.
+   */
+  apiVersion?: string;
+  coordinate?: string;
 }
 
 /**

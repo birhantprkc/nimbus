@@ -71,6 +71,24 @@ describe("buildCorpusMarkdown", () => {
     assert.ok(rel.includes("Index: /llms.txt"));
   });
 
+  test("prefixes absolute corpus URLs with the deployment base", () => {
+    const out = buildCorpusMarkdown(
+      [block({ url: "/guide/", markdownUrl: "/guide/index.md" })],
+      { ...HEADER, base: "/docs/" },
+    );
+    assert.ok(out.includes("Index: https://docs.acme.dev/docs/llms.txt"));
+    assert.ok(
+      out.includes(
+        "Source: https://docs.acme.dev/docs/guide/ · Markdown: https://docs.acme.dev/docs/guide/index.md",
+      ),
+    );
+    const relative = buildCorpusMarkdown([], {
+      title: "Acme Docs",
+      base: "/docs/",
+    });
+    assert.ok(relative.includes("Index: /docs/llms.txt"));
+  });
+
   test("omits the description blockquote when absent — no empty lines", () => {
     const out = buildCorpusMarkdown(
       [block({ title: "NoDesc", description: undefined })],

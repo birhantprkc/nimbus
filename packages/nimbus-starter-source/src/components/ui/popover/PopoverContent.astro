@@ -18,6 +18,7 @@ const { placement = "bottom-start", class: className, ...attrs } = Astro.props;
 <div
   data-popover-content
   data-placement={placement}
+  popover="auto"
   class={cn(
     "z-50 rounded-lg border border-border bg-card p-2 shadow-lg",
     className,

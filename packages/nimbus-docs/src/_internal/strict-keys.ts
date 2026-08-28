@@ -55,26 +55,40 @@ export function withStrictKeys<T extends z.ZodObject<z.ZodRawShape>>(
 ) {
   const knownKeys = new Set(Object.keys(schema.shape));
   return schema.passthrough().superRefine((data, ctx) => {
-    if (!data || typeof data !== "object") return;
-    for (const key of Object.keys(data as Record<string, unknown>)) {
-      if (knownKeys.has(key)) continue;
-      const removal = options.removedKeys[key];
-      if (removal) {
-        ctx.addIssue({
-          code: "custom",
-          path: [key],
-          message: `${options.contextLabel} "${key}" ${removal}`,
-        });
-      } else {
-        const hint = options.unknownHint?.(key);
-        ctx.addIssue({
-          code: "custom",
-          path: [key],
-          message: hint
-            ? `Unknown ${options.contextLabel.toLowerCase()} "${key}". ${hint}`
-            : `Unknown ${options.contextLabel.toLowerCase()} "${key}".`,
-        });
-      }
-    }
+    reportUnknownKeys(data, ctx, knownKeys, options);
   });
+}
+
+/**
+ * The strict-key check, callable from a schema's own `.superRefine()` so it can
+ * enforce strictness in the same pass. Requires a `.passthrough()` object, or
+ * unknown keys are stripped before the refinement runs.
+ */
+export function reportUnknownKeys(
+  data: unknown,
+  ctx: z.RefinementCtx,
+  knownKeys: Set<string>,
+  options: StrictKeyOptions,
+): void {
+  if (!data || typeof data !== "object") return;
+  for (const key of Object.keys(data as Record<string, unknown>)) {
+    if (knownKeys.has(key)) continue;
+    const removal = options.removedKeys[key];
+    if (removal) {
+      ctx.addIssue({
+        code: "custom",
+        path: [key],
+        message: `${options.contextLabel} "${key}" ${removal}`,
+      });
+    } else {
+      const hint = options.unknownHint?.(key);
+      ctx.addIssue({
+        code: "custom",
+        path: [key],
+        message: hint
+          ? `Unknown ${options.contextLabel.toLowerCase()} "${key}". ${hint}`
+          : `Unknown ${options.contextLabel.toLowerCase()} "${key}".`,
+      });
+    }
+  }
 }

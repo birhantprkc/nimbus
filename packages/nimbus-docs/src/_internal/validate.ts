@@ -7,7 +7,8 @@
 
 import { z } from "astro/zod";
 import type { NimbusConfig } from "../types.js";
-import { withStrictKeys } from "./strict-keys.js";
+import { withStrictKeys, reportUnknownKeys } from "./strict-keys.js";
+import { prefixEntryFault, routeSlugFault } from "./api/route-policy.js";
 
 // `new URL("https:example.com")` does NOT throw (protocol `https:`, host
 // `example.com`), so a bare `.url()`/`new URL()` check waves through a missing
@@ -94,7 +95,7 @@ const sidebarSchema = z
 // happens at integration setup time in `integration.ts` where the parsed
 // collections list is available.
 //
-// Rules enforced here (mirrors versioned-docs spec acceptance criteria):
+// Rules enforced here:
 //   - `current` is a non-empty string.
 //   - `others` are non-empty strings, no duplicates.
 //   - `deprecated` ⊆ `others`.
@@ -170,6 +171,273 @@ const REMOVED_CONFIG_KEYS: Record<string, string> = {
     "was removed. The starter no longer ships a default `Footer.astro`. To add one, create your own component and render it in `src/layouts/DocsLayout.astro`.",
 };
 
+const specSourceSchema = z.union(
+  [z.string().min(1), z.record(z.string(), z.unknown())],
+  {
+    error:
+      '"api[].spec" must be a local file path (string) or an inline OpenAPI object — remote URLs are not supported in v1',
+  },
+);
+
+/**
+ * Version ids that would shadow a top-level page slug within a family
+ * (`/<collection>/<version>` collides with `/<collection>/schemas/...` etc.).
+ * The engine emits `tags/`, `schemas/`, `webhooks/`, and reserves `changelog`
+ * and `errors` — a version may not claim any of them. Operation- and tag-level
+ * collisions are caught post-parse (build time), where the slug set is known.
+ */
+const RESERVED_VERSION_IDS = new Set([
+  "schemas",
+  "tags",
+  "webhooks",
+  "changelog",
+  "errors",
+  // The default-root store id; a version named `index` would clobber it.
+  "index",
+]);
+
+// Route convention policy. `convention` is the only enumerated value in v1;
+// `stripPathPrefixes` entries and `operations` override targets are validated
+// against the same syntactic grammars the engine enforces at mint time
+// (single source of truth in `api/route-policy.ts`), so config-time and
+// build-time can never disagree.
+const routePolicyShape = {
+  convention: z.enum(["resource-action-v1"], {
+    error: '"api[].routes.convention" must be "resource-action-v1"',
+  }),
+  stripPathPrefixes: z.array(z.string()).optional(),
+  operations: z.record(z.string(), z.string()).optional(),
+};
+const routePolicyKeys = new Set(Object.keys(routePolicyShape));
+const routePolicySchema = z
+  .object(routePolicyShape)
+  .passthrough()
+  .superRefine((policy, ctx) => {
+    reportUnknownKeys(policy, ctx, routePolicyKeys, {
+      removedKeys: {},
+      contextLabel: "api routes field",
+      unknownHint: () => 'Valid keys are "convention", "stripPathPrefixes", and "operations".',
+    });
+    (policy.stripPathPrefixes ?? []).forEach((entry, i) => {
+      const fault = prefixEntryFault(entry);
+      if (fault) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["stripPathPrefixes", i],
+          message: `stripPathPrefixes entry "${entry}" ${fault}`,
+        });
+      }
+    });
+    for (const [operationId, slug] of Object.entries(policy.operations ?? {})) {
+      const fault = routeSlugFault(slug);
+      if (fault) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["operations", operationId],
+          message: `route override for operationId "${operationId}" → "${slug}" ${fault}`,
+        });
+      }
+    }
+  });
+
+const apiVersionSpecShape = {
+  version: z
+    .string({ error: '"api[].versions[].version" must be a non-empty string' })
+    .min(1, '"api[].versions[].version" must be a non-empty string')
+    .regex(
+      /^[a-z0-9-]+$/,
+      '"api[].versions[].version" must be lowercase letters, digits, and dashes only (it becomes a URL segment)',
+    ),
+  spec: specSourceSchema,
+  default: z.boolean().optional(),
+  status: z.enum(["ga", "beta", "deprecated"]).optional(),
+  hidden: z.boolean().optional(),
+  label: z.string().optional(),
+  routes: routePolicySchema.optional(),
+};
+const apiVersionSpecKeys = new Set(Object.keys(apiVersionSpecShape));
+const apiVersionSpecSchema = z
+  .object(apiVersionSpecShape)
+  .passthrough()
+  .superRefine((version, ctx) => {
+    reportUnknownKeys(version, ctx, apiVersionSpecKeys, {
+      removedKeys: {},
+      contextLabel: "api version field",
+    });
+  });
+
+const RESERVED_COLLECTION_NAMES = new Set(["docs", "partials", "nimbus-api"]);
+
+const apiSpecShape = {
+  collection: z
+    .string({ error: '"api[].collection" must be a non-empty string' })
+    .min(1, '"api[].collection" must be a non-empty string')
+    .regex(
+      /^[a-z0-9-]+$/,
+      '"api[].collection" must be lowercase letters, digits, and dashes only (it becomes the URL prefix and the coordinate namespace)',
+    )
+    .refine((c) => !RESERVED_COLLECTION_NAMES.has(c), {
+      error:
+        '"api[].collection" must not be "docs", "partials", or "nimbus-api" — "docs"/"partials" are the built-in content collections, and "/nimbus-api" is reserved for the published coordinate manifest; each would collide',
+    }),
+  spec: specSourceSchema.optional(),
+  label: z.string().optional(),
+  versions: z.array(apiVersionSpecSchema).optional(),
+  requireOperationId: z
+    .boolean({ error: '"api[].requireOperationId" must be a boolean' })
+    .optional(),
+  routes: routePolicySchema.optional(),
+};
+const apiSpecKeys = new Set(Object.keys(apiSpecShape));
+const apiSpecSchema = z
+  .object(apiSpecShape)
+  .passthrough()
+  .superRefine((entry, ctx) => {
+    reportUnknownKeys(entry, ctx, apiSpecKeys, {
+      removedKeys: {},
+      contextLabel: "api entry field",
+    });
+    const hasSpec = entry.spec !== undefined;
+    const hasVersions = entry.versions !== undefined;
+    if (hasSpec === hasVersions) {
+      ctx.addIssue({
+        code: "custom",
+        path: [hasVersions ? "spec" : "versions"],
+        message: `api collection "${entry.collection}" must set exactly one of "spec" (single reference) or "versions" (a version family)`,
+      });
+      return;
+    }
+    // A version family has no shared route policy (no implicit family/version
+    // merge) — each version carries its own. Reject a family-level `routes` so
+    // it is never silently ignored.
+    if (hasVersions && entry.routes !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["routes"],
+        message: `api collection "${entry.collection}" sets "routes" at the family level, but a version family carries no shared route policy — move "routes" onto each version entry.`,
+      });
+    }
+    if (!hasVersions) return;
+
+    const versions = entry.versions!;
+    if (versions.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["versions"],
+        message: `api collection "${entry.collection}" has an empty "versions" array — declare at least one version`,
+      });
+      return;
+    }
+
+    const seenVersion = new Set<string>();
+    let defaultCount = 0;
+    versions.forEach((v, vi) => {
+      if (RESERVED_VERSION_IDS.has(v.version)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["versions", vi, "version"],
+          message: `version id "${v.version}" is reserved — it would collide with the "/${entry.collection}/${v.version}" section URL`,
+        });
+      }
+      if (seenVersion.has(v.version)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["versions", vi, "version"],
+          message: `duplicate version id "${v.version}" in api collection "${entry.collection}"`,
+        });
+      }
+      seenVersion.add(v.version);
+      if (v.default) defaultCount += 1;
+    });
+
+    if (defaultCount > 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["versions"],
+        message: `api collection "${entry.collection}" marks ${defaultCount} versions as "default: true" — only one may be the default`,
+      });
+    }
+
+    const defaultVersion = versions.find((v) => v.default) ?? versions[0]!;
+    if (defaultVersion.hidden) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["versions"],
+        message: `the default version "${defaultVersion.version}" of api collection "${entry.collection}" cannot be "hidden" — the default owns the bare /${entry.collection} URL`,
+      });
+    }
+  });
+
+const apiSchema = z
+  .array(apiSpecSchema)
+  .optional()
+  .superRefine((entries, ctx) => {
+    if (!entries) return;
+    const seen = new Set<string>();
+    entries.forEach((entry, i) => {
+      if (seen.has(entry.collection)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [i, "collection"],
+          message: `duplicate api collection "${entry.collection}" — each spec needs a unique collection name`,
+        });
+      }
+      seen.add(entry.collection);
+    });
+  });
+
+const apiReferenceSchema = z.object({
+  collection: z
+    .string({ error: '"apiReferences[].collection" must be a non-empty string' })
+    .min(1, '"apiReferences[].collection" must be a non-empty string')
+    .regex(
+      /^[a-z0-9-]+$/,
+      '"apiReferences[].collection" must be lowercase letters, digits, and dashes only (it is the coordinate namespace citations resolve against)',
+    )
+    .refine((c) => !RESERVED_COLLECTION_NAMES.has(c), {
+      error:
+        '"apiReferences[].collection" must not be "docs", "partials", or "nimbus-api" — those names are reserved',
+    }),
+  manifest: z
+    .string({ error: '"apiReferences[].manifest" must be a string' })
+    .min(1, '"apiReferences[].manifest" must be a non-empty string (an https URL or a local file path)')
+    .refine(
+      (m) => {
+        const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(m);
+        return !scheme || scheme[1]?.toLowerCase() === "https";
+      },
+      {
+        error:
+          '"apiReferences[].manifest" must be an https URL or a local file path — http:// (and other network schemes) are rejected, since the manifest is fetched at build and a plaintext transport lets a network attacker forge the coordinate contract',
+      },
+    ),
+  origin: z
+    .string()
+    .refine(isAbsoluteHttpUrl, {
+      message:
+        '"apiReferences[].origin" must be an absolute http(s) URL with a host, e.g. "https://api.example.com"',
+    })
+    .optional(),
+});
+
+const apiReferencesSchema = z
+  .array(apiReferenceSchema)
+  .optional()
+  .superRefine((entries, ctx) => {
+    if (!entries) return;
+    const seen = new Set<string>();
+    entries.forEach((entry, i) => {
+      if (seen.has(entry.collection)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [i, "collection"],
+          message: `duplicate apiReferences collection "${entry.collection}" — each remote reference needs a unique collection name`,
+        });
+      }
+      seen.add(entry.collection);
+    });
+  });
+
 const nimbusConfigSchema = withStrictKeys(
   z.object({
     site: z
@@ -206,12 +474,27 @@ const nimbusConfigSchema = withStrictKeys(
     features: featuresSchema,
     search: searchSchema,
     versions: versionsSchema,
+    api: apiSchema,
+    apiReferences: apiReferencesSchema,
   }),
   {
     removedKeys: REMOVED_CONFIG_KEYS,
     contextLabel: "Config field",
   },
-);
+).superRefine((data, ctx) => {
+  // A remote reference must not shadow a locally-built collection.
+  const cfg = data as { api?: { collection?: string }[]; apiReferences?: { collection?: string }[] };
+  const local = new Set((cfg.api ?? []).map((e) => e.collection));
+  (cfg.apiReferences ?? []).forEach((ref, i) => {
+    if (ref.collection && local.has(ref.collection)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["apiReferences", i, "collection"],
+        message: `apiReferences collection "${ref.collection}" collides with a local api collection — a citation namespace resolves to one source, and the local spec wins`,
+      });
+    }
+  });
+});
 
 export function validateNimbusConfig(input: unknown): NimbusConfig {
   const result = nimbusConfigSchema.safeParse(input);

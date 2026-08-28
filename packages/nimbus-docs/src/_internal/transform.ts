@@ -8,6 +8,12 @@
  * edit.
  */
 
+import {
+  hasCitation,
+  resolveCitations,
+  type CitationIndex,
+} from "./api/citations.js";
+
 export interface MarkdownComponentRenderContext {
   name: string;
   attrs: Record<string, string | boolean>;
@@ -26,6 +32,11 @@ export interface RenderEntryAsMarkdownOptions {
   componentMap?: Record<string, MarkdownComponentRenderer>;
   /** Strip YAML frontmatter if the raw body includes it. Default: true. */
   stripFrontmatter?: boolean;
+  /**
+   * Coordinate-citation index. Required when the body contains `api.ref:`
+   * citations, else rendering throws rather than emitting a raw sentinel.
+   */
+  citationIndex?: CitationIndex;
 }
 
 interface MarkdownEntry {
@@ -238,6 +249,20 @@ export function renderEntryAsMarkdown(
 
   if (stripFrontmatter) {
     markdown = markdown.replace(/^---\n[\s\S]*?\n---\n?/, "");
+  }
+
+  if (hasCitation(markdown)) {
+    if (!options.citationIndex) {
+      throw new Error(
+        "nimbus-docs: renderEntryAsMarkdown received a body with api.ref: " +
+          "citations but no citation index. Use getEntryMarkdown, or pass " +
+          "`{ citationIndex: await loadCitationIndex() }`.",
+      );
+    }
+    markdown = resolveCitations(markdown, {
+      mode: "derived",
+      citationIndex: options.citationIndex,
+    }).code;
   }
 
   const protectedCode = protectCode(markdown);
