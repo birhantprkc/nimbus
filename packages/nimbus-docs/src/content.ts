@@ -193,6 +193,8 @@ export interface ApiCollectionOptions {
    * one of `spec` or `versions`.
    */
   versions?: ApiVersionSpec[];
+  /** Fail the build on an operation missing a usable `operationId`. Default false. */
+  requireOperationId?: boolean;
 }
 
 /**
@@ -231,7 +233,7 @@ export function apiCollection(options: ApiCollectionOptions): {
     version?: string;
   }>;
 } {
-  const { collection, spec, label, versions } = options;
+  const { collection, spec, label, versions, requireOperationId } = options;
 
   const loader: Loader = {
     name: "nimbus-docs:api",
@@ -251,7 +253,7 @@ export function apiCollection(options: ApiCollectionOptions): {
       ]);
 
       const rootDir = fileURLToPath(astroConfig.root);
-      const targets = resolveApiFamily({ collection, spec, label, versions });
+      const targets = resolveApiFamily({ collection, spec, label, versions, requireOperationId });
 
       // M4: a non-default version id must not collide with a top-level page
       // slug of the default version (both would claim `/<collection>/<id>`).
@@ -277,6 +279,7 @@ export function apiCollection(options: ApiCollectionOptions): {
                 spec: target.spec,
                 label: target.label,
                 mountPath: target.mountPath,
+                requireOperationId: target.requireOperationId,
               },
               rootDir,
             );

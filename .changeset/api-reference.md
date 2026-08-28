@@ -9,3 +9,4 @@ Add first-party OpenAPI reference support to Nimbus.
 - Install an editable `api-layout` UI that shares Nimbus's docs shell, navigation, breadcrumbs, banners, mobile behavior, and deep-linkable field and code-sample controls.
 - Publish per-page Markdown, agent indexes, corpus entries, coordinate manifests, and `api.ref:` citations across local and cross-site documentation.
 - Harden generated-consumer delivery with exact registry dependencies, working pnpm installs from scaffold roots, and base-aware canonical, Markdown, sitemap, and agent URLs through the new public `withBase` helper.
+- Render operations that lack a usable `operationId` instead of aborting the build: they warn and fall back to a path-derived coordinate, so real-world specs (e.g. Cloudflare's `brand-protection` operations) build. Set `api[].requireOperationId: true` on specs you own to keep it a hard error; route-hostile paths and coordinate collisions stay fatal regardless.

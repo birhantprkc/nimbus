@@ -48,6 +48,7 @@ export async function buildCitationIndex(
         spec: target.spec,
         label: target.label,
         mountPath: target.mountPath,
+        requireOperationId: target.requireOperationId,
       },
       root,
     );

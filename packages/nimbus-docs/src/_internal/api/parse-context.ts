@@ -11,6 +11,7 @@ export interface ParseContext extends FieldSink {
   readonly doc: OpenApiDocument;
   readonly firstServer?: string;
   readonly sampleTools: SampleTools | null;
+  readonly requireOperationId: boolean;
   page(coord: Coordinate, slug: string): void;
   attachToNav(tag: string | undefined, coord: Coordinate, label: string): void;
   ensureSection(tag: string, description?: string, page?: boolean): void;

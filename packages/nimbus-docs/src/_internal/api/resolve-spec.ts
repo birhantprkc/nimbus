@@ -21,6 +21,7 @@ export interface ApiSpecEntry {
   label?: string;
   /** Base URL for the resolved model's pages. Defaults to `/<collection>`. */
   mountPath?: string;
+  requireOperationId?: boolean;
 }
 
 export async function resolveSpecSource(
@@ -29,6 +30,7 @@ export async function resolveSpecSource(
 ): Promise<SpecSource> {
   const label = entry.label ?? entry.collection;
   const mountPath = entry.mountPath ? { mountPath: entry.mountPath } : {};
+  const strict = entry.requireOperationId ? { requireOperationId: true as const } : {};
 
   if (typeof entry.spec !== "string") {
     return {
@@ -36,6 +38,7 @@ export async function resolveSpecSource(
       spec: entry.spec as SpecSource["spec"],
       ...(entry.label ? { label: entry.label } : {}),
       ...mountPath,
+      ...strict,
     };
   }
 
@@ -58,5 +61,6 @@ export async function resolveSpecSource(
     spec: contents,
     ...(entry.label ? { label: entry.label } : {}),
     ...mountPath,
+    ...strict,
   };
 }

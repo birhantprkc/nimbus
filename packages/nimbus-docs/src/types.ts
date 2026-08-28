@@ -175,6 +175,14 @@ export interface ApiSpec {
    * page). Provide exactly one of `spec` or `versions`.
    */
   versions?: ApiVersionSpec[];
+  /**
+   * Require every operation to declare a stable `operationId`. When `false` (the
+   * default), an operation missing one warns and falls back to a path-derived
+   * coordinate so the spec still renders; that coordinate moves if the method,
+   * path, or a path parameter changes. Set `true` for specs you own to make the
+   * missing case a build error. A coordinate/URL collision is always fatal.
+   */
+  requireOperationId?: boolean;
 }
 
 /** Maturity/deprecation status for one API version. */

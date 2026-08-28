@@ -151,21 +151,34 @@ describe("joinPath: arrays are implicit (rule 5), empty segments drop", () => {
 });
 
 describe("fallback operation coordinate (missing operationId)", () => {
-  test("normalizes to `METHOD /path`", () => {
-    assert.equal(fallbackOperationCoordinate("get", "/charges"), "GET /charges");
+  test("is a route-safe `method/path` join (lowercased method, no leading slash)", () => {
+    assert.equal(fallbackOperationCoordinate("get", "/charges"), "get/charges");
+    assert.equal(routeIdentityFault("get/charges"), undefined);
   });
 
-  test("is param-name-insensitive (oasdiff's matching rule, rule 4)", () => {
-    // Two specs whose only difference is the path-param NAME must not mint two
-    // different coordinates — the name is not identity.
-    assert.equal(
+  test("strips braces but PRESERVES the path-param name (max distinctness)", () => {
+    assert.equal(fallbackOperationCoordinate("GET", "/charges/{id}"), "get/charges/id");
+    assert.notEqual(
       fallbackOperationCoordinate("GET", "/charges/{id}"),
       fallbackOperationCoordinate("get", "/charges/{chargeId}"),
     );
-    assert.equal(
-      fallbackOperationCoordinate("GET", "/charges/{id}"),
-      "GET /charges/{}",
-    );
+  });
+
+  test("the synthesized coordinate is always a safe URL segment for real paths", () => {
+    for (const [m, p] of [
+      ["get", "/accounts/{account_id}/brand-protection/alerts"],
+      ["delete", "/v2/things/{thingId}/sub/{subId}"],
+    ] as const) {
+      assert.equal(routeIdentityFault(fallbackOperationCoordinate(m, p)), undefined);
+    }
+  });
+
+  test("a mixed literal/template segment strips its braces (no raw `{`/`}` in the URL)", () => {
+    assert.equal(fallbackOperationCoordinate("get", "/report.{format}"), "get/report.format");
+    assert.equal(fallbackOperationCoordinate("get", "/users/{id}.json"), "get/users/id.json");
+    for (const p of ["/report.{format}", "/users/{id}.json"]) {
+      assert.equal(routeIdentityFault(fallbackOperationCoordinate("get", p)), undefined);
+    }
   });
 });
 
@@ -312,6 +325,38 @@ describe("CoordinateRegistry: whole-string + cross-kind collisions (rule 3)", ()
     reg.register(bodyFieldCoordinate("search", "query.limit"), "field");
     reg.register(parameterCoordinate("search", "query", "limit"), "parameter");
     assert.equal(errors(reg.getDiagnostics()).length, 1);
+  });
+
+  test("a duplicate where the synthesized fallback registered FIRST points the fix at the fallback", () => {
+    const reg = new CoordinateRegistry("api");
+    reg.register("get/a/b", "operation", { source: "#/paths/~1a~1b/get", synthesized: true });
+    reg.register("get/a/b", "operation", { source: "#/paths/~1x/get", isUserIdentity: true });
+    const errs = errors(reg.getDiagnostics());
+    assert.equal(errs.length, 1);
+    assert.match(errs[0].message, /duplicate operation coordinate "get\/a\/b"/i);
+    assert.match(errs[0].message, /#\/paths\/~1a~1b\/get/, "names the synthesized owner");
+    assert.match(errs[0].message, /#\/paths\/~1x\/get/, "names the authored owner");
+    assert.match(
+      errs[0].message,
+      /add an operationId to #\/paths\/~1a~1b\/get/,
+      "the fix points at the fallback, not the authored op",
+    );
+    assert.equal(errs[0].source, "#/paths/~1a~1b/get", "pointer is the fallback, not the authored op");
+  });
+
+  test("a slug collision between DISTINCT coordinates names both owners' sources and the fix", () => {
+    const reg = new CoordinateRegistry("api");
+    reg.register("authored", "operation", { source: "#/paths/~1a/get", isUserIdentity: true });
+    reg.register("get/a", "operation", { source: "#/paths/~1a~1b/get", synthesized: true });
+    reg.registerSlug("dup", "authored");
+    reg.registerSlug("dup", "get/a");
+    const errs = errors(reg.getDiagnostics());
+    assert.equal(errs.length, 1);
+    assert.match(errs[0].message, /both map to the route slug/i);
+    assert.match(errs[0].message, /#\/paths\/~1a\/get/, "names the authored owner's source");
+    assert.match(errs[0].message, /#\/paths\/~1a~1b\/get/, "names the synthesized owner's source");
+    assert.match(errs[0].message, /add an operationId/i, "points at the synthesized fix");
+    assert.equal(errs[0].source, "#/paths/~1a~1b/get", "diagnostic carries a real source, not undefined");
   });
 });
 

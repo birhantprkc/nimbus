@@ -45,6 +45,8 @@ export interface ResolvedApiVersion {
   hidden: boolean;
   /** Display label (picker + diagnostics). */
   label: string;
+  /** Fail the build on an operation missing a usable `operationId`. Default false. */
+  requireOperationId: boolean;
 }
 
 const VERSION_KEY_SEP = "@";
@@ -86,6 +88,7 @@ export function resolveApiFamily(entry: ApiSpec): ResolvedApiVersion[] {
         status: null,
         hidden: false,
         label: entry.label ?? family,
+        requireOperationId: entry.requireOperationId ?? false,
       },
     ];
   }
@@ -104,6 +107,7 @@ export function resolveApiFamily(entry: ApiSpec): ResolvedApiVersion[] {
       status: v.status ?? null,
       hidden: v.hidden ?? false,
       label: v.label ?? v.version,
+      requireOperationId: entry.requireOperationId ?? false,
     };
   });
 }

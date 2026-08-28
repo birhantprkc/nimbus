@@ -22,6 +22,8 @@ export interface SpecSource {
   label?: string;
   /** Base URL for this model's pages. Defaults to `/<collection>` when absent. */
   mountPath?: string;
+  /** Fail the build on an operation missing a usable `operationId`. Default false. */
+  requireOperationId?: boolean;
 }
 
 declare const ApiModelBrand: unique symbol;

@@ -228,6 +228,9 @@ const apiSpecSchema = z
     spec: specSourceSchema.optional(),
     label: z.string().optional(),
     versions: z.array(apiVersionSpecSchema).optional(),
+    requireOperationId: z
+      .boolean({ error: '"api[].requireOperationId" must be a boolean' })
+      .optional(),
   })
   .superRefine((entry, ctx) => {
     const hasSpec = entry.spec !== undefined;

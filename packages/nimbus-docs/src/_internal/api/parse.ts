@@ -51,6 +51,8 @@ export interface SpecSource {
   label?: string;
   /** Base URL for this model's pages. Defaults to `/<collection>` when absent. */
   mountPath?: string;
+  /** Fail the build on an operation missing a usable `operationId`. Default false. */
+  requireOperationId?: boolean;
 }
 
 export interface ParseResult {
@@ -103,11 +105,12 @@ export async function parseOpenApi(source: SpecSource): Promise<ParseResult> {
   // deviations and unresolved `$ref`s are downgraded to loud warnings, matching
   // what best-in-class renderers do. A real-world spec must not be rejected over
   // a handful of pedantic deviations (e.g. Cloudflare's lowercase `4xx` response
-  // keys); it renders everywhere else, so it renders here. The two fatal
-  // conditions are "the spec cannot be walked" (see `assertWalkable`) and an
-  // identity that cannot become a stable URL/citation coordinate (a route-unsafe
-  // operationId/schema/webhook key, or an operation with no usable operationId —
-  // see `routeIdentityFault` and the fallback branch in `operations.ts`).
+  // keys); it renders everywhere else, so it renders here. An operation with no
+  // usable operationId warns and falls back to a path-derived coordinate by
+  // default, or fails under `requireOperationId`. The unconditional fatal
+  // conditions are an unwalkable spec (`assertWalkable`) and an identity that
+  // cannot become a stable coordinate — a route-unsafe key or a collision (see
+  // `routeIdentityFault` and `registerSlug`).
   const preDiagnostics: Diagnostic[] = [];
   let walker: Walker | undefined;
 
@@ -166,7 +169,13 @@ export async function parseOpenApi(source: SpecSource): Promise<ParseResult> {
       });
     }
 
-    walker = new Walker(source.collection, document, rawDoc, sampleTools);
+    walker = new Walker(
+      source.collection,
+      document,
+      rawDoc,
+      sampleTools,
+      source.requireOperationId ?? false,
+    );
     const model = walker.walk();
     if (source.mountPath !== undefined) model.mountPath = source.mountPath;
     walker.registry.throwIfErrors();
@@ -273,6 +282,20 @@ function surfaceWarnings(collection: string, diagnostics: readonly Diagnostic[])
   if (warnings.length > CAP) {
     console.warn(`[nimbus:api:${collection}] …and ${warnings.length - CAP} more warning(s).`);
   }
+  // Per-op fallback warnings can be hidden entirely by the CAP on a large spec;
+  // emit a guaranteed aggregate last so the author always sees the count and fix.
+  const missing = warnings.filter((d) => d.code === "missing-operation-id");
+  if (missing.length > 0) {
+    const failed = diagnostics.some((d) => d.level === "error");
+    const example = missing[0]!.coordinate ? ` (e.g. "${missing[0]!.coordinate}")` : "";
+    const verb = failed ? "would fall back to" : "fell back to";
+    console.warn(
+      `[nimbus:api:${collection}] ${missing.length} operation(s) lack a usable operationId and ` +
+        `${verb} temporary, path-derived URLs${example} — add an operationId to each to pin a ` +
+        `permanent URL and make cross-version linking stable. Set \`requireOperationId: true\` ` +
+        `to make this fatal.`,
+    );
+  }
 }
 
 /** A non-array is not iterable-as-a-list — treat it as empty rather than crash. */
@@ -323,6 +346,7 @@ class Walker implements ParseContext {
     readonly doc: OpenApiDocument,
     rawDoc?: OpenApiDocument,
     sampleTools?: SampleTools | null,
+    readonly requireOperationId: boolean = false,
   ) {
     this.registry = new CoordinateRegistry(collection);
     // Schema tables are captured once here — the walk never reassigns them on `doc`.

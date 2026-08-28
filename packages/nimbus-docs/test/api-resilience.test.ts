@@ -233,11 +233,9 @@ describe("api resilience — two pages that collide on a route slug are fatal", 
   });
 });
 
-describe("api resilience — a non-string tag recovers; a non-string operationId is fatal", () => {
-  // A non-string TAG degrades (the op parents to the collection root) — a
-  // display-label problem never crashes the walk. A non-string operationId is
-  // different: it yields no stable, routable identity, so it must fail the build
-  // (an operation needs an operationId to get a URL/citation coordinate).
+describe("api resilience — a missing/malformed operationId warns and falls back (opt-in fatal)", () => {
+  // A non-string tag degrades to a display-label problem; a missing/empty/non-string
+  // operationId warns and falls back by default, or fails under requireOperationId.
   const badTagSpec = JSON.stringify({
     openapi: "3.0.3",
     info: { title: "Bad tag", version: "1.0.0" },
@@ -254,42 +252,74 @@ describe("api resilience — a non-string tag recovers; a non-string operationId
     }
   });
 
-  test("a non-string operationId fails with a pointed error", async () => {
-    const badOpIdSpec = JSON.stringify({
+  function opIdSpec(operationId: unknown): string {
+    const get: Record<string, unknown> = { responses: { "200": { description: "ok" } } };
+    if (operationId !== undefined) get.operationId = operationId;
+    return JSON.stringify({
       openapi: "3.0.3",
-      info: { title: "Bad opId", version: "1.0.0" },
+      info: { title: "opId", version: "1.0.0" },
+      paths: { "/widgets": { get } },
+    });
+  }
+
+  for (const [name, value, causeWord] of [
+    ["missing (absent)", undefined, /no operationId/i],
+    ["empty-string", "", /empty operationId/i],
+    ["non-string", 7, /non-string operationId/i],
+  ] as const) {
+    test(`a ${name} operationId warns, renders, and mints a path-derived coordinate`, async () => {
+      const { model, diagnostics } = await parseOpenApi({
+        collection: "opid",
+        spec: opIdSpec(value),
+        label: "opid.json",
+      });
+      assert.ok(
+        !diagnostics.some((d) => d.level === "error"),
+        "no error-level diagnostic in the default (lenient) mode",
+      );
+      const warn = diagnostics.find((d) => d.level === "warning" && causeWord.test(d.message));
+      assert.ok(warn, "a warning names the operationId cause");
+      assert.match(warn!.message, /get\/widgets/, "the warning shows the path-derived coordinate");
+      assert.ok(model.pages.pages.has("get/widgets"), "the fallback page exists in the model");
+    });
+
+    test(`a ${name} operationId is fatal when the spec sets requireOperationId`, async () => {
+      await assert.rejects(
+        () =>
+          parseOpenApi({
+            collection: "opid",
+            spec: opIdSpec(value),
+            label: "opid.json",
+            requireOperationId: true,
+          }),
+        (err: unknown) => {
+          assert.ok(err instanceof ApiBuildError, "throws the named build error");
+          assert.ok(
+            err.diagnostics.some((d) => d.level === "error" && causeWord.test(d.message)),
+            "the error names the operationId cause",
+          );
+          return true;
+        },
+      );
+    });
+  }
+
+  test("two operationId-less operations that fold to one coordinate stay fatal (collision)", async () => {
+    const spec = JSON.stringify({
+      openapi: "3.0.3",
+      info: { title: "Collision", version: "1.0.0" },
       paths: {
-        "/widgets": { get: { operationId: 7, responses: { "200": { description: "ok" } } } },
+        "/a/{id}": { get: { responses: { "200": { description: "ok" } } } },
+        "/a/id": { get: { responses: { "200": { description: "ok" } } } },
       },
     });
     await assert.rejects(
-      () => buildApiModel({ collection: "badopid", spec: badOpIdSpec, label: "badopid.json" }),
+      () => buildApiModel({ collection: "collide", spec, label: "collide.json" }),
       (err: unknown) => {
         assert.ok(err instanceof ApiBuildError, "throws the named build error");
         assert.ok(
-          err.diagnostics.some((d) => d.level === "error" && /operationId/i.test(d.message)),
-          "the error names the missing/invalid operationId",
-        );
-        return true;
-      },
-    );
-  });
-
-  test("an empty-string operationId fails with a coherent (not self-contradictory) message", async () => {
-    const emptyOpIdSpec = JSON.stringify({
-      openapi: "3.0.3",
-      info: { title: "Empty opId", version: "1.0.0" },
-      paths: {
-        "/widgets": { get: { operationId: "", responses: { "200": { description: "ok" } } } },
-      },
-    });
-    await assert.rejects(
-      () => buildApiModel({ collection: "emptyopid", spec: emptyOpIdSpec, label: "emptyopid.json" }),
-      (err: unknown) => {
-        assert.ok(err instanceof ApiBuildError);
-        assert.ok(
-          err.diagnostics.some((d) => d.level === "error" && /empty operationId/i.test(d.message)),
-          "the error names the empty operationId, not 'non-string (string)'",
+          err.diagnostics.some((d) => d.level === "error" && /slug|both map|collision|Duplicate/i.test(d.message)),
+          "the error names the collision",
         );
         return true;
       },
@@ -451,9 +481,6 @@ describe("api resilience — a route-hostile author identity is fatal", () => {
   });
 
   test("a missing-operationId fallback on a route-hostile path is fatal", async () => {
-    // The fallback coordinate embeds the raw path, so `/../../admin` would
-    // become slug `GET /../../admin` and escape the mount — the fallback must
-    // face the same route check as an authored identity.
     const spec = JSON.stringify({
       openapi: "3.0.3",
       info: { title: "Hostile path", version: "1.0.0" },

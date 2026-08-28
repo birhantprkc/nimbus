@@ -38,6 +38,8 @@ export interface Diagnostic {
   coordinate?: string;
   /** JSON Pointer into the spec, when known — provenance for a pointed error. */
   source?: string;
+  /** Machine tag for grouping a class of diagnostic, e.g. "missing-operation-id". */
+  code?: string;
 }
 
 /** Thrown when a build cannot proceed. Carries every error-level diagnostic. */
@@ -76,15 +78,16 @@ export function operationCoordinate(operationId: string): Coordinate {
 }
 
 /**
- * Fallback for a missing `operationId`: normalized `METHOD /path`,
- * param-name-insensitive (oasdiff's matching rule). Warn at the call site.
+ * Fallback coordinate for an operation with no `operationId`: lowercased method
+ * joined to the path with braces stripped from every segment. Not stable across a
+ * rename; the caller warns and validates the result via `routeIdentityFault`.
  */
 export function fallbackOperationCoordinate(method: string, path: string): Coordinate {
-  const normalizedPath = path
+  const segments = path
     .split("/")
-    .map((seg) => (seg.startsWith("{") && seg.endsWith("}") ? "{}" : seg))
-    .join("/");
-  return `${method.toUpperCase()} ${normalizedPath}`;
+    .filter((seg) => seg.length > 0)
+    .map((seg) => seg.replace(/[{}]/g, ""));
+  return [method.toLowerCase(), ...segments].join("/");
 }
 
 /** Webhook = the `webhooks` map key, always (even if an operationId exists). */
@@ -256,6 +259,24 @@ export function mediaTypeToken(mediaType: string): string {
 interface Registration {
   kind: NodeKind;
   source?: string;
+  /** True when Nimbus minted this coordinate (a path-derived fallback). */
+  synthesized?: boolean;
+}
+
+/** Collision hint naming the synthesized owner(s) — the fix is to add an
+ *  operationId there, not to rename a coordinate Nimbus minted. Empty otherwise. */
+function synthesizedFixHint(
+  owners: ReadonlyArray<{ source?: string; synthesized?: boolean }>,
+): string {
+  if (!owners.some((o) => o.synthesized)) return "";
+  const who = owners
+    .filter((o) => o.synthesized && o.source)
+    .map((o) => o.source!)
+    .join(" and ");
+  return (
+    " One side is a path-derived fallback for an operation with no operationId — " +
+    `add an operationId to ${who || "that operation"} to give it a distinct, stable coordinate.`
+  );
 }
 
 /**
@@ -292,9 +313,14 @@ export class CoordinateRegistry {
   register(
     coordinate: Coordinate,
     kind: NodeKind,
-    options: { source?: string; isUserIdentity?: boolean; identity?: string } = {},
+    options: {
+      source?: string;
+      isUserIdentity?: boolean;
+      identity?: string;
+      synthesized?: boolean;
+    } = {},
   ): Coordinate {
-    const { source, isUserIdentity = false, identity } = options;
+    const { source, isUserIdentity = false, identity, synthesized = false } = options;
 
     if (isUserIdentity) {
       const check = identity ?? coordinate;
@@ -320,17 +346,26 @@ export class CoordinateRegistry {
 
     const existing = this.byCoordinate.get(coordinate);
     if (existing) {
+      const incoming = { source, synthesized };
+      const hint = synthesizedFixHint([existing, incoming]);
+      const knownOwners = [existing.source, source].filter((s): s is string => !!s);
+      const owners = knownOwners.length ? ` (registered at ${knownOwners.join(" and ")})` : "";
+      const pointer =
+        (existing.synthesized ? existing.source : undefined) ??
+        (synthesized ? source : undefined) ??
+        existing.source ??
+        source;
       if (existing.kind === kind) {
         this.error(
-          `Duplicate ${kind} coordinate "${coordinate}" — the spec author owns this namespace.`,
+          `Duplicate ${kind} coordinate "${coordinate}" — the spec author owns this namespace.${owners}${hint}`,
           coordinate,
-          source,
+          pointer,
         );
       } else {
         this.error(
-          `Cross-kind coordinate collision on "${coordinate}" (${existing.kind} vs ${kind}).`,
+          `Cross-kind coordinate collision on "${coordinate}" (${existing.kind} vs ${kind}).${owners}${hint}`,
           coordinate,
-          source,
+          pointer,
         );
       }
       return coordinate;
@@ -346,7 +381,7 @@ export class CoordinateRegistry {
       );
     }
 
-    this.byCoordinate.set(coordinate, { kind, source });
+    this.byCoordinate.set(coordinate, { kind, source, synthesized });
     if (!this.byLowercase.has(lower)) this.byLowercase.set(lower, coordinate);
     return coordinate;
   }
@@ -363,11 +398,16 @@ export class CoordinateRegistry {
   registerSlug(slug: string, coordinate: Coordinate, source?: string): void {
     const prior = this.slugOwners.get(slug);
     if (prior !== undefined && prior !== coordinate) {
+      const priorReg = this.byCoordinate.get(prior);
+      const currReg = this.byCoordinate.get(coordinate);
+      const at = (reg?: Registration) => (reg?.source ? ` (${reg.source})` : "");
       this.error(
-        `pages "${prior}" and "${coordinate}" both map to the route slug "${slug || "(index)"}". ` +
-          `Rename one operation, schema, tag, or webhook so their URLs stay distinct.`,
+        `pages "${prior}"${at(priorReg)} and "${coordinate}"${at(currReg)} both map to the ` +
+          `route slug "${slug || "(index)"}". ` +
+          `Rename one operation, schema, tag, or webhook so their URLs stay distinct.` +
+          synthesizedFixHint([priorReg ?? {}, currReg ?? {}]),
         coordinate,
-        source,
+        currReg?.source ?? source,
       );
       return;
     }
@@ -384,14 +424,13 @@ export class CoordinateRegistry {
   }
 
   /** Record a front-end warning (non-gating). */
-  addWarning(message: string, coordinate?: Coordinate, source?: string): void {
-    this.warn(message, coordinate, source);
+  addWarning(message: string, coordinate?: Coordinate, source?: string, code?: string): void {
+    this.warn(message, coordinate, source, code);
   }
 
-  /** Record a build-blocking error from a caller (public counterpart to
-   *  `addWarning`, for faults the pure builders can't detect). */
-  addError(message: string, coordinate?: Coordinate, source?: string): void {
-    this.error(message, coordinate, source);
+  /** Record a build-blocking error from a caller. */
+  addError(message: string, coordinate?: Coordinate, source?: string, code?: string): void {
+    this.error(message, coordinate, source, code);
   }
 
   has(coordinate: Coordinate): boolean {
@@ -411,11 +450,11 @@ export class CoordinateRegistry {
     if (errors.length > 0) throw new ApiBuildError(errors);
   }
 
-  private error(message: string, coordinate?: Coordinate, source?: string): void {
-    this.diagnostics.push({ level: "error", message, coordinate, source });
+  private error(message: string, coordinate?: Coordinate, source?: string, code?: string): void {
+    this.diagnostics.push({ level: "error", message, coordinate, source, code });
   }
 
-  private warn(message: string, coordinate?: Coordinate, source?: string): void {
-    this.diagnostics.push({ level: "warning", message, coordinate, source });
+  private warn(message: string, coordinate?: Coordinate, source?: string, code?: string): void {
+    this.diagnostics.push({ level: "warning", message, coordinate, source, code });
   }
 }

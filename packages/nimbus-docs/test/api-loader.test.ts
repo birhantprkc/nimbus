@@ -279,7 +279,124 @@ describe("composition — two collections, no aliasing", () => {
   });
 });
 
+async function runLoaderOpts(options: Parameters<typeof apiCollection>[0]) {
+  const store = makeStore();
+  const { logs, context } = makeContext(options.collection, store);
+  const { loader } = apiCollection(options);
+  await loader.load(context);
+  return { store, logs };
+}
 
+async function captureWarnings(fn: () => Promise<void>): Promise<string[]> {
+  const warnings: string[] = [];
+  const real = console.warn;
+  console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(" "));
+  try {
+    await fn();
+  } finally {
+    console.warn = real;
+  }
+  return warnings;
+}
+
+function missingOpIdSpec(): Record<string, unknown> {
+  return {
+    openapi: "3.0.0",
+    info: { title: "No opId", version: "1.0.0" },
+    paths: { "/widgets": { get: { responses: { "200": { description: "ok" } } } } },
+  };
+}
+
+describe("apiCollection — missing operationId is lenient by default, strict on opt-in", () => {
+  test("default: an operationId-less op indexes via a path-derived fallback page + aggregate warning", async () => {
+    let store!: Awaited<ReturnType<typeof runLoaderOpts>>["store"];
+    const warnings = await captureWarnings(async () => {
+      ({ store } = await runLoaderOpts({ collection: "leni", spec: missingOpIdSpec() }));
+    });
+    assert.ok(store.has("get/widgets"), "the fallback page is indexed (build did not abort)");
+    assert.ok(
+      warnings.some((w) => /lack a usable operationId and fell back to/i.test(w)),
+      "the guaranteed aggregate line is surfaced",
+    );
+  });
+
+  test("the aggregate survives the per-op warning cap (25 missing ids > 20-line cap)", async () => {
+    const paths: Record<string, unknown> = {};
+    for (let i = 0; i < 25; i++) {
+      paths[`/w${i}`] = { get: { responses: { "200": { description: "ok" } } } };
+    }
+    const spec = { openapi: "3.0.0", info: { title: "Many", version: "1.0.0" }, paths };
+    const warnings = await captureWarnings(async () => {
+      await runLoaderOpts({ collection: "captest", spec });
+    });
+    assert.ok(
+      warnings.some((w) => /…and \d+ more warning/.test(w)),
+      "per-op warnings are truncated by the cap",
+    );
+    assert.ok(
+      warnings.some((w) => /25 operation\(s\) lack a usable operationId/.test(w)),
+      "the aggregate survives truncation and reports the full count",
+    );
+  });
+
+  test("requireOperationId: true reaches the LOADER path and fails the build (regression: flag was dropped)", async () => {
+    await assert.rejects(
+      () => runLoaderOpts({ collection: "stricti", spec: missingOpIdSpec(), requireOperationId: true }),
+      /operationId/i,
+      "strict must abort via apiCollection(), not silently warn",
+    );
+  });
+
+  test("buildApiModel keys strict and lenient separately (same bytes, no cache alias)", async () => {
+    const spec = missingOpIdSpec();
+    const lenient = await buildApiModel({ collection: "cachesep", spec });
+    assert.ok(lenient, "lenient builds");
+    await assert.rejects(
+      () => buildApiModel({ collection: "cachesep", spec, requireOperationId: true }),
+      /operationId/i,
+      "strict is a distinct cache key, so it re-parses and fails",
+    );
+  });
+
+  test("a collision involving a synthesized fallback names the real fix (add an operationId)", async () => {
+    const idParam = { name: "id", in: "path", required: true, schema: { type: "string" } };
+    const spec = {
+      openapi: "3.0.0",
+      info: { title: "Collide", version: "1.0.0" },
+      paths: {
+        "/a/{id}": { get: { parameters: [idParam], responses: { "200": { description: "ok" } } } },
+        "/a/id": { get: { responses: { "200": { description: "ok" } } } },
+      },
+    };
+    await assert.rejects(
+      () => buildApiModel({ collection: "synthcollide", spec }),
+      (err: unknown) => {
+        const msg = (err as Error).message;
+        assert.match(msg, /duplicate operation coordinate "get\/a\/id"/i, "the failure is the coordinate collision");
+        assert.match(msg, /add an operationId/i, "points at adding an operationId, not just 'rename'");
+        assert.doesNotMatch(msg, /path parameter/i, "no unrelated spec-deviation noise");
+        return true;
+      },
+    );
+  });
+
+  test("edge paths: root `/` and repeated slashes render; a nameless `{}` param is fatal", async () => {
+    const base = (paths: Record<string, unknown>) => ({
+      openapi: "3.0.0",
+      info: { title: "Edge", version: "1.0.0" },
+      paths,
+    });
+    const root = await buildApiModel({ collection: "edgeroot", spec: base({ "/": { get: { responses: { "200": { description: "ok" } } } } }) });
+    assert.ok(getApiPageSlugs(root).some((s) => s.coordinate === "get"), "root op folds to `get`");
+    const dbl = await buildApiModel({ collection: "edgeslash", spec: base({ "/a//b": { get: { responses: { "200": { description: "ok" } } } } }) });
+    assert.ok(getApiPageSlugs(dbl).some((s) => s.coordinate === "get/a/b"), "`/a//b` folds to `get/a/b`");
+    await assert.rejects(
+      () => buildApiModel({ collection: "edgebrace", spec: base({ "/x/{}": { get: { responses: { "200": { description: "ok" } } } } }) }),
+      /route|path segment|escape|empty/i,
+      "a `{}` param is malformed and fails, never a broken slug",
+    );
+  });
+});
 
 // A tiny inline OpenAPI doc mirroring smallco's shape, for the no-fs path.
 function smallcoAsObject(): Record<string, unknown> {

@@ -31,8 +31,8 @@ export const CITATION_SENTINEL = "api.ref:";
  * `](api.ref:…)` or a JSX `href="api.ref:…"`. A bare `api.ref:` mentioned in
  * prose is not a citation and must never trip resolution or the fail-loud guard.
  *
- * Coordinates are opaque and may contain spaces (the operationId-less fallback
- * mints `GET /path`) or parentheses. Three alternatives, tried in order:
+ * Coordinates are opaque and may contain spaces (a tag-label coordinate like
+ * `tags.User Management`) or parentheses. Three alternatives, tried in order:
  *   1. CommonMark angle destination `](<api.ref:…>)` — the standard wrapper for
  *      a target containing spaces/parens. Interior padding is tolerated and the
  *      brackets are dropped on rewrite (a resolved URL never needs them).

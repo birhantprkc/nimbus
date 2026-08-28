@@ -10,6 +10,7 @@ import {
   parameterCoordinate,
   responseCoordinate,
   responseFieldCoordinate,
+  routeIdentityFault,
   sectionCoordinate,
   tagRouteSegment,
 } from "./coordinates.js";
@@ -70,22 +71,35 @@ function addOperation(
     ctx.registry.register(opCoord, "operation", { source: sourceBase, isUserIdentity: true });
   } else {
     opCoord = fallbackOperationCoordinate(method, path);
-    ctx.registry.register(opCoord, "operation", { source: sourceBase });
-    // The generated fallback embeds "METHOD /path", which is never a safe URL
-    // route segment (the space alone disqualifies it), so an operation without a
-    // stable operationId cannot be given a routable, citeable coordinate. Fail
-    // the build with actionable guidance rather than emit a broken route.
+    // `synthesized` marks it Nimbus-minted so a collision points at the fix. Route
+    // safety is enforced below via `routeIdentityFault`, not `isUserIdentity`.
+    ctx.registry.register(opCoord, "operation", { source: sourceBase, synthesized: true });
     const cause =
       op.operationId === undefined
         ? "has no operationId"
         : op.operationId === ""
           ? "has an empty operationId"
           : `has a non-string operationId (${typeof op.operationId})`;
-    ctx.registry.addError(
-      `Operation ${method.toUpperCase()} ${path} ${cause}. Every operation needs a stable string operationId to get a routable, citeable coordinate; the generated fallback "${opCoord}" is not a safe URL path segment. Add an operationId in the spec.`,
-      opCoord,
-      sourceBase,
-    );
+    // A route-hostile path yields an unusable coordinate — fatal regardless of
+    // `requireOperationId`. A usable path warns by default, or fails under strict.
+    const routeFault = routeIdentityFault(opCoord);
+    if (routeFault) {
+      ctx.registry.addError(
+        `Operation ${method.toUpperCase()} ${path} ${cause}, and its path-derived fallback ${routeFault}`,
+        opCoord,
+        sourceBase,
+      );
+    } else {
+      const message =
+        `Operation ${method.toUpperCase()} ${path} ${cause}. Falling back to the ` +
+        `path-derived coordinate "${opCoord}", which is not stable across a path ` +
+        `rename — add an operationId in the spec to pin a permanent URL and citation.`;
+      if (ctx.requireOperationId) {
+        ctx.registry.addError(message, opCoord, sourceBase, "missing-operation-id");
+      } else {
+        ctx.registry.addWarning(message, opCoord, sourceBase, "missing-operation-id");
+      }
+    }
   }
 
   const facts = assembleOperation(ctx, {

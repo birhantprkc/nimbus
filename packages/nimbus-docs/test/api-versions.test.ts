@@ -132,6 +132,67 @@ describe("resolveApiFamily", () => {
   });
 });
 
+describe("buildApiVersionAlternates — path-derived fallbacks (missing operationId)", () => {
+  const fallbackFamily = (renameParam: boolean): Record<string, unknown> => ({
+    openapi: "3.0.0",
+    info: { title: "Fallbacks", version: "1.0.0" },
+    paths: {
+      "/widgets/{id}": {
+        get: {
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          responses: { "200": { description: "ok" } },
+        },
+      },
+      [renameParam ? "/things/{key}" : "/things/{id}"]: {
+        get: {
+          parameters: [
+            { name: renameParam ? "key" : "id", in: "path", required: true, schema: { type: "string" } },
+          ],
+          responses: { "200": { description: "ok" } },
+        },
+      },
+    },
+  });
+
+  const api: ApiSpec[] = [
+    {
+      collection: "fb",
+      versions: [
+        { version: "v2", spec: fallbackFamily(false), default: true },
+        { version: "v1", spec: fallbackFamily(true), status: "deprecated" },
+      ],
+    },
+  ];
+
+  test("identical fallbacks link across versions (canonical → default)", async () => {
+    clearApiModelCache("fb");
+    const table = await buildApiVersionAlternates(api, FIXTURE_ROOT);
+    const v1 = table["fb@v1:get/widgets/id"];
+    assert.ok(v1, "the shared-path fallback has a cross-version record");
+    assert.equal(v1!.canonical!.version, "v2", "v1 fallback canonicalizes to the default version");
+    assert.ok(
+      v1!.alternates.some((a) => a.version === "v2"),
+      "and lists the v2 sibling as an alternate — the two are linked",
+    );
+  });
+
+  test("a path-parameter rename moves the fallback, breaking the link", async () => {
+    clearApiModelCache("fb");
+    const table = await buildApiVersionAlternates(api, FIXTURE_ROOT);
+    const v2 = table["fb@v2:get/things/id"];
+    const v1 = table["fb@v1:get/things/key"];
+    assert.ok(v2 && v1, "both renamed pages exist independently");
+    assert.equal(v2!.canonical, null);
+    assert.deepEqual(v2!.alternates, [], "v2 has no cross-version sibling");
+    assert.deepEqual(v1!.alternates, [], "v1 has no cross-version sibling");
+    assert.equal(
+      table["fb@v1:get/things/id"],
+      undefined,
+      "v1 never minted the v2 coordinate — the rename severed the link",
+    );
+  });
+});
+
 describe("resolveApiVersion", () => {
   const api: ApiSpec[] = [
     {

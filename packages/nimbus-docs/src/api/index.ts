@@ -97,10 +97,11 @@ export async function buildApiModel(source: SpecSource): Promise<ApiModel> {
   const raw =
     typeof source.spec === "string" ? source.spec : JSON.stringify(source.spec);
   // Content-addressed: the key follows the *bytes*, not a path, so an edited
-  // spec is a cache miss (dev hot-reload gets a fresh parse for free). The
-  // mount path is part of the key so two versions of one family that happen to
-  // ship byte-identical specs still resolve to their own URLs.
-  const key = `${source.collection}::${source.mountPath ?? ""}::${specDigest(raw)}`;
+  // spec is a cache miss (dev hot-reload gets a fresh parse for free). The mount
+  // path and `requireOperationId` are keyed too, since both change the output.
+  const key = `${source.collection}::${source.mountPath ?? ""}::${
+    source.requireOperationId ? "strictOpId" : ""
+  }::${specDigest(raw)}`;
   const cached = handleCache.get(key);
   if (cached) return cached;
   const promise = parseOpenApi(source).then((r) => wrap(r.model));
@@ -183,6 +184,7 @@ export async function getApiModel(
         spec: resolved.spec,
         label: resolved.label,
         mountPath: resolved.mountPath,
+        requireOperationId: resolved.requireOperationId,
       },
       root,
     ),
