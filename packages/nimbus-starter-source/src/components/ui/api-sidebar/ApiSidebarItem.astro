@@ -51,9 +51,9 @@ const onActiveTrail = Boolean(item.expanded || item.active);
       label={item.label}
       href={item.href ?? "#"}
       isCurrent={item.active}
-      class={item.deprecated ? "line-through" : undefined}
+      class={item.deprecated ? "px-1 line-through" : "px-1"}
     >
-      <ApiMethodChip slot="leading" method={item.method} />
+      <ApiMethodChip slot="leading" method={item.method} display="label" />
     </SidebarLink>
   )
 }
