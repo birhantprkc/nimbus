@@ -7,7 +7,8 @@
 
 import { z } from "astro/zod";
 import type { NimbusConfig } from "../types.js";
-import { withStrictKeys } from "./strict-keys.js";
+import { withStrictKeys, reportUnknownKeys } from "./strict-keys.js";
+import { prefixEntryFault, routeSlugFault } from "./api/route-policy.js";
 
 // `new URL("https:example.com")` does NOT throw (protocol `https:`, host
 // `example.com`), so a bare `.url()`/`new URL()` check waves through a missing
@@ -195,7 +196,51 @@ const RESERVED_VERSION_IDS = new Set([
   "index",
 ]);
 
-const apiVersionSpecSchema = z.object({
+// Route convention policy. `convention` is the only enumerated value in v1;
+// `stripPathPrefixes` entries and `operations` override targets are validated
+// against the same syntactic grammars the engine enforces at mint time
+// (single source of truth in `api/route-policy.ts`), so config-time and
+// build-time can never disagree.
+const routePolicyShape = {
+  convention: z.enum(["resource-action-v1"], {
+    error: '"api[].routes.convention" must be "resource-action-v1"',
+  }),
+  stripPathPrefixes: z.array(z.string()).optional(),
+  operations: z.record(z.string(), z.string()).optional(),
+};
+const routePolicyKeys = new Set(Object.keys(routePolicyShape));
+const routePolicySchema = z
+  .object(routePolicyShape)
+  .passthrough()
+  .superRefine((policy, ctx) => {
+    reportUnknownKeys(policy, ctx, routePolicyKeys, {
+      removedKeys: {},
+      contextLabel: "api routes field",
+      unknownHint: () => 'Valid keys are "convention", "stripPathPrefixes", and "operations".',
+    });
+    (policy.stripPathPrefixes ?? []).forEach((entry, i) => {
+      const fault = prefixEntryFault(entry);
+      if (fault) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["stripPathPrefixes", i],
+          message: `stripPathPrefixes entry "${entry}" ${fault}`,
+        });
+      }
+    });
+    for (const [operationId, slug] of Object.entries(policy.operations ?? {})) {
+      const fault = routeSlugFault(slug);
+      if (fault) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["operations", operationId],
+          message: `route override for operationId "${operationId}" → "${slug}" ${fault}`,
+        });
+      }
+    }
+  });
+
+const apiVersionSpecShape = {
   version: z
     .string({ error: '"api[].versions[].version" must be a non-empty string' })
     .min(1, '"api[].versions[].version" must be a non-empty string')
@@ -208,31 +253,50 @@ const apiVersionSpecSchema = z.object({
   status: z.enum(["ga", "beta", "deprecated"]).optional(),
   hidden: z.boolean().optional(),
   label: z.string().optional(),
-});
+  routes: routePolicySchema.optional(),
+};
+const apiVersionSpecKeys = new Set(Object.keys(apiVersionSpecShape));
+const apiVersionSpecSchema = z
+  .object(apiVersionSpecShape)
+  .passthrough()
+  .superRefine((version, ctx) => {
+    reportUnknownKeys(version, ctx, apiVersionSpecKeys, {
+      removedKeys: {},
+      contextLabel: "api version field",
+    });
+  });
 
 const RESERVED_COLLECTION_NAMES = new Set(["docs", "partials", "nimbus-api"]);
 
+const apiSpecShape = {
+  collection: z
+    .string({ error: '"api[].collection" must be a non-empty string' })
+    .min(1, '"api[].collection" must be a non-empty string')
+    .regex(
+      /^[a-z0-9-]+$/,
+      '"api[].collection" must be lowercase letters, digits, and dashes only (it becomes the URL prefix and the coordinate namespace)',
+    )
+    .refine((c) => !RESERVED_COLLECTION_NAMES.has(c), {
+      error:
+        '"api[].collection" must not be "docs", "partials", or "nimbus-api" — "docs"/"partials" are the built-in content collections, and "/nimbus-api" is reserved for the published coordinate manifest; each would collide',
+    }),
+  spec: specSourceSchema.optional(),
+  label: z.string().optional(),
+  versions: z.array(apiVersionSpecSchema).optional(),
+  requireOperationId: z
+    .boolean({ error: '"api[].requireOperationId" must be a boolean' })
+    .optional(),
+  routes: routePolicySchema.optional(),
+};
+const apiSpecKeys = new Set(Object.keys(apiSpecShape));
 const apiSpecSchema = z
-  .object({
-    collection: z
-      .string({ error: '"api[].collection" must be a non-empty string' })
-      .min(1, '"api[].collection" must be a non-empty string')
-      .regex(
-        /^[a-z0-9-]+$/,
-        '"api[].collection" must be lowercase letters, digits, and dashes only (it becomes the URL prefix and the coordinate namespace)',
-      )
-      .refine((c) => !RESERVED_COLLECTION_NAMES.has(c), {
-        error:
-          '"api[].collection" must not be "docs", "partials", or "nimbus-api" — "docs"/"partials" are the built-in content collections, and "/nimbus-api" is reserved for the published coordinate manifest; each would collide',
-      }),
-    spec: specSourceSchema.optional(),
-    label: z.string().optional(),
-    versions: z.array(apiVersionSpecSchema).optional(),
-    requireOperationId: z
-      .boolean({ error: '"api[].requireOperationId" must be a boolean' })
-      .optional(),
-  })
+  .object(apiSpecShape)
+  .passthrough()
   .superRefine((entry, ctx) => {
+    reportUnknownKeys(entry, ctx, apiSpecKeys, {
+      removedKeys: {},
+      contextLabel: "api entry field",
+    });
     const hasSpec = entry.spec !== undefined;
     const hasVersions = entry.versions !== undefined;
     if (hasSpec === hasVersions) {
@@ -242,6 +306,16 @@ const apiSpecSchema = z
         message: `api collection "${entry.collection}" must set exactly one of "spec" (single reference) or "versions" (a version family)`,
       });
       return;
+    }
+    // A version family has no shared route policy (no implicit family/version
+    // merge) — each version carries its own. Reject a family-level `routes` so
+    // it is never silently ignored.
+    if (hasVersions && entry.routes !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["routes"],
+        message: `api collection "${entry.collection}" sets "routes" at the family level, but a version family carries no shared route policy — move "routes" onto each version entry.`,
+      });
     }
     if (!hasVersions) return;
 

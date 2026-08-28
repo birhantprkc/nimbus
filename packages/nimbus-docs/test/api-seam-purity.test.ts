@@ -45,6 +45,7 @@ const ALLOWED_TYPES = [
   "ApiExampleView",
   "ApiRequestBodyView",
   "ApiResponseView",
+  "ApiRouteProvenance",
   "ApiBreadcrumb",
   "ApiRef",
   "ApiConstraint",
@@ -65,6 +66,7 @@ const RUNTIME_EXPORTS = [
   "getApiPageIndex",
   "getApiPageProps",
   "getApiPageSlugs",
+  "getApiRouteProvenance",
   "renderApiPageMarkdown",
 ];
 
@@ -97,6 +99,77 @@ function originDeclaration(checker: ts.TypeChecker, symbol: ts.Symbol): ts.Decla
   return target.getDeclarations()?.[0];
 }
 
+const IN_SPINE_IR = /[/\\]_internal[/\\]api[/\\]model\.ts$/;
+
+const IS_EXTERNAL_DECL = (file: string) =>
+  /[/\\]node_modules[/\\]/.test(file) || /[/\\]lib\.[^/\\]*\.d\.ts$/.test(file);
+
+// Walk the TYPES an export transitively references — signature return/parameter
+// types, the type arguments nested inside them (the `V` in `Map<string, V>`),
+// union/intersection members, AND object properties — collecting every source
+// file a referenced type is declared in. This catches both vectors the top-level
+// origin check misses: a spine type reached through a *signature*
+// (`getApiRouteProvenance(): Map<string, V>`) and one reached through a
+// *property* of a returned view type (`ApiOperationPage.facts: OperationFacts`).
+// The property walk is pruned at the lib/node_modules boundary — those types
+// (`Map`, `string`, DOM) can't be spine types and their prototypes are what make
+// an unpruned walk blow the heap; their type *arguments* are still followed, so
+// `Map<string, V>` never hides `V`. Bounded by a visited-type set.
+function referencedOrigins(checker: ts.TypeChecker, symbol: ts.Symbol): Set<string> {
+  const files = new Set<string>();
+  const seen = new Set<number>();
+  const decl = symbol.valueDeclaration ?? symbol.getDeclarations()?.[0];
+  if (!decl) return files;
+
+  const queue: ts.Type[] = [checker.getTypeOfSymbolAtLocation(symbol, decl)];
+  const push = (t?: ts.Type) => {
+    if (t) queue.push(t);
+  };
+  const typeOf = (s: ts.Symbol): ts.Type | undefined => {
+    const d = s.valueDeclaration ?? s.getDeclarations()?.[0];
+    return d ? checker.getTypeOfSymbolAtLocation(s, d) : undefined;
+  };
+
+  while (queue.length) {
+    const type = queue.pop() as ts.Type;
+    const id = (type as ts.Type & { id?: number }).id;
+    if (id !== undefined) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+
+    const origin = type.aliasSymbol ?? type.getSymbol();
+    const declFiles = (origin?.getDeclarations() ?? []).map((d) => d.getSourceFile().fileName);
+    for (const f of declFiles) files.add(f);
+
+    // Always follow signatures, type arguments, and union members — this is how
+    // `Map<string, V>`/`Promise<T>` expose their spine-bearing type args even
+    // though `Map`/`Promise` themselves are external.
+    for (const sig of checker.getSignaturesOfType(type, ts.SignatureKind.Call)) {
+      push(checker.getReturnTypeOfSignature(sig));
+      for (const param of sig.getParameters()) push(typeOf(param));
+    }
+    for (const arg of type.aliasTypeArguments ?? []) push(arg);
+    if (
+      type.flags & ts.TypeFlags.Object &&
+      (type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference
+    ) {
+      for (const arg of checker.getTypeArguments(type as ts.TypeReference)) push(arg);
+    }
+    if (type.isUnionOrIntersection()) {
+      for (const member of type.types) push(member);
+    }
+
+    // Descend into properties only for our own (or anonymous inline) types —
+    // pruning the lib/DOM prototype graph that an unpruned walk would explode on.
+    const external = declFiles.length > 0 && declFiles.every(IS_EXTERNAL_DECL);
+    if (!external) {
+      for (const prop of type.getProperties()) push(typeOf(prop));
+    }
+  }
+  return files;
+}
+
 describe("api seam purity", () => {
   test("the exported surface is exactly the documented runtime + type allowlist", () => {
     const { symbols } = seamExports();
@@ -115,8 +188,25 @@ describe("api seam purity", () => {
       const decl = originDeclaration(checker, symbol);
       const file = decl?.getSourceFile().fileName ?? "";
       assert.ok(
-        !/[/\\]_internal[/\\]api[/\\]model\.ts$/.test(file),
+        !IN_SPINE_IR.test(file),
         `"${symbol.getName()}" resolves into the spine IR (${file}) — the seam must expose only the view-model`,
+      );
+    }
+  });
+
+  test("no exported symbol REFERENCES a spine-IR type in its signature", () => {
+    // Closes the gap the top-level origin check leaves open: an export whose
+    // return type, parameter, type argument, or property names an IR type still
+    // drags model.ts across the seam even though the export itself lives in the
+    // view-model. `getApiRouteProvenance(): Map<string, ApiRouteProvenance>` is
+    // the canary — its value type must be the view-surface union, not the spine's.
+    const { checker, symbols } = seamExports();
+    for (const symbol of symbols) {
+      const leaked = [...referencedOrigins(checker, symbol)].filter((f) => IN_SPINE_IR.test(f));
+      assert.equal(
+        leaked.length,
+        0,
+        `"${symbol.getName()}" references a type declared in the spine IR (${leaked.join(", ")}) — project it through the view-model instead`,
       );
     }
   });

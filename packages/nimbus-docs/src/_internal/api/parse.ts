@@ -31,7 +31,9 @@ import type {
   DocsModel,
   NavNode,
   Node,
+  RouteProvenance,
 } from "./model.js";
+import type { RoutePolicy } from "./route-policy.js";
 import { collectSecuritySchemes } from "./facts.js";
 import { loadSampleTools } from "./samples.js";
 import type { SampleTools } from "./samples.js";
@@ -53,6 +55,8 @@ export interface SpecSource {
   mountPath?: string;
   /** Fail the build on an operation missing a usable `operationId`. Default false. */
   requireOperationId?: boolean;
+  /** Route convention for this model's pages. Absent = legacy operationId URLs. */
+  routes?: RoutePolicy;
 }
 
 export interface ParseResult {
@@ -175,6 +179,7 @@ export async function parseOpenApi(source: SpecSource): Promise<ParseResult> {
       rawDoc,
       sampleTools,
       source.requireOperationId ?? false,
+      source.routes,
     );
     const model = walker.walk();
     if (source.mountPath !== undefined) model.mountPath = source.mountPath;
@@ -330,6 +335,14 @@ class Walker implements ParseContext {
   private readonly nodes = new Map<Coordinate, Node>();
   private readonly pages = new Set<Coordinate>();
   private readonly slugs = new Map<Coordinate, string>();
+  private readonly provenance = new Map<Coordinate, RouteProvenance>();
+  /** `operations` override keys actually consumed during minting, so an unused
+   *  (typo'd) key can be reported after the walk. */
+  private readonly consumedOverrides = new Set<string>();
+  /** `operationId` → webhook map key. An override keyed by a webhook id exists
+   *  yet cannot apply (webhooks route by map key), so the unused-override check
+   *  names it as such, pointing at the real `webhooks/<key>` page, not a typo. */
+  private readonly webhookOperationIds = new Map<string, string>();
   private readonly navByTag = new Map<string, NavNode>();
   private readonly navRoots: NavNode[] = [];
   private readonly tagParent = new Map<string, string>();
@@ -347,6 +360,7 @@ class Walker implements ParseContext {
     rawDoc?: OpenApiDocument,
     sampleTools?: SampleTools | null,
     readonly requireOperationId: boolean = false,
+    readonly routePolicy?: RoutePolicy,
   ) {
     this.registry = new CoordinateRegistry(collection);
     // Schema tables are captured once here — the walk never reassigns them on `doc`.
@@ -365,14 +379,62 @@ class Walker implements ParseContext {
     parseOperations(this);
     parseWebhooks(this);
     parseSchemas(this);
+    // After every operationId is known (path operations AND webhooks), so a key
+    // that names a real webhook is reported accurately, not as a typo.
+    this.checkUnusedOverrides();
     this.finalizeNav();
 
     return {
       collection: this.collection,
       nodes: this.nodes,
-      pages: { slugs: this.slugs, pages: this.pages },
+      pages: { slugs: this.slugs, pages: this.pages, provenance: this.provenance },
       nav: { roots: this.navRoots },
     };
+  }
+
+  /** Every configured `operations` override key must exist as an operationId in
+   *  this concrete spec version; a key that never matched is a typo — fail the
+   *  build naming it, rather than silently letting the operation derive. */
+  private checkUnusedOverrides(): void {
+    const overrides = this.routePolicy?.operations;
+    if (!overrides) return;
+    for (const key of Object.keys(overrides)) {
+      const webhookKey = this.webhookOperationIds.get(key);
+      if (webhookKey !== undefined) {
+        const shared = this.consumedOverrides.has(key);
+        this.registry.addError(
+          `Route override for operationId "${key}" names a webhook operation. Webhook pages ` +
+            `always route at "webhooks/${webhookKey}" and cannot be retargeted with \`routes.operations\` — ` +
+            (shared
+              ? `a path operation shares this operationId, which OpenAPI requires to be unique; give them distinct operationIds and remove this override.`
+              : `remove this override.`),
+          undefined,
+          undefined,
+          "unused-route-override",
+        );
+        continue;
+      }
+      if (this.consumedOverrides.has(key)) continue;
+      this.registry.addError(
+        `Route override for operationId "${key}" does not match any operation in this spec — ` +
+          `remove it or correct the operationId. Overrides are keyed by the exact operationId.`,
+        undefined,
+        undefined,
+        "unused-route-override",
+      );
+    }
+  }
+
+  noteWebhookOperationId(operationId: string, webhookKey: string): void {
+    this.webhookOperationIds.set(operationId, webhookKey);
+  }
+
+  recordRouteProvenance(coord: Coordinate, provenance: RouteProvenance): void {
+    this.provenance.set(coord, provenance);
+  }
+
+  noteOverrideConsumed(operationId: string): void {
+    this.consumedOverrides.add(operationId);
   }
 
   private addApiRoot(): void {
@@ -559,8 +621,8 @@ class Walker implements ParseContext {
     this.nodes.set(id, { id, kind, parent, source, facts, annotations: {} });
   }
 
-  page(coord: Coordinate, slug: string): void {
-    this.registry.registerSlug(slug, coord);
+  page(coord: Coordinate, slug: string, provenance?: RouteProvenance): void {
+    this.registry.registerSlug(slug, coord, undefined, provenance);
     this.pages.add(coord);
     this.slugs.set(coord, slug);
   }

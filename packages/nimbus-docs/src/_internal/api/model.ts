@@ -319,12 +319,30 @@ export interface CodeSample {
   source: string;
 }
 
+/**
+ * How an operation's routing slug was decided under a `resource-action-v1` route policy:
+ * an explicit `operations` override, unambiguous derivation, or the normalized
+ * coordinate fallback. Absent for legacy (no-policy) collections and for
+ * non-operation pages. Cross-version drift compares only `derived` slugs.
+ *
+ * Mirrors the view-surface `ApiRouteProvenance` (`./api-view-types`) by value.
+ * The IR root stays a pure leaf (no imports), so the seam projects through the
+ * view type rather than re-exporting this one — keep the two literals in sync.
+ */
+export type RouteProvenance = "override" | "derived" | "fallback";
+
 /** Which nodes are pages, and their slugs. */
 export interface PageGraph {
   /** Coordinate → site-relative slug (without the collection prefix). */
   slugs: Map<Coordinate, string>;
   /** Coordinates that render as their own page. */
   pages: Set<Coordinate>;
+  /**
+   * Coordinate → route provenance, recorded only for operation pages routed
+   * through a `resource-action-v1` policy. Empty for legacy collections. Consumed by the
+   * cross-version drift check, which compares `derived` slugs only.
+   */
+  provenance?: Map<Coordinate, RouteProvenance>;
 }
 
 export interface NavNode {

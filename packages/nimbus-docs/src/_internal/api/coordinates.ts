@@ -23,6 +23,22 @@ import type { Coordinate, NodeKind, ParameterLocation } from "./model.js";
 /** Reserved top-level namespaces, enforced where collisions are real. */
 export const RESERVED_NAMESPACES = ["errors", "tags", "changelog"] as const;
 
+/**
+ * Reserved top-level *route* segments — the API root (the bare mount, `""`),
+ * `index`, and the subtrees the engine emits (`schemas/`, `webhooks/`, `tags/`,
+ * `errors/`, `changelog/`). A segment is reserved even before its subtree emits
+ * any page, so a `resource-action-v1` operation slug can never shadow a subtree that lands
+ * later. Distinct from `RESERVED_NAMESPACES` (a coordinate-space rule).
+ */
+export const RESERVED_ROUTE_SEGMENTS: ReadonlySet<string> = new Set([
+  "schemas",
+  "webhooks",
+  "tags",
+  "errors",
+  "changelog",
+  "index",
+]);
+
 const COLLECTION_NAME = /^[a-z0-9-]+$/;
 /** The one shape ambiguous against `collection:coordinate` at a citation site. */
 const COLLECTION_PREFIX = /^[a-z0-9-]+:/;
@@ -293,6 +309,9 @@ export class CoordinateRegistry {
   private readonly byCoordinate = new Map<Coordinate, Registration>();
   private readonly byLowercase = new Map<string, Coordinate>();
   private readonly slugOwners = new Map<string, Coordinate>();
+  /** Coordinate → how its slug was resolved (`resource-action-v1` provenance), for
+   *  collision diagnostics that must state how each side was routed. */
+  private readonly slugProvenance = new Map<Coordinate, string>();
   private readonly diagnostics: Diagnostic[] = [];
 
   constructor(collection: string) {
@@ -318,9 +337,22 @@ export class CoordinateRegistry {
       isUserIdentity?: boolean;
       identity?: string;
       synthesized?: boolean;
+      /**
+       * Skip the route-safety check on the identity while keeping the
+       * reserved-namespace, colon-prefix, uniqueness, and case checks. Set under
+       * a `resource-action-v1` policy, where the `operationId` is an opaque coordinate that
+       * no longer routes — route-safety moves onto the resolved slug instead.
+       */
+      skipRouteFault?: boolean;
     } = {},
   ): Coordinate {
-    const { source, isUserIdentity = false, identity, synthesized = false } = options;
+    const {
+      source,
+      isUserIdentity = false,
+      identity,
+      synthesized = false,
+      skipRouteFault = false,
+    } = options;
 
     if (isUserIdentity) {
       const check = identity ?? coordinate;
@@ -333,7 +365,7 @@ export class CoordinateRegistry {
           source,
         );
       }
-      this.flagRouteFault(check, coordinate, source);
+      if (!skipRouteFault) this.flagRouteFault(check, coordinate, source);
     }
 
     if (COLLECTION_PREFIX.test(coordinate)) {
@@ -394,17 +426,40 @@ export class CoordinateRegistry {
     if (fault) this.error(fault, coordinate, source);
   }
 
-  /** Fail the build when two distinct pages resolve to the same routing slug. */
-  registerSlug(slug: string, coordinate: Coordinate, source?: string): void {
+  /** Fail the build when two distinct pages resolve to the same routing slug.
+   *  `provenance` (a `resource-action-v1` resolution kind) is recorded so a collision names
+   *  how each side was routed. */
+  registerSlug(
+    slug: string,
+    coordinate: Coordinate,
+    source?: string,
+    provenance?: string,
+  ): void {
+    if (provenance) this.slugProvenance.set(coordinate, provenance);
     const prior = this.slugOwners.get(slug);
     if (prior !== undefined && prior !== coordinate) {
       const priorReg = this.byCoordinate.get(prior);
       const currReg = this.byCoordinate.get(coordinate);
       const at = (reg?: Registration) => (reg?.source ? ` (${reg.source})` : "");
+      const via = (c: Coordinate) => {
+        const p = this.slugProvenance.get(c);
+        return p ? ` [resolved via ${p}]` : "";
+      };
+      // Only a `derived` slug is immune to renaming (it comes from method+path),
+      // so it alone gets the pin-an-override advice; a `fallback` slug is the
+      // normalized coordinate and identity pages carry no provenance, so both
+      // are fixed by renaming. An override, when present, is the surest edit.
+      const kinds = [prior, coordinate].map((c) => this.slugProvenance.get(c));
+      const advice = kinds.includes("override")
+        ? `Adjust the \`routes.operations\` override target for one of them so their URLs stay distinct.`
+        : kinds.includes("derived")
+          ? `Pin an explicit \`routes.operations\` override for one of them so their URLs stay distinct — ` +
+            `a resource-action-v1 slug is derived from the operation's method and path, so renaming the operationId will not change it.`
+          : `Rename one operation, schema, tag, or webhook so their URLs stay distinct.`;
       this.error(
-        `pages "${prior}"${at(priorReg)} and "${coordinate}"${at(currReg)} both map to the ` +
+        `pages "${prior}"${at(priorReg)}${via(prior)} and "${coordinate}"${at(currReg)}${via(coordinate)} both map to the ` +
           `route slug "${slug || "(index)"}". ` +
-          `Rename one operation, schema, tag, or webhook so their URLs stay distinct.` +
+          advice +
           synthesizedFixHint([priorReg ?? {}, currReg ?? {}]),
         coordinate,
         currReg?.source ?? source,

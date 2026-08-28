@@ -4,6 +4,8 @@
  * The projection that produces these shapes lives in `view-model.ts`.
  */
 
+import type { RoutePolicy } from "./route-policy.js";
+
 export const apiSchemaVersion = 1;
 
 export type JsonValue =
@@ -16,6 +18,12 @@ export type JsonValue =
 
 export type ApiNodeKind = "api" | "section" | "operation" | "schema";
 
+/** How an operation page's `resource-action-v1` slug was resolved: a config `override`, a
+ *  method+path `derived` slug, or a `fallback` to the operation coordinate. This
+ *  is the view-surface home of the union; the spine's `RouteProvenance` aliases
+ *  it so the type never originates in the IR when it crosses the `./api` seam. */
+export type ApiRouteProvenance = "override" | "derived" | "fallback";
+
 export interface SpecSource {
   collection: string;
   spec: string | Record<string, JsonValue>;
@@ -24,6 +32,8 @@ export interface SpecSource {
   mountPath?: string;
   /** Fail the build on an operation missing a usable `operationId`. Default false. */
   requireOperationId?: boolean;
+  /** Route convention for this model's pages. Absent = legacy operationId URLs. */
+  routes?: RoutePolicy;
 }
 
 declare const ApiModelBrand: unique symbol;

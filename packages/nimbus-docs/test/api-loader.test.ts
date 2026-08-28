@@ -398,6 +398,102 @@ describe("apiCollection — missing operationId is lenient by default, strict on
   });
 });
 
+describe("apiCollection — a non-default version id shadowing a default-version page", () => {
+  const OK = { responses: { "200": { description: "ok" } } };
+  const versionSpec = (paths: Record<string, unknown>) => ({
+    openapi: "3.0.0",
+    info: { title: "V", version: "1.0.0" },
+    paths,
+  });
+
+  test("when the shadowed default page is derived, the fix is an override (renaming can't move it)", async () => {
+    // Default version derives `/charges` → `charges/list` (top segment
+    // `charges`); the non-default version id `charges` then claims the same
+    // `/shadow/charges` — and the shadowed slug is derived.
+    await assert.rejects(
+      () =>
+        runLoaderOpts({
+          collection: "shadow",
+          versions: [
+            {
+              version: "stable",
+              default: true,
+              spec: versionSpec({ "/charges": { get: { operationId: "listCharges", ...OK } } }),
+              routes: { convention: "resource-action-v1" },
+            },
+            {
+              version: "charges",
+              spec: versionSpec({ "/widgets": { get: { operationId: "listWidgets", ...OK } } }),
+              routes: { convention: "resource-action-v1" },
+            },
+          ],
+        }),
+      (err: Error) => {
+        assert.match(err.message, /version "charges" of collection "shadow" collides/);
+        assert.match(err.message, /routes\.operations` override/);
+        assert.doesNotMatch(err.message, /the colliding operation\/tag/);
+        return true;
+      },
+    );
+  });
+
+  test("when the shadowed default page is override-routed, adjusting the override target is the fix", async () => {
+    await assert.rejects(
+      () =>
+        runLoaderOpts({
+          collection: "shadow3",
+          versions: [
+            {
+              version: "stable",
+              default: true,
+              spec: versionSpec({ "/charges": { get: { operationId: "listCharges", ...OK } } }),
+              routes: { convention: "resource-action-v1", operations: { listCharges: "charges/summary" } },
+            },
+            {
+              version: "charges",
+              spec: versionSpec({ "/widgets": { get: { operationId: "listWidgets", ...OK } } }),
+              routes: { convention: "resource-action-v1" },
+            },
+          ],
+        }),
+      (err: Error) => {
+        assert.match(err.message, /version "charges" of collection "shadow3" collides/);
+        assert.match(err.message, /adjust the `routes\.operations` override target/i);
+        assert.doesNotMatch(err.message, /the colliding operation\/tag/);
+        return true;
+      },
+    );
+  });
+
+  test("when the shadowed default page is identity-routed, renaming the operation/tag is the fix", async () => {
+    // No routes policy → the default page's slug IS its identity (tag
+    // `charges` → `charges/list`), so renaming actually moves it.
+    await assert.rejects(
+      () =>
+        runLoaderOpts({
+          collection: "shadow2",
+          versions: [
+            {
+              version: "stable",
+              default: true,
+              spec: versionSpec({ "/a": { get: { operationId: "list", tags: ["charges"], ...OK } } }),
+            },
+            {
+              version: "charges",
+              spec: versionSpec({ "/widgets": { get: { operationId: "listWidgets", ...OK } } }),
+            },
+          ],
+        }),
+      (err: Error) => {
+        assert.match(err.message, /version "charges" of collection "shadow2" collides/);
+        assert.match(err.message, /the colliding operation\/tag/);
+        assert.doesNotMatch(err.message, /routes\.operations` override/);
+        return true;
+      },
+    );
+  });
+});
+
 // A tiny inline OpenAPI doc mirroring smallco's shape, for the no-fs path.
 function smallcoAsObject(): Record<string, unknown> {
   return {

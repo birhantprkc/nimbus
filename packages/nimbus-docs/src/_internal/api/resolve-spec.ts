@@ -14,6 +14,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { SpecSource } from "./view-model.js";
+import type { RoutePolicy } from "./route-policy.js";
 
 export interface ApiSpecEntry {
   collection: string;
@@ -22,6 +23,7 @@ export interface ApiSpecEntry {
   /** Base URL for the resolved model's pages. Defaults to `/<collection>`. */
   mountPath?: string;
   requireOperationId?: boolean;
+  routes?: RoutePolicy;
 }
 
 export async function resolveSpecSource(
@@ -31,6 +33,7 @@ export async function resolveSpecSource(
   const label = entry.label ?? entry.collection;
   const mountPath = entry.mountPath ? { mountPath: entry.mountPath } : {};
   const strict = entry.requireOperationId ? { requireOperationId: true as const } : {};
+  const routes = entry.routes ? { routes: entry.routes } : {};
 
   if (typeof entry.spec !== "string") {
     return {
@@ -39,6 +42,7 @@ export async function resolveSpecSource(
       ...(entry.label ? { label: entry.label } : {}),
       ...mountPath,
       ...strict,
+      ...routes,
     };
   }
 
@@ -62,5 +66,6 @@ export async function resolveSpecSource(
     ...(entry.label ? { label: entry.label } : {}),
     ...mountPath,
     ...strict,
+    ...routes,
   };
 }

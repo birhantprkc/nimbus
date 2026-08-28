@@ -12,6 +12,16 @@ export function parseWebhooks(ctx: ParseContext): void {
       isUserIdentity: true,
     });
     const sharedParams = Array.isArray(item.parameters) ? item.parameters : [];
+    // Webhooks route by their map key, not their id — but record every method's
+    // id so a `routes.operations` override keyed by one is named as a
+    // non-overridable webhook rather than reported as a typo. Runs across all
+    // methods, independent of the single-page `break` below.
+    for (const method of HTTP_METHODS) {
+      const op = item[method];
+      if (op && typeof op.operationId === "string" && op.operationId) {
+        ctx.noteWebhookOperationId(op.operationId, key);
+      }
+    }
     for (const method of HTTP_METHODS) {
       const op = item[method];
       if (!op) continue;

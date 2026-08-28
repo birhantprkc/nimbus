@@ -31,7 +31,7 @@ import {
   definePartialsSchema,
   partialsSchema,
 } from "./schemas.js";
-import type { ApiVersionSpec } from "./types.js";
+import type { ApiRoutePolicy, ApiVersionSpec } from "./types.js";
 
 // Re-export the public schema factories from `nimbus-docs/content` so users
 // have a single import for content-config concerns (collections + schemas).
@@ -195,6 +195,9 @@ export interface ApiCollectionOptions {
   versions?: ApiVersionSpec[];
   /** Fail the build on an operation missing a usable `operationId`. Default false. */
   requireOperationId?: boolean;
+  /** Route convention for this collection's pages (unversioned only; for a family
+   *  set `routes` on each version). Omit to keep legacy operationId URLs. */
+  routes?: ApiRoutePolicy;
 }
 
 /**
@@ -233,7 +236,7 @@ export function apiCollection(options: ApiCollectionOptions): {
     version?: string;
   }>;
 } {
-  const { collection, spec, label, versions, requireOperationId } = options;
+  const { collection, spec, label, versions, requireOperationId, routes } = options;
 
   const loader: Loader = {
     name: "nimbus-docs:api",
@@ -243,7 +246,7 @@ export function apiCollection(options: ApiCollectionOptions): {
       assertSupportedNode();
 
       const [
-        { buildApiModel, getApiPageIndex, clearApiModelCache },
+        { buildApiModel, getApiPageIndex, getApiRouteProvenance, clearApiModelCache },
         { resolveSpecSource },
         { resolveApiFamily, apiPageRoute },
       ] = await Promise.all([
@@ -253,7 +256,7 @@ export function apiCollection(options: ApiCollectionOptions): {
       ]);
 
       const rootDir = fileURLToPath(astroConfig.root);
-      const targets = resolveApiFamily({ collection, spec, label, versions, requireOperationId });
+      const targets = resolveApiFamily({ collection, spec, label, versions, requireOperationId, routes });
 
       // M4: a non-default version id must not collide with a top-level page
       // slug of the default version (both would claim `/<collection>/<id>`).
@@ -263,13 +266,21 @@ export function apiCollection(options: ApiCollectionOptions): {
       const nonDefaultVersionIds = targets
         .filter((t) => !t.isDefault && t.version)
         .map((t) => t.version!);
-      const defaultTopSegments = new Set<string>();
 
       const index = async () => {
         store.clear();
+        // Default-version top segment → the route provenances that produced it
+        // ("override"/"derived"/"fallback", or "identity" for a page with none),
+        // so the shadow diagnostic names the lever that actually moves each. Per
+        // run, so a dev-watch reparse never inherits a stale segment.
+        const defaultTopSegments = new Map<string, Set<string>>();
         // Two pages minting the same id is a silent last-writer-wins clobber
         // (e.g. an untagged `operationId: "index"` vs the default root's id).
         const seenIds = new Map<string, string>();
+        // Cross-version drift: coordinate → (version → derived slug). Only
+        // `derived` slugs are compared (overrides and fallbacks are excluded);
+        // hidden versions are included, since they emit real URLs and links.
+        const derivedByCoordinate = new Map<string, Map<string, string>>();
         for (const target of targets) {
           let model;
           try {
@@ -280,6 +291,7 @@ export function apiCollection(options: ApiCollectionOptions): {
                 label: target.label,
                 mountPath: target.mountPath,
                 requireOperationId: target.requireOperationId,
+                routes: target.routes,
               },
               rootDir,
             );
@@ -293,11 +305,21 @@ export function apiCollection(options: ApiCollectionOptions): {
             throw err;
           }
 
+          const provenance = getApiRouteProvenance(model);
           for (const { coordinate, slug, title, description } of getApiPageIndex(
             model,
           )) {
             if (target.isDefault && slug !== "") {
-              defaultTopSegments.add(slug.split("/")[0]!);
+              const top = slug.split("/")[0]!;
+              const kinds = defaultTopSegments.get(top) ?? new Set<string>();
+              kinds.add(provenance.get(coordinate) ?? "identity");
+              defaultTopSegments.set(top, kinds);
+            }
+            if (target.version && provenance.get(coordinate) === "derived") {
+              const byVersion =
+                derivedByCoordinate.get(coordinate) ??
+                derivedByCoordinate.set(coordinate, new Map()).get(coordinate)!;
+              byVersion.set(target.version, slug);
             }
             const { storeId: id } = apiPageRoute(target, slug);
             const prior = seenIds.get(id);
@@ -323,14 +345,40 @@ export function apiCollection(options: ApiCollectionOptions): {
           }
         }
         for (const versionId of nonDefaultVersionIds) {
-          if (defaultTopSegments.has(versionId)) {
+          const kinds = defaultTopSegments.get(versionId);
+          if (kinds) {
+            // Renaming the version always resolves it; the second lever names the
+            // hardest provenance present, since renaming an operationId moves
+            // neither an override slug (pinned) nor a derived one (method+path).
+            const fix = kinds.has("override")
+              ? `Rename the version, or adjust the \`routes.operations\` override target for the colliding page, `
+              : kinds.has("derived")
+                ? `Rename the version, or pin a \`routes.operations\` override for the colliding operation ` +
+                  `(a resource-action-v1 slug is derived from method and path, so renaming the operationId will not change it), `
+                : `Rename the version, or the colliding operation/tag, `;
             const message =
               `nimbus-docs api: version "${versionId}" of collection "${collection}" collides with a ` +
-              `default-version page mounted at /${collection}/${versionId}. Rename the version, or the ` +
-              `colliding operation/tag, so the version segment stays unambiguous.`;
+              `default-version page mounted at /${collection}/${versionId}. ${fix}so the version segment stays unambiguous.`;
             logger.error(message);
             throw new Error(message);
           }
+        }
+        // Cross-version drift (non-gating): one coordinate whose resource-action-v1-derived
+        // slug differs across two or more versions. Divergent wire paths across
+        // versions are legitimate, so this warns and recommends pinning an
+        // override; it never fails the build.
+        for (const [coordinate, byVersion] of derivedByCoordinate) {
+          if (byVersion.size < 2) continue;
+          const distinct = new Set(byVersion.values());
+          if (distinct.size < 2) continue;
+          const detail = [...byVersion]
+            .map(([version, slug]) => `${version}→"${slug}"`)
+            .join(", ");
+          logger.warn(
+            `nimbus-docs api: coordinate "${coordinate}" derives different resource-action-v1 slugs across ` +
+              `versions of "${collection}" (${detail}). Pin an explicit \`routes.operations\` ` +
+              `override in each version to keep the URL stable across versions.`,
+          );
         }
         logger.info(
           `Indexed ${store.keys().length} API pages for "${collection}".`,

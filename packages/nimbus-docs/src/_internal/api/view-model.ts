@@ -41,6 +41,7 @@ import {
   type ApiRequestBodyView,
   type ApiResponseView,
   type ApiRootPage,
+  type ApiRouteProvenance,
   type ApiScalarView,
   type ApiSchemaPage,
   type ApiSectionPage,
@@ -772,6 +773,13 @@ export function projectNav(
     collection: model.collection,
     items: base.map(overlay),
   };
+}
+
+/** Coordinate → `resource-action-v1` route provenance for every operation page routed
+ *  through a policy. Empty for legacy collections. The cross-version drift check
+ *  reads this to compare `derived` slugs only. */
+export function routeProvenance(model: DocsModel): Map<string, ApiRouteProvenance> {
+  return model.pages.provenance ?? new Map();
 }
 
 export function pageSlugs(

@@ -17,12 +17,14 @@ import {
   projectNav,
   projectPageProps,
   pageSlugs,
+  routeProvenance,
   fieldCitations,
   indexPages,
   type ApiModel,
   type ApiNav,
   type ApiPageProps,
   type ApiPageIndexEntry,
+  type ApiRouteProvenance,
   type SpecSource,
 } from "../_internal/api/view-model.js";
 
@@ -49,6 +51,7 @@ export type {
   ApiExampleView,
   ApiRequestBodyView,
   ApiResponseView,
+  ApiRouteProvenance,
   ApiBreadcrumb,
   ApiRef,
   ApiConstraint,
@@ -70,6 +73,18 @@ const sourceCache = new Map<string, Promise<SpecSource>>();
 /** SHA-256 → base64url. Collision-resistant *and* content-addressed. */
 function specDigest(raw: string): string {
   return createHash("sha256").update(raw).digest("base64url");
+}
+
+/** Deterministic JSON with object keys sorted at every depth, so a route policy
+ *  keys the model cache by *value*, not by authoring key order. */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
+  return `{${entries.join(",")}}`;
 }
 
 function wrap(model: DocsModel): ApiModel {
@@ -98,10 +113,12 @@ export async function buildApiModel(source: SpecSource): Promise<ApiModel> {
     typeof source.spec === "string" ? source.spec : JSON.stringify(source.spec);
   // Content-addressed: the key follows the *bytes*, not a path, so an edited
   // spec is a cache miss (dev hot-reload gets a fresh parse for free). The mount
-  // path and `requireOperationId` are keyed too, since both change the output.
+  // path, `requireOperationId`, and the route policy are keyed too, since each
+  // changes the output — two versions with identical spec bytes but different
+  // policies must never alias.
   const key = `${source.collection}::${source.mountPath ?? ""}::${
     source.requireOperationId ? "strictOpId" : ""
-  }::${specDigest(raw)}`;
+  }::${stableStringify(source.routes)}::${specDigest(raw)}`;
   const cached = handleCache.get(key);
   if (cached) return cached;
   const promise = parseOpenApi(source).then((r) => wrap(r.model));
@@ -185,6 +202,7 @@ export async function getApiModel(
         label: resolved.label,
         mountPath: resolved.mountPath,
         requireOperationId: resolved.requireOperationId,
+        routes: resolved.routes,
       },
       root,
     ),
@@ -214,6 +232,16 @@ export function getApiPageSlugs(
   model: ApiModel,
 ): Array<{ coordinate: string; slug: string }> {
   return pageSlugs(unwrap(model));
+}
+
+/** Coordinate → `resource-action-v1` route provenance for each operation page routed under
+ *  a policy (`override`/`derived`/`fallback`). Empty for legacy collections.
+ *  The loader's cross-version drift check compares `derived` slugs only. A fresh
+ *  copy each call, so a caller can never mutate the memoized model's provenance. */
+export function getApiRouteProvenance(
+  model: ApiModel,
+): ReadonlyMap<string, ApiRouteProvenance> {
+  return new Map(routeProvenance(unwrap(model)));
 }
 
 /** Every field coordinate that resolves to a rendered in-page anchor, as

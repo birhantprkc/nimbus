@@ -151,6 +151,29 @@ export interface ApiReference {
 }
 
 /**
+ * An opt-in, explicitly versioned route convention for a collection's generated
+ * pages. `resource-action-v1` derives concise `<resource>/<action>` slugs from the OpenAPI
+ * path (see the API route convention docs); the `operationId` stays the
+ * permanent coordinate. Existing collections omit `routes` and keep today's
+ * `operationId`-based URLs unchanged.
+ */
+export interface ApiRoutePolicy {
+  /** The convention name. Its rules are frozen; a change ships as a new name. */
+  convention: "resource-action-v1";
+  /**
+   * Base path prefixes stripped (whole-segment, longest-match, case-sensitive)
+   * before classification, e.g. `["/v1"]` so `/v1/charges` derives `charges/…`.
+   */
+  stripPathPrefixes?: string[];
+  /**
+   * `operationId` → complete collection-relative slug. An override bypasses
+   * automatic derivation entirely — the escape hatch for ambiguous APIs,
+   * intentional vocabulary, and already-published routes.
+   */
+  operations?: Record<string, string>;
+}
+
+/**
  * One OpenAPI reference spec, mounted as a content collection named
  * `collection` at `/<collection>`. Declared once in `nimbus.config.ts`.
  *
@@ -183,6 +206,13 @@ export interface ApiSpec {
    * missing case a build error. A coordinate/URL collision is always fatal.
    */
   requireOperationId?: boolean;
+  /**
+   * Route convention for this collection's pages. Omit to keep the default
+   * `operationId`-based URLs. For a version family, set `routes` on each
+   * {@link ApiVersionSpec} instead — a family-level policy is rejected, since
+   * there is no implicit family/version merge.
+   */
+  routes?: ApiRoutePolicy;
 }
 
 /** Maturity/deprecation status for one API version. */
@@ -219,6 +249,12 @@ export interface ApiVersionSpec {
   hidden?: boolean;
   /** Display label override for the picker (defaults to `version`). */
   label?: string;
+  /**
+   * Route convention for this version's pages. Each version carries its own
+   * policy; a shared route map may be imported into several versions, but every
+   * override key is validated against the concrete version receiving it.
+   */
+  routes?: ApiRoutePolicy;
 }
 
 /**

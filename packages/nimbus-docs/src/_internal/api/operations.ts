@@ -8,12 +8,14 @@ import {
   mediaTypeToken,
   operationCoordinate,
   parameterCoordinate,
+  RESERVED_ROUTE_SEGMENTS,
   responseCoordinate,
   responseFieldCoordinate,
   routeIdentityFault,
   sectionCoordinate,
   tagRouteSegment,
 } from "./coordinates.js";
+import { resolveOperationRoute, routeSlugFault } from "./route-policy.js";
 import {
   HTTP_METHODS,
   SCHEMA_FIELD_DEPTH,
@@ -66,9 +68,19 @@ function addOperation(
 ): void {
   let opCoord: Coordinate;
   const sourceBase = `#/paths/${path}/${method}`;
-  if (typeof op.operationId === "string" && op.operationId) {
-    opCoord = operationCoordinate(op.operationId);
-    ctx.registry.register(opCoord, "operation", { source: sourceBase, isUserIdentity: true });
+  const operationId =
+    typeof op.operationId === "string" && op.operationId ? op.operationId : undefined;
+  if (operationId !== undefined) {
+    opCoord = operationCoordinate(operationId);
+    // Under a route policy the operationId is an opaque coordinate that no
+    // longer routes, so it faces only the coordinate/citation constraints —
+    // route-safety moves onto the resolved slug (see resolveSlug below). Legacy
+    // keeps route-safety on the operationId, which is still its URL leaf.
+    ctx.registry.register(opCoord, "operation", {
+      source: sourceBase,
+      isUserIdentity: true,
+      skipRouteFault: ctx.routePolicy !== undefined,
+    });
   } else {
     opCoord = fallbackOperationCoordinate(method, path);
     // `synthesized` marks it Nimbus-minted so a collision points at the fix. Route
@@ -118,9 +130,99 @@ function addOperation(
   const parentSection = tag ? sectionCoordinate(tag) : apiCoordinate(ctx.collection);
   ctx.node(opCoord, "operation", parentSection, facts, sourceBase);
 
-  const slug = tag ? `${tagRouteSegment(tag)}/${opCoord}` : opCoord;
-  ctx.page(opCoord, slug);
+  resolveSlug(ctx, { method, path, operationId, opCoord, sourceBase, tag });
   ctx.attachToNav(tag, opCoord, asString(op.summary) ?? opCoord);
+}
+
+/**
+ * Record the operation's page slug. Under a `resource-action-v1` policy the slug is
+ * resolved by `override → derivation → normalized coordinate fallback`, then
+ * route-safety and reserved-route checks run on that final slug (the
+ * `operationId` faced neither). Legacy (no policy) keeps the exact
+ * `tag ? tagRouteSegment/operationId : operationId` behavior, byte-for-byte.
+ */
+function resolveSlug(
+  ctx: ParseContext,
+  input: {
+    method: HttpMethod;
+    path: string;
+    operationId: string | undefined;
+    opCoord: Coordinate;
+    sourceBase: string;
+    tag: string | undefined;
+  },
+): void {
+  const { method, path, operationId, opCoord, sourceBase, tag } = input;
+
+  if (!ctx.routePolicy) {
+    const slug = tag ? `${tagRouteSegment(tag)}/${opCoord}` : opCoord;
+    ctx.page(opCoord, slug);
+    return;
+  }
+
+  const label = `${method.toUpperCase()} ${path}`;
+  const outcome = resolveOperationRoute(ctx.routePolicy, {
+    method,
+    path,
+    operationId,
+    coordinate: opCoord,
+  });
+
+  if (outcome.kind === "fallback-empty") {
+    // Even the coordinate normalizes away — nothing can name the page. Fatal;
+    // skip page registration (the build fails on this error, so the partial
+    // model is discarded before any consumer reads it).
+    ctx.registry.addError(
+      `Operation ${label} (coordinate "${opCoord}") has no unambiguous resource-action-v1 route and its ` +
+        `coordinate normalizes to an empty slug. Add an explicit route in \`routes.operations\` ` +
+        `keyed by its operationId.`,
+      opCoord,
+      sourceBase,
+      "route-fallback-empty",
+    );
+    return;
+  }
+
+  const slug = outcome.slug;
+  if (outcome.kind === "override") {
+    ctx.noteOverrideConsumed(operationId!);
+  } else if (outcome.kind === "fallback") {
+    ctx.registry.addWarning(
+      `Operation ${label} (coordinate "${opCoord}") has no unambiguous resource-action-v1 route; falling back ` +
+        `to the normalized coordinate slug "${slug}". Add an explicit route in \`routes.operations\` ` +
+        `to pin a stable URL.`,
+      opCoord,
+      sourceBase,
+      "route-fallback",
+    );
+  }
+
+  // Route-safety on the final resolved slug (§Implementation boundary step 5).
+  // Derived/fallback slugs are kebab-safe by construction; an override was
+  // validated at config time — this is the single enforcement point and a net.
+  const fault = routeSlugFault(slug);
+  if (fault) {
+    ctx.registry.addError(
+      `Operation ${label} resolves to route slug "${slug}", which ${fault}. ` +
+        `Fix the \`routes.operations\` override.`,
+      opCoord,
+      sourceBase,
+      "route-slug-invalid",
+    );
+  } else if (RESERVED_ROUTE_SEGMENTS.has(slug.split("/")[0]!)) {
+    const seg = slug.split("/")[0]!;
+    ctx.registry.addError(
+      `Operation ${label} resolves to route slug "${slug}", whose top-level segment "${seg}" is a ` +
+        `reserved route ([${[...RESERVED_ROUTE_SEGMENTS].join(", ")}] and the API root). ` +
+        `Add a \`routes.operations\` override so it stays distinct.`,
+      opCoord,
+      sourceBase,
+      "route-reserved-collision",
+    );
+  }
+
+  ctx.recordRouteProvenance(opCoord, outcome.kind);
+  ctx.page(opCoord, slug, outcome.kind);
 }
 
 /** An operation-shaped node to assemble: a real path operation or a webhook. */

@@ -21,7 +21,8 @@
  * `mountPath` = `/family`).
  */
 
-import type { ApiSpec, ApiVersionSpec, ApiVersionStatus } from "../../types.js";
+import type { ApiRoutePolicy, ApiSpec, ApiVersionSpec, ApiVersionStatus } from "../../types.js";
+import type { RoutePolicy } from "./route-policy.js";
 
 /** One fully-resolved render target — a single version of one API family. */
 export interface ResolvedApiVersion {
@@ -47,6 +48,13 @@ export interface ResolvedApiVersion {
   label: string;
   /** Fail the build on an operation missing a usable `operationId`. Default false. */
   requireOperationId: boolean;
+  /** Route convention for this target, or `undefined` for legacy operationId URLs. */
+  routes?: RoutePolicy;
+}
+
+/** An `ApiRoutePolicy` is structurally the engine's `RoutePolicy`; narrow once here. */
+function asRoutePolicy(routes: ApiRoutePolicy | undefined): RoutePolicy | undefined {
+  return routes as RoutePolicy | undefined;
 }
 
 const VERSION_KEY_SEP = "@";
@@ -89,6 +97,7 @@ export function resolveApiFamily(entry: ApiSpec): ResolvedApiVersion[] {
         hidden: false,
         label: entry.label ?? family,
         requireOperationId: entry.requireOperationId ?? false,
+        routes: asRoutePolicy(entry.routes),
       },
     ];
   }
@@ -108,6 +117,7 @@ export function resolveApiFamily(entry: ApiSpec): ResolvedApiVersion[] {
       hidden: v.hidden ?? false,
       label: v.label ?? v.version,
       requireOperationId: entry.requireOperationId ?? false,
+      routes: asRoutePolicy(v.routes),
     };
   });
 }
