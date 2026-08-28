@@ -54,7 +54,7 @@ const uid =
           const tabs = card.querySelectorAll("[data-nb-pm-tab]");
           let idx = -1;
           tabs.forEach(function (t, i) {
-            if (t.textContent.trim() === saved) idx = i;
+            if (t.textContent?.trim() === saved) idx = i;
           });
           if (idx < 1) return;
           tabs.forEach(function (t, i) {

@@ -122,7 +122,7 @@
 		"@iconify/utils": "^3.1.4",
 		"@shikijs/transformers": "^4.4.1",
 		"@shikijs/types": "^4.4.1",
-		"@vercel/detect-agent": "^1.2.3",
+		"@vercel/detect-agent": "1.2.3",
 		"clsx": "^2.1.1",
 		"giget": "^3.3.0",
 		"github-slugger": "^2.0.0",

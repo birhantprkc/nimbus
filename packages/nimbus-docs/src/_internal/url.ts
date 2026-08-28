@@ -77,6 +77,15 @@ function hasFileExtension(pathname: string): boolean {
   return ext.length > 0 && ext.length <= 6 && /^[a-zA-Z0-9]+$/.test(ext);
 }
 
+/** `decodeURIComponent` that returns its input untouched on malformed sequences. */
+export function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 /** Split an href into `[pathname, suffix]` where `suffix` is the `?…#…` tail. */
 function splitSuffix(href: string): [string, string] {
   const queryAt = href.indexOf("?");
@@ -98,12 +107,14 @@ function splitSuffix(href: string): [string, string] {
  *
  * Strips query and hash so callers can compare two hrefs that differ only
  * in their tail. Root stays `"/"` — that's identity, not a trailing-slash
- * artifact.
+ * artifact. Percent-encoded segments are decoded so an encoded request path
+ * (`/%E6%8C%87%E5%8D%97/`) matches its decoded tree href (`/指南/`).
  */
 export function toRouteKey(href: string): string {
   const [pathname] = splitSuffix(href);
-  if (pathname.length <= 1) return pathname || "/";
-  return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  const decoded = safeDecode(pathname);
+  if (decoded.length <= 1) return decoded || "/";
+  return decoded.endsWith("/") ? decoded.slice(0, -1) : decoded;
 }
 
 /**

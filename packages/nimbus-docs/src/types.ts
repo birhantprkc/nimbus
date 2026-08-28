@@ -714,7 +714,9 @@ export interface BannerProps {
  *
  * Every field is something the Nimbus framework knows how to handle:
  *   - `head` entries get concatenated with `config.head` in the layout.
- *   - `noindex` emits `<meta name="robots" content="noindex">`.
+ *   - `noindex` emits `<meta name="robots" content="noindex">` and removes the
+ *     page from every machine discovery surface (`llms.txt`, the corpus,
+ *     on-site search, sitemap) while keeping it addressable and navigable.
  *   - `title` / `description` populate `<title>` / `<meta name="description">`.
  */
 export interface BasePageProps {
@@ -722,7 +724,12 @@ export interface BasePageProps {
   description?: string;
   /** Page-level head additions, merged with `config.head`. */
   head?: HeadElement[];
-  /** Emit `<meta name="robots" content="noindex">`. */
+  /**
+   * Hide the page from machines while keeping it human-reachable. Emits
+   * `<meta name="robots" content="noindex">` and drops the page from every
+   * discovery surface (`llms.txt`, `llms-full.txt` corpus, on-site search,
+   * sitemap); the page, its `.md` alternate, and nav links still resolve.
+   */
   noindex?: boolean;
   /** Absolute or site-relative URL for this page's markdown variant. */
   markdownUrl?: string;
