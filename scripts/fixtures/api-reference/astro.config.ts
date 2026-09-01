@@ -5,6 +5,7 @@ import { tableScroll } from "@cloudflare/nimbus-docs/markdown";
 import nimbusConfig from "./nimbus.config";
 
 export default defineConfig({
+  // nimbus:adapter
   output: "static",
   // Tailwind v4 via its Vite plugin (the integration Astro recommends for
   // Tailwind v4 — replaces the PostCSS plugin, which doesn't build under
