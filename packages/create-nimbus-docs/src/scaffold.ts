@@ -4,12 +4,13 @@ import {
   cpSync,
   existsSync,
   lstatSync,
+  realpathSync,
   readdirSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { downloadTemplate } from "giget";
 import type { AdapterId } from "@cloudflare/nimbus-docs/adapters";
@@ -199,7 +200,29 @@ export async function scaffold(
     );
   }
 
-  if (existsSync(target)) {
+  const canonicalCwd = realpathSync(cwd);
+  const existingParent = closestExistingPath(dirname(target));
+  let canonicalParent: string;
+  try {
+    canonicalParent = realpathSync(existingParent);
+  } catch {
+    throw new ScaffoldError(
+      `Directory "${dir}" passes through a dangling symlink. Pick a path inside ${cwd}.`,
+    );
+  }
+  if (!lstatSync(canonicalParent).isDirectory()) {
+    throw new ScaffoldError(
+      `Directory "${dir}" passes through a non-directory path at ${existingParent}.`,
+    );
+  }
+  if (!isContainedBy(canonicalCwd, canonicalParent)) {
+    throw new ScaffoldError(
+      `Directory "${dir}" resolves outside the current directory through ${existingParent}. ` +
+        `Pick a path inside ${cwd}.`,
+    );
+  }
+
+  if (pathEntryExists(target)) {
     throw new ScaffoldError(`Directory "${dir}" already exists.`);
   }
 
@@ -307,6 +330,38 @@ function assertNoTemplateSymlinks(target: string): void {
     for (const entry of readdirSync(path)) visit(join(path, entry));
   };
   visit(target);
+}
+
+function pathEntryExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (err) {
+    if (["ENOENT", "ENOTDIR"].includes((err as NodeJS.ErrnoException).code ?? "")) {
+      return false;
+    }
+    throw err;
+  }
+}
+
+function closestExistingPath(path: string): string {
+  let current = path;
+  while (!pathEntryExists(current)) {
+    const parent = dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+  return current;
+}
+
+function isContainedBy(parent: string, child: string): boolean {
+  const pathFromParent = relative(parent, child);
+  return (
+    pathFromParent === "" ||
+    (!isAbsolute(pathFromParent) &&
+      pathFromParent !== ".." &&
+      !pathFromParent.startsWith(`..${sep}`))
+  );
 }
 
 /**

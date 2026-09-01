@@ -126,7 +126,13 @@ try {
 p.outro(`
   Done. Next steps:
 
-    cd ${responses.dir}
+    cd ${shellArg(responses.dir)}
     ${responses.skipInstall ? `${responses.packageManager} install` : ""}
     ${responses.packageManager === "yarn" ? "yarn" : `${responses.packageManager} run`} dev
 `);
+
+function shellArg(value: string): string {
+  const path = value.startsWith("-") ? `./${value}` : value;
+  if (/^[A-Za-z0-9_./-]+$/.test(path)) return path;
+  return `'${path.replaceAll("'", `'\\''`)}'`;
+}

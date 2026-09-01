@@ -6,7 +6,7 @@
  *
  *   1. generates every variant,
  *   2. scaffolds one output lane via the scaffolder's `--template-dir` path, and
- *   3. builds it against the current workspace `nimbus-docs` (packed, so the
+ *   3. typechecks and builds it against the current workspace `nimbus-docs` (packed, so the
  *      scaffold resolves the in-repo code, not whatever is on npm).
  */
 
@@ -134,6 +134,7 @@ writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 // No --ignore-workspace: it would skip the scaffold's own pnpm-workspace.yaml
 // (the gate config), re-arming the pnpm-11 build-scripts gate (pnpm#12469).
 run(SCAFFOLD_PM_BIN, [...SCAFFOLD_PM_PREFIX, "install", "--no-frozen-lockfile"], { cwd: site });
+run(SCAFFOLD_PM_BIN, [...SCAFFOLD_PM_PREFIX, "typecheck"], { cwd: site });
 run(SCAFFOLD_PM_BIN, [...SCAFFOLD_PM_PREFIX, "build"], { cwd: site });
 
 const installed = JSON.parse(

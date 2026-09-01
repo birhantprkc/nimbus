@@ -11,3 +11,5 @@ Withdraw the `gated` config option because it did not hold as a confidentiality 
 Fix env preflight precedence and parsing to match Vite, including empty shell overrides, last-wins `.env*` files, and inline dotenv comments. Adapter dependency validation now resolves pnpm catalog declarations, and compatibility warnings reflect the versions installed by the command.
 
 Fix `NimbusHead` URLs for sub-path deployments by applying Astro's configured base to sitemap, LLM index, social image, JSON-LD, canonical, and version-alternate URLs. Root deployments and already-based paths are unchanged.
+
+Keep registry component render counters compatible with adapter-defined `Astro.locals` types, including Cloudflare server output.

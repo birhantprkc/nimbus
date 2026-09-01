@@ -407,3 +407,117 @@ test("allows a target beneath a symlinked parent directory", async () => {
     cleanup(cwd, tmpl);
   }
 });
+
+test("allows a target through a symlink that stays inside cwd", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  const parent = path.join(cwd, "projects");
+  fs.mkdirSync(parent);
+  fs.symlinkSync(parent, path.join(cwd, "safe-link"), "dir");
+  try {
+    await scaffold(
+      { ...BASE_OPTIONS, dir: "safe-link/my-docs" },
+      internals(cwd, tmpl),
+    );
+    assert.ok(fs.existsSync(path.join(parent, "my-docs", "package.json")));
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("rejects a target through a symlink that escapes cwd", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  const outside = `${cwd}-outside`;
+  fs.mkdirSync(outside);
+  fs.symlinkSync(outside, path.join(cwd, "unsafe-link"), "dir");
+  try {
+    await assert.rejects(
+      scaffold(
+        { ...BASE_OPTIONS, dir: "unsafe-link/my-docs" },
+        internals(cwd, tmpl),
+      ),
+      (err: unknown) =>
+        err instanceof ScaffoldError &&
+        /outside the current directory/.test(err.message),
+    );
+    assert.equal(fs.existsSync(path.join(outside, "my-docs")), false);
+  } finally {
+    cleanup(cwd, tmpl, outside);
+  }
+});
+
+test("rejects a target beneath a dangling symlink before fetching", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  fs.symlinkSync(path.join(cwd, "missing"), path.join(cwd, "dangling"), "dir");
+  let fetched = false;
+  try {
+    await assert.rejects(
+      scaffold(
+        { ...BASE_OPTIONS, dir: "dangling/my-docs" },
+        {
+          cwd,
+          fetchTemplate: async () => {
+            fetched = true;
+          },
+        },
+      ),
+      (err: unknown) =>
+        err instanceof ScaffoldError && /dangling symlink/.test(err.message),
+    );
+    assert.equal(fetched, false);
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("rejects a dangling symlink target as an existing entry", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  fs.symlinkSync(path.join(cwd, "missing"), path.join(cwd, "my-docs"), "dir");
+  let fetched = false;
+  try {
+    await assert.rejects(
+      scaffold(
+        { ...BASE_OPTIONS, dir: "my-docs" },
+        {
+          cwd,
+          fetchTemplate: async () => {
+            fetched = true;
+          },
+        },
+      ),
+      (err: unknown) =>
+        err instanceof ScaffoldError && /already exists/.test(err.message),
+    );
+    assert.equal(fetched, false);
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("rejects a target beneath a non-directory path before fetching", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  fs.writeFileSync(path.join(cwd, "file"), "not a directory");
+  let fetched = false;
+  try {
+    await assert.rejects(
+      scaffold(
+        { ...BASE_OPTIONS, dir: "file/my-docs" },
+        {
+          cwd,
+          fetchTemplate: async () => {
+            fetched = true;
+          },
+        },
+      ),
+      (err: unknown) =>
+        err instanceof ScaffoldError && /non-directory path/.test(err.message),
+    );
+    assert.equal(fetched, false);
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
