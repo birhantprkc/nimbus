@@ -72,6 +72,12 @@ import {
   clearValidInternalLinksCache,
   getValidInternalLinks,
 } from "./_internal/valid-internal-links.js";
+import {
+  resolveApiPage,
+  resolveProsePage,
+  type PageResolutionContext,
+  type ProsePage,
+} from "./_internal/page-resolution.js";
 
 import type {
   ApiVersionStatus,
@@ -992,6 +998,54 @@ export function getTOC(
 
 import type { AstroGlobal, GetStaticPaths } from "astro";
 
+function pageResolutionContext(astro: AstroGlobal): PageResolutionContext {
+  const audience = (
+    astro.locals as {
+      nimbus?: { audience?: NonNullable<ProjectionContext["audience"]> };
+    }
+  ).nimbus?.audience;
+  return {
+    props: astro.props as Record<string, unknown>,
+    params: astro.params,
+    url: astro.url,
+    projection: audience ? { audience } : undefined,
+  };
+}
+
+async function resolveAstroProsePage(
+  astro: AstroGlobal,
+  collection: string | undefined,
+  partialHeadings: PartialHeadingOptions | undefined,
+): Promise<ProsePage | null> {
+  const context = pageResolutionContext(astro);
+  const result = await resolveProsePage(
+    context,
+    { collection },
+    {
+      getVisibleEntry: getVisibleEntry as (
+        collection: string,
+        id: string,
+        ctx?: ProjectionContext,
+      ) => Promise<import("astro:content").CollectionEntry<string> | null>,
+      getVersions,
+      async render(entry) {
+        const { render } = await import("astro:content");
+        const { Content, headings } = await render(entry);
+        const merged = await mergePartialHeadings(
+          entry.body,
+          headings,
+          (partialCollection: string, id: string) =>
+            getVisibleEntry(partialCollection, id, context.projection),
+          render as (entry: unknown) => Promise<{ headings: typeof headings }>,
+          partialHeadings,
+        );
+        return { Content, headings: merged };
+      },
+    },
+  );
+  return result.status === "found" ? result.page : null;
+}
+
 /**
  * `getStaticPaths` implementation for a docs catch-all route.
  *
@@ -1062,8 +1116,9 @@ export async function getDocsPageProps(
   Content: import("astro/runtime/server/index.js").AstroComponentFactory;
   headings: { depth: number; text: string; slug: string }[];
 }> {
-  const entry = (astro.props as { entry?: import("astro:content").CollectionEntry<"docs"> })
-    .entry;
+  const entry = (astro.props as {
+    entry?: import("astro:content").CollectionEntry<"docs">;
+  }).entry;
   if (!entry) {
     throw new Error(
       "getDocsPageProps(): expected `entry` in Astro.props. " +
@@ -1071,16 +1126,19 @@ export async function getDocsPageProps(
         "(or passes an entry via custom getStaticPaths).",
     );
   }
-  const { render } = await import("astro:content");
-  const { Content, headings } = await render(entry);
-  const merged = await mergePartialHeadings(
-    entry.body,
-    headings,
-    getVisibleEntry as (collection: string, id: string) => Promise<unknown>,
-    render as (entry: unknown) => Promise<{ headings: typeof headings }>,
+  const page = await resolveAstroProsePage(
+    astro,
+    PRIMARY_COLLECTION,
     options?.partialHeadings,
   );
-  return { entry, Content, headings: merged };
+  if (!page) {
+    throw new Error(`getDocsPageProps(): could not resolve entry "${entry.id}".`);
+  }
+  return {
+    entry: page.entry as import("astro:content").CollectionEntry<"docs">,
+    Content: page.Content,
+    headings: page.headings,
+  };
 }
 
 /**
@@ -1165,24 +1223,28 @@ export async function getCollectionPageProps<C extends string>(
   Content: import("astro/runtime/server/index.js").AstroComponentFactory;
   headings: { depth: number; text: string; slug: string }[];
 }> {
-  const entry = (astro.props as { entry?: import("astro:content").CollectionEntry<C> })
-    .entry;
+  const entry = (astro.props as {
+    entry?: import("astro:content").CollectionEntry<C>;
+  }).entry;
   if (!entry) {
     throw new Error(
       "getCollectionPageProps(): expected `entry` in Astro.props. " +
         "Ensure your route uses `getStaticPaths = getCollectionStaticPaths(<collection>)`.",
     );
   }
-  const { render } = await import("astro:content");
-  const { Content, headings } = await render(entry);
-  const merged = await mergePartialHeadings(
-    entry.body,
-    headings,
-    getVisibleEntry as (collection: string, id: string) => Promise<unknown>,
-    render as (entry: unknown) => Promise<{ headings: typeof headings }>,
+  const page = await resolveAstroProsePage(
+    astro,
+    undefined,
     options?.partialHeadings,
   );
-  return { entry, Content, headings: merged };
+  if (!page) {
+    throw new Error(`getCollectionPageProps(): could not resolve entry "${entry.id}".`);
+  }
+  return {
+    entry: page.entry as import("astro:content").CollectionEntry<C>,
+    Content: page.Content,
+    headings: page.headings,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1282,25 +1344,50 @@ export async function getApiPage(astro: AstroGlobal): Promise<{
   version: string | null;
   coordinate: string;
 }> {
-  const { collection, version, coordinate } = astro.props as {
+  const props = astro.props as {
     collection?: string;
     version?: string | null;
     coordinate?: string;
   };
-  if (!collection || !coordinate) {
+  if (!props.collection || !props.coordinate) {
     throw new Error(
       "getApiPage(): expected `collection` and `coordinate` in Astro.props. " +
         "Ensure your route uses `getStaticPaths = getApiStaticPaths(<collection>)`.",
     );
   }
-  const { getApiModel, getApiPageProps, getApiNav } = await import("./api/index.js");
-  const model = await getApiModel(collection, version ?? undefined);
+
+  const result = await resolveApiPage(pageResolutionContext(astro), {}, {
+    async getApiSpecs() {
+      return (await loadNimbusConfig()).api;
+    },
+    getVisibleEntry: getVisibleEntry as (
+      collection: string,
+      id: string,
+      ctx?: ProjectionContext,
+    ) => Promise<import("astro:content").CollectionEntry<string> | null>,
+    async render(collection, version, coordinate) {
+      const { getApiModel, getApiPageProps, getApiNav } = await import(
+        "./api/index.js"
+      );
+      const model = await getApiModel(collection, version ?? undefined);
+      return {
+        page: getApiPageProps(model, coordinate),
+        nav: getApiNav(model, coordinate),
+      };
+    },
+  });
+  if (result.status !== "found") {
+    throw new Error(
+      "getApiPage(): expected `collection` and `coordinate` in Astro.props. " +
+        "Ensure your route uses `getStaticPaths = getApiStaticPaths(<collection>)`.",
+    );
+  }
   return {
-    page: getApiPageProps(model, coordinate),
-    nav: getApiNav(model, coordinate),
-    collection,
-    version: version ?? null,
-    coordinate,
+    page: result.page.page,
+    nav: result.page.nav,
+    collection: result.page.collection,
+    version: result.page.version,
+    coordinate: result.page.coordinate,
   };
 }
 
