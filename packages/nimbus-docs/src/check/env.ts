@@ -8,13 +8,26 @@
  * unknown`.
  */
 
+import { readBuildEnv } from "../_internal/dotenv.js";
+import { deriveFootprint, type FeatureRecipe } from "../_internal/footprint.js";
 import type { ConfigParseResult } from "../_internal/parse-nimbus-config.js";
 import type { CheckFinding, Note, ScopeReport } from "./finding.js";
 import { lineOf, relFile } from "./loc.js";
-import { depInstalled, fileExists, hasPackageJson } from "./probe.js";
+import {
+  depInstalled,
+  fileExists,
+  hasPackageJson,
+  readDependencyNames,
+} from "./probe.js";
 
 const MIN_NODE = "22.12.0";
 
+// Narrow on purpose: this flags only the literal unchanged-scaffold strings, to
+// avoid false positives on user-chosen values. The build-time resolver in
+// site-detect.ts uses a broader host-based gate (any `*.example.com`) because it
+// answers a different question — "override this with platform env?" not "did the
+// user forget to edit the default?". Don't collapse the two without deciding
+// which semantic wins.
 const SITE_PLACEHOLDERS = new Set(["https://example.com", "CHANGE_ME"]);
 
 export function checkEnv(cwd: string, parsed: ConfigParseResult): ScopeReport {
@@ -28,9 +41,46 @@ export function checkEnv(cwd: string, parsed: ConfigParseResult): ScopeReport {
   if (hasPackageJson(cwd)) {
     checkPagefind(cwd, findings, parsed);
     checkWrangler(cwd, findings);
+    const features = deriveFootprint(readDependencyNames(cwd));
+    findings.push(
+      ...checkFeatureEnvKeys(features, readBuildEnv(cwd)),
+    );
   }
 
   return { scope: "env", findings, notes, evaluated: true };
+}
+
+// Missing build-time keys fail the build (error); missing runtime keys build
+// green but 500 at request time (warn) — the reason a pre-deploy preflight
+// exists. The supplied environment is Vite's resolved production environment,
+// including shell precedence, dotenv layering, and variable expansion.
+export function checkFeatureEnvKeys(
+  features: readonly FeatureRecipe[],
+  env: Readonly<Record<string, string | undefined>>,
+): CheckFinding[] {
+  const nonEmpty = (value: string | undefined): boolean =>
+    typeof value === "string" && value.trim() !== "";
+  const present = (name: string): boolean => nonEmpty(env[name]);
+
+  const findings: CheckFinding[] = [];
+  for (const feature of features) {
+    for (const req of feature.env) {
+      if (present(req.name)) continue;
+      const buildTime = req.kind === "build-time";
+      findings.push({
+        scope: "env",
+        code: buildTime
+          ? "nimbus/env-build-time-missing"
+          : "nimbus/env-runtime-missing",
+        severity: buildTime ? "error" : "warn",
+        message: buildTime
+          ? `${req.name} is required at build time by ${feature.id} but is unset — the build will fail. Set it in your environment or a .env file.`
+          : `${req.name} is required at request time by ${feature.id} but is unset — the build succeeds, but the feature will 500 until it is set in your deploy environment.`,
+        fixable: false,
+      });
+    }
+  }
+  return findings;
 }
 
 function checkNodeVersion(findings: CheckFinding[]): void {

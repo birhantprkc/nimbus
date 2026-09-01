@@ -23,7 +23,7 @@ Running `nimbus-docs add` with no slug shows the same list.
 
 ## `nimbus-docs add <slug>`
 
-Two install modes — the CLI picks based on the slug's type.
+Registry entries use two install modes based on their type. Special `adapter-<id>` slugs use a third flow that rewrites project configuration.
 
 ### Components and utilities
 
@@ -63,6 +63,14 @@ If the CLI detects a coding agent in the environment, it prints the recipe to st
 <PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add 404-page --print | codex" />
 
 Use `--print` to force the markdown output, skipping detection.
+
+### Server adapters
+
+For `adapter-cloudflare`, `adapter-vercel`, `adapter-netlify`, and `adapter-node`, the CLI installs the Astro adapter and rewrites the marked `output` block in `astro.config`. For Cloudflare, it creates a server-compatible `wrangler.jsonc` when none exists or replaces an exact Nimbus static config. Custom JSONC and alternate JSON/TOML configs stay untouched, with the required server settings printed for manual adaptation.
+
+<PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add adapter-cloudflare" />
+
+The equivalent long form is `nimbus-docs add server-output --adapter <cloudflare|vercel|netlify|node>`.
 
 ## `nimbus-docs init`
 

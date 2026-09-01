@@ -1,8 +1,15 @@
-import { getCollection } from "astro:content";
+import { getVisibleEntries } from "@cloudflare/nimbus-docs";
 import { OGImageRoute } from "astro-og-canvas";
 import { ogCardConfig } from "./_og-card-config";
 
-const entries = await getCollection("docs", (entry) => !entry.data.draft);
+// Prerender every OG card as a static asset so `output: "server"` doesn't
+// turn image generation into an on-demand route.
+export const prerender = true;
+
+// Enumerate via the framework projection (not a raw `getCollection`) so draft
+// entries are excluded uniformly — a draft page emits no route, so its
+// `/og/<id>.png` shouldn't either.
+const entries = await getVisibleEntries(["docs"]);
 
 const pages = Object.fromEntries(
   entries.map((entry) => [

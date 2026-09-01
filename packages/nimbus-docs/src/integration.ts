@@ -44,6 +44,13 @@ import type {
 } from "satteri";
 import sitemap from "@astrojs/sitemap";
 import { admonitionPlugin } from "./_internal/admonition-vite-plugin.js";
+import {
+  analyzeBuild,
+  formatInvariantFailure,
+  type ResolvedRouteLike,
+} from "./_internal/build-report.js";
+import { deriveFootprint, footprintRoutes } from "./_internal/footprint.js";
+import { readDependencyNames } from "./check/probe.js";
 import { parseComponentsRegistry } from "./_internal/parse-components-registry.js";
 import {
   validateLintOptions,
@@ -101,6 +108,14 @@ import {
   computeMissingPageRedirects,
   type VersionAlternatesTable,
 } from "./_internal/version-alternates.js";
+import {
+  detectDeploySignals,
+  formatRedirectsFile,
+  normalizeRedirects,
+  shouldEmitRedirects,
+  type RedirectConfigLike,
+} from "./_internal/redirect-emitters.js";
+import { resolveSite } from "./_internal/site-detect.js";
 import type { NimbusConfig } from "./types.js";
 
 /**
@@ -295,6 +310,13 @@ export function nimbus(
   // what `base` Astro is using.
   let projectRootForBuild = "";
   let astroBaseForBuild = "";
+  // Captured at config:done / routes:resolved, consumed by the build:done
+  // prerender-invariant reporter.
+  let outputModeForBuild: "static" | "server" = "static";
+  let adapterNameForBuild: string | null = null;
+  let resolvedRoutesForBuild: ResolvedRouteLike[] = [];
+  // Resolved `redirects` (user ∪ version-alternate) for the platform emitter.
+  let redirectsForBuild: Record<string, RedirectConfigLike> = {};
 
   // Built eagerly at config:setup, reassigned by the dev re-bake; both the
   // citation plugin and virtual:nimbus/coordinates read it through a getter.
@@ -305,11 +327,30 @@ export function nimbus(
     name: "@cloudflare/nimbus-docs",
     hooks: {
       "astro:config:setup": async (params) => {
-        const { updateConfig, config: astroConfig, logger } = params;
+        const { updateConfig, config: astroConfig, logger, command } = params;
 
         // App files (content.config.ts, pages/, components.ts) follow srcDir;
         // content/assets stay root-relative via their collection bases.
         const srcDir = fileURLToPath(astroConfig.srcDir);
+        const projectRoot = fileURLToPath(astroConfig.root);
+
+        // Resolve `site` from platform env when it's still a placeholder, before
+        // anything reads it. Mutating the validated config propagates the origin
+        // to every downstream consumer (lint config, virtual config, sitemap,
+        // canonical/OG, robots, llms.txt). Deploy-correctness warnings are for
+        // the build, not `astro dev`.
+        const siteResult = resolveSite({
+          configuredSite: config.site,
+          env: process.env,
+          cloudflareSignal: detectDeploySignals(projectRoot).cloudflare,
+        });
+        config.site = siteResult.site;
+        if (command === "build") {
+          if (siteResult.adopted) {
+            logger.info(`nimbus: auto-detected site=${siteResult.site}`);
+          }
+          if (siteResult.warning) logger.warn(siteResult.warning);
+        }
 
         const integrationsToAdd: AstroIntegration[] = [];
 
@@ -317,7 +358,7 @@ export function nimbus(
         // `nimbus-docs lint` CLI can read severities authored here. Guarded
         // — a write failure must never break the build.
         materializeLintConfig(
-          fileURLToPath(astroConfig.root),
+          projectRoot,
           lintOptions.rules,
           lintOptions.collections,
           config.site,
@@ -331,7 +372,6 @@ export function nimbus(
         if (options.validateMdx !== false) {
           const validateOpts =
             typeof options.validateMdx === "object" ? options.validateMdx : {};
-          const projectRoot = fileURLToPath(astroConfig.root);
           const componentsPath = validateOpts.componentsPath
             ? path.isAbsolute(validateOpts.componentsPath)
               ? validateOpts.componentsPath
@@ -369,13 +409,18 @@ export function nimbus(
         // to hardcode `"docs"`. Adding a `blog` collection to
         // content.config.ts lights up every indexing surface
         // automatically — no second file to edit.
-        const projectRoot = fileURLToPath(astroConfig.root);
 
         // Stash for the `astro:build:done` hook, which uses Astro's actual
         // emitted `pages` array as the route truth (single source of truth
         // — Astro itself tells us which URLs the site serves).
         projectRootForBuild = projectRoot;
         astroBaseForBuild = astroConfig.base ?? "";
+
+        // Reset here (build cycle's first hook, before `routes:resolved` fills
+        // it) — NOT `build:start`, which fires after `routes:resolved` and would
+        // wipe the capture. Also clears stale routes from a prior build that
+        // failed between `routes:resolved` and `build:done`.
+        resolvedRoutesForBuild = [];
 
         // Scan every code-fence language used in `src/content/**/*.{mdx,md}`
         // so Shiki eager-loads grammars at startup. This makes cold-build
@@ -546,15 +591,15 @@ export function nimbus(
             hidden: config.versions.hidden ?? [],
             all: [config.versions.current, ...(config.versions.others ?? [])],
           };
-          const versionEntries = await scanVersionFrontmatter({
+          const scannedEntries = await scanVersionFrontmatter({
             projectRoot,
             versions: resolved,
           });
-          versionAlternates = buildVersionAlternates(resolved, versionEntries);
+          versionAlternates = buildVersionAlternates(resolved, scannedEntries);
           versionRedirects = computeMissingPageRedirects(
             resolved,
             versionAlternates,
-            versionEntries,
+            scannedEntries,
           );
         }
 
@@ -598,7 +643,9 @@ export function nimbus(
                   Parameters<typeof sitemap>[0]
                 >["serialize"],
               }),
-              ...(sitemapOpts?.customPages && { customPages: sitemapOpts.customPages }),
+              ...(sitemapOpts?.customPages && {
+                customPages: sitemapOpts.customPages,
+              }),
               ...(hiddenPrefixes.length > 0 && {
                 filter: makeHiddenSitemapFilter(config, astroConfig.base),
               }),
@@ -613,7 +660,6 @@ export function nimbus(
         if (options.admonitions !== false) {
           const admoOpts =
             typeof options.admonitions === "object" ? options.admonitions : {};
-          const projectRoot = fileURLToPath(astroConfig.root);
           const contentDirs = (admoOpts.contentDirs ?? ["src/content"]).map((d) =>
             path.isAbsolute(d) ? d : path.join(projectRoot, d),
           );
@@ -796,7 +842,11 @@ export function nimbus(
           },
         });
       },
-      "astro:config:done": ({ injectTypes }) => {
+      "astro:config:done": ({ injectTypes, config: astroConfig }) => {
+        outputModeForBuild = astroConfig.output === "server" ? "server" : "static";
+        adapterNameForBuild = astroConfig.adapter?.name ?? null;
+        redirectsForBuild = (astroConfig.redirects ??
+          {}) as Record<string, RedirectConfigLike>;
         // TypeScript declaration for the virtual module. Written to
         // `.astro/integrations/nimbus-docs/virtual-config.d.ts` and
         // auto-referenced by the project tsconfig via Astro's generated
@@ -837,14 +887,17 @@ export function nimbus(
         clearCodeStyleRegistry();
         server.middlewares.use((req, res, next) => {
           const pathname = new URL(req.url ?? "/", "http://nimbus.local").pathname;
-          // Vite strips `base` from req.url at a non-root base; match by suffix.
-          if (!pathname.endsWith("/_nimbus/shiki.css")) {
+          // Match by suffix so the shiki stylesheet is served regardless of
+          // how Vite's dev server presents `base` on `req.url` at a non-root
+          // base (the build serves this file statically, so it's dev-only).
+          if (!pathname.replace(/\/+$/, "").endsWith("_nimbus/shiki.css")) {
             next();
             return;
           }
           res.statusCode = 200;
           res.setHeader("content-type", "text/css; charset=utf-8");
           res.setHeader("cache-control", "no-store");
+          res.setHeader("x-nb-shiki-path", pathname);
           res.end(getCodeStyleCSS() || "/* nimbus shiki styles */\n");
         });
 
@@ -899,10 +952,20 @@ export function nimbus(
           server.watcher.on("unlink", rebakeCitationIndex);
         }
       },
-      "astro:build:start": () => {
+      "astro:build:start": async () => {
         // Reset the per-build code-style registry so Shiki token classes
         // don't leak across builds in a long-lived dev/CI process.
         clearCodeStyleRegistry();
+        const { clearNavCaches } = await import("./index.js");
+        clearNavCaches();
+      },
+      "astro:routes:resolved": ({ routes }) => {
+        resolvedRoutesForBuild = routes.map((r) => ({
+          pattern: r.pattern,
+          type: r.type,
+          isPrerendered: r.isPrerendered,
+          origin: r.origin,
+        }));
       },
       "astro:build:done": async ({ dir, pages, logger }) => {
         // Materialize the site's route truth from Astro's emitted `pages`
@@ -923,6 +986,33 @@ export function nimbus(
           logger,
         );
 
+        // Filled by `astro:routes:resolved`; reset at the next build's
+        // `config:setup`, so a build whose `routes:resolved` never fires trips
+        // the empty-routes guard instead of reusing stale routes.
+        const resolvedRoutes = resolvedRoutesForBuild;
+        // Re-derive the installed-feature footprint from committed deps so the
+        // invariant can *explain* a feature's on-demand routes (e.g. a future
+        // `/mcp`) instead of failing them, and the summary names the features.
+        // Empty until a feature slice populates FEATURE_RECIPES.
+        const footprint = deriveFootprint(
+          readDependencyNames(projectRootForBuild),
+        );
+        const report = analyzeBuild({
+          outputMode: outputModeForBuild,
+          adapterName: adapterNameForBuild,
+          routes: resolvedRoutes,
+          prerenderedPageCount: pages.length,
+          declaredFeatureRoutes: footprintRoutes(footprint),
+          serverFeatures: footprint.map((f) => f.id),
+        });
+        logger.info(report.summaryLine);
+        if (report.fatal) {
+          throw new Error(report.fatal);
+        }
+        if (report.violations.length > 0) {
+          throw new Error(formatInvariantFailure(report.violations));
+        }
+
         materializeCoordinatesManifest(
           projectRootForBuild,
           coordinatesManifest,
@@ -930,6 +1020,19 @@ export function nimbus(
         );
 
         const distDir = fileURLToPath(dir);
+
+        // Emit platform redirects only with no adapter; an adapter emits its
+        // own (and static-output-with-adapter is a valid combo).
+        if (outputModeForBuild === "static" && !adapterNameForBuild) {
+          await emitPlatformRedirects({
+            distDir,
+            projectRoot: projectRootForBuild,
+            redirects: redirectsForBuild,
+            base: astroBaseForBuild,
+            logger,
+          });
+        }
+
         await writeShikiStyleSheet({ distDir, logger });
 
         if (config.search === false || config.search?.provider === "custom") {
@@ -1117,6 +1220,45 @@ async function writeShikiStyleSheet({
   } catch (err) {
     logger.debug?.(
       `failed to write _nimbus/shiki.css — code tokens may render uncoloured: ${(err as Error).message}`,
+    );
+  }
+}
+
+async function emitPlatformRedirects({
+  distDir,
+  projectRoot,
+  redirects,
+  base,
+  logger,
+}: {
+  distDir: string;
+  projectRoot: string;
+  redirects: Record<string, RedirectConfigLike>;
+  base: string;
+  logger: { warn: (msg: string) => void; debug?: (msg: string) => void };
+}): Promise<void> {
+  if (!shouldEmitRedirects(detectDeploySignals(projectRoot))) return;
+
+  const { redirects: normalized, skipped } = normalizeRedirects(redirects, base);
+  if (skipped.length > 0) {
+    logger.warn(
+      `nimbus: ${skipped.length} dynamic redirect${skipped.length === 1 ? "" : "s"} ` +
+        `not emitted to _redirects (translate to the platform's syntax by hand): ${skipped.join(", ")}`,
+    );
+  }
+  if (normalized.length === 0) return;
+
+  const filePath = path.join(distDir, "_redirects");
+  try {
+    const existing = fs.existsSync(filePath)
+      ? await fs.promises.readFile(filePath, "utf8")
+      : null;
+    const content = formatRedirectsFile(existing, normalized);
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.promises.writeFile(filePath, content, "utf8");
+  } catch (err) {
+    logger.debug?.(
+      `failed to write _redirects — platform redirects not emitted: ${(err as Error).message}`,
     );
   }
 }

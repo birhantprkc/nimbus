@@ -1,4 +1,4 @@
-// R2.7: every request-body media type renders (no silent drop), the primary is
+// Every request-body media type renders (no silent drop), the primary is
 // selected order-independently and keeps the short-form coordinate, additional
 // media namespace under a token segment and stay fully citable, and the media
 // label is honest (never a hardcoded "JSON").

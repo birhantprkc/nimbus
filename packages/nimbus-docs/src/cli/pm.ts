@@ -1,13 +1,18 @@
 /**
  * Package-manager detection + install command helpers.
  *
- * Detection prefers lockfile presence in the user's cwd, then falls back
- * to the `npm_config_user_agent` env var the active package manager sets
- * when invoking the CLI. Finally falls back to `npm`.
+ * Detection order, strongest signal first:
+ *   1. a lockfile in the user's cwd (nearest, most explicit),
+ *   2. `npm_config_user_agent` — how the user actually invoked the CLI
+ *      (authoritative; never shadowed by a distant ancestor lockfile),
+ *   3. a lockfile in an ancestor directory — a package inside a monorepo
+ *      whose lockfile lives at the workspace root, invoked without a PM
+ *      user-agent (e.g. bare `node`/CI),
+ *   4. `npm`.
  */
 
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { getCommand } from "../lib/pkgm.js";
 
@@ -30,14 +35,32 @@ const LOCKFILES: ReadonlyArray<readonly [string, PackageManager]> = [
 ];
 
 export function detectPackageManager(cwd: string): PackageManager {
-  for (const [lockfile, pm] of LOCKFILES) {
-    if (existsSync(join(cwd, lockfile))) return pm;
-  }
+  const inCwd = lockfileManager(cwd);
+  if (inCwd) return inCwd;
+
   const ua = process.env.npm_config_user_agent ?? "";
   if (ua.startsWith("pnpm")) return "pnpm";
   if (ua.startsWith("yarn")) return "yarn";
   if (ua.startsWith("bun")) return "bun";
+
+  // Last-ditch before npm: a workspace-root lockfile above a monorepo package
+  // dir, when the CLI was invoked without a package-manager user-agent.
+  let dir = cwd;
+  for (;;) {
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+    const pm = lockfileManager(dir);
+    if (pm) return pm;
+  }
   return "npm";
+}
+
+function lockfileManager(dir: string): PackageManager | null {
+  for (const [lockfile, pm] of LOCKFILES) {
+    if (existsSync(join(dir, lockfile))) return pm;
+  }
+  return null;
 }
 
 /**
@@ -80,6 +103,14 @@ export function updateCommand(cwd = process.cwd()): string {
  *   yarn add     <deps...>
  *   bun  add     <deps...>
  */
+// Quote a token for copy-paste into a POSIX shell. Adapter specs like
+// `@astrojs/cloudflare@>=14.1.0 <14.2.0` carry a space and `<`/`>` redirections;
+// a clean package spec is returned unchanged.
+export function quoteForDisplay(token: string): string {
+  if (/^[A-Za-z0-9@._/:^~+-]+$/.test(token)) return token;
+  return `'${token.replace(/'/g, `'\\''`)}'`;
+}
+
 export function addCommand(
   pm: PackageManager,
   deps: string[],

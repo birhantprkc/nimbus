@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-
-const ADAPTER_MARKER = "  // nimbus:adapter\n";
+import { sanitizeWorkerName } from "@cloudflare/nimbus-docs/adapters";
 
 /**
  * Apply deploy target configuration.
@@ -18,14 +17,13 @@ const ADAPTER_MARKER = "  // nimbus:adapter\n";
  *                 free-tier scaffold.
  * - "other":      No wrangler, vanilla static Astro output.
  *
- * Both targets strip the `// nimbus:adapter` marker from the shipped
- * astro.config.ts so users don't see a dangling comment.
+ * The `// nimbus:adapter` marker is left in place: it is the anchor
+ * `nimbus-docs add adapter-*` edits to flip `output` and wire an adapter.
  */
 export async function applyDeployTarget(
   dir: string,
   target: "cloudflare" | "other",
 ): Promise<void> {
-  await stripMarker(dir);
   if (target === "cloudflare") {
     await writeWranglerConfig(dir);
     // wrangler (added by updatePackageJson) pulls workerd, which trips pnpm's
@@ -39,7 +37,7 @@ export async function applyDeployTarget(
  * (pnpm-11 `allowBuilds` map + pnpm-10 `ignoredBuiltDependencies` list).
  * No-op if already listed or the file is absent.
  */
-function declineBuildScript(dir: string, name: string): void {
+export function declineBuildScript(dir: string, name: string): void {
   const wsPath = join(dir, "pnpm-workspace.yaml");
   if (!existsSync(wsPath)) return;
   let text = readFileSync(wsPath, "utf-8");
@@ -78,23 +76,6 @@ async function writeWranglerConfig(dir: string): Promise<void> {
   );
 }
 
-async function stripMarker(dir: string): Promise<void> {
-  const configPath = join(dir, "astro.config.ts");
-  const config = readFileSync(configPath, "utf-8");
-  if (!config.includes(ADAPTER_MARKER)) return;
-  writeFileSync(configPath, config.replace(ADAPTER_MARKER, ""));
-}
-
-function sanitizeWorkerName(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 63) || "my-docs"
-  );
-}
-
-function today(): string {
+export function today(): string {
   return new Date().toISOString().slice(0, 10);
 }

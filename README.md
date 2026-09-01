@@ -17,7 +17,7 @@ pnpm dev
 
 Open the printed URL, edit anything under `src/`, and the page reloads. You now own a full docs site.
 
-The scaffolder asks a few questions (deploy target, package manager, starter or empty content). Skip them with `--yes`:
+The scaffolder asks a few questions (output mode, deploy target or adapter, package manager, starter or empty content). Skip them with `--yes`:
 
 ```sh
 npx @cloudflare/create-nimbus-docs@latest my-docs --yes
@@ -32,7 +32,7 @@ Run these inside your project:
 | Command | What it does |
 | --- | --- |
 | `pnpm dev` | Dev server with hot reload |
-| `pnpm build` | Static build to `dist/` |
+| `pnpm build` | Build using the selected output mode and adapter |
 | `pnpm preview` | Preview the built site |
 | `pnpm typecheck` | Type-check (`astro check`) |
 | `pnpm lint:docs` | Lint prose + MDX (add `--fix` to autofix) |
@@ -40,6 +40,13 @@ Run these inside your project:
 ## Deploy
 
 Static by default — `pnpm build` emits `dist/`, which you can host anywhere.
+
+Choose server output during scaffolding, or add an adapter later, when the site needs on-demand routes. Docs pages remain prerendered.
+
+```sh
+pnpm exec nimbus-docs add adapter-cloudflare
+# adapter-vercel, adapter-netlify, or adapter-node
+```
 
 Cloudflare is the first-class target: the default scaffold ships a `wrangler.jsonc`.
 
@@ -75,7 +82,7 @@ Components and utilities copy in as editable files. Features hand off a recipe y
 
 ## Built on
 
-[Astro 7](https://astro.build) · Sätteri (Rust-based markdown) · Tailwind v4 · optional React 19. Static output, so it deploys anywhere — with a first-class path to Cloudflare.
+[Astro 7](https://astro.build) · Sätteri (Rust-based markdown) · Tailwind v4 · optional React 19. Static by default, with opt-in server output for Cloudflare, Vercel, Netlify, and Node.
 
 ## Status
 

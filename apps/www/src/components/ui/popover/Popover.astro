@@ -12,10 +12,11 @@ type Props = HTMLAttributes<"div">;
 const { class: className, ...attrs } = Astro.props;
 // Deterministic ID — per-page counter on Astro.locals. See PackageManagers
 // for the rationale.
-const localsAny = Astro.locals as Record<string, unknown>;
+const locals = Astro.locals as typeof Astro.locals & {
+  __nbCounters?: Map<string, number>;
+};
 const counters =
-  (localsAny.__nbCounters as Map<string, number>) ??
-  (localsAny.__nbCounters = new Map<string, number>());
+  locals.__nbCounters ?? (locals.__nbCounters = new Map<string, number>());
 const n = (counters.get("popover") ?? 0) + 1;
 counters.set("popover", n);
 const popoverId = `popover-${n.toString(16).padStart(8, "0")}`;

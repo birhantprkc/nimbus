@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Scaffold a Nimbus site in one command — Cloudflare, Vercel, Netlify, or static.
+description: Scaffold a static or server-output Nimbus site in one command.
 audience: human
 sidebar:
   order: 1
@@ -27,8 +27,11 @@ Pick a directory name, then choose your preferences:
   <Step title="Template">
     Two choices — **full** (core components, demo content, populated theme tokens) or **empty** (the minimum to run, ready for your own content).
   </Step>
-  <Step title="Deploy target">
-    Cloudflare ships with `wrangler.jsonc` pre-wired. Vercel, Netlify, and "Static" produce the same Astro static output — pick the one that matches your host.
+  <Step title="Output mode">
+    **Static** prerenders the entire site and deploys anywhere. **Server** keeps docs pages prerendered while adding an adapter so optional on-demand routes can run.
+  </Step>
+  <Step title="Target">
+    Static output supports Cloudflare or another static host. Server output supports Cloudflare, Vercel, Netlify, or Node through their Astro adapters.
   </Step>
   <Step title="Install dependencies">
     The scaffolder runs your package manager automatically. Skip if you want to edit `package.json` first.
@@ -64,7 +67,7 @@ Then open the printed URL.
 
 <PackageManagers pkg="build" type="run" />
 
-The output is a regular Astro static build. Deploy `dist/` to any host. Cloudflare scaffolds include the right `wrangler.jsonc` so `wrangler deploy` works without further setup.
+Static scaffolds emit `dist/` for any static host. Server scaffolds use the adapter selected during setup; follow that platform's deployment flow. Cloudflare scaffolds include the appropriate `wrangler.jsonc` and a `deploy` script. Node scaffolds include a `start` script that runs the built standalone server.
 
 <Aside type="tip">
   After scaffolding, run `nimbus-docs add <slug>` to install components from the registry. See [Adding components](/adding-components) for the workflow.

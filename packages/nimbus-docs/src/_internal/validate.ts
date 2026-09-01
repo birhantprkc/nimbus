@@ -165,6 +165,8 @@ const versionsSchema = z
  * instead of being silently dropped.
  */
 const REMOVED_CONFIG_KEYS: Record<string, string> = {
+  gated:
+    "was withdrawn from the server-output foundation — it did not hold as a confidentiality boundary. To keep a page out of the build, move it out of a routed content collection.",
   logo:
     'was removed. The header now renders `config.title` as text. To use a logo image, edit `src/components/Header.astro` and drop in an <img> or <svg>.',
   footer:

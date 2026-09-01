@@ -3,7 +3,6 @@
  * + types). Exit: 0 clean · 1 error-severity findings · 2 usage.
  */
 
-import fs from "node:fs";
 import path from "node:path";
 import { spawnSync, type StdioOptions } from "node:child_process";
 
@@ -23,6 +22,7 @@ import {
   type CheckResult,
   type CheckScopes,
 } from "../check/index.js";
+import { writeFileAtomic } from "./fs-atomic.js";
 import { addCommand, detectPackageManager, invocation } from "./pm.js";
 
 export interface CheckCliFlags {
@@ -234,26 +234,6 @@ async function fixInstallDep(
 
 function isTTY(): boolean {
   return process.stdin.isTTY === true && process.stdout.isTTY === true;
-}
-
-function writeFileAtomic(file: string, content: string): void {
-  const tmp = `${file}.nimbus-tmp-${process.pid}`;
-  const fd = fs.openSync(tmp, "w");
-  try {
-    fs.writeFileSync(fd, content, "utf8");
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
-  try {
-    fs.renameSync(tmp, file);
-  } catch (err) {
-    try {
-      fs.unlinkSync(tmp);
-    } catch {
-    }
-    throw err;
-  }
 }
 
 function shouldUseColor(explicit: boolean | undefined): boolean {
