@@ -1,10 +1,24 @@
 import * as p from "@clack/prompts";
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { downloadTemplate } from "giget";
-import { applyDeployTarget } from "./transformers/deploy.js";
+import type { AdapterId } from "@cloudflare/nimbus-docs/adapters";
+import { applyDeployTarget, declineBuildScript } from "./transformers/deploy.js";
+import {
+  applyAdapter,
+  appendAdapterIgnoreEntries,
+  writeServerWrangler,
+} from "./transformers/adapter.js";
 import { updatePackageJson } from "./transformers/package.js";
 
 // Injected by tsdown at build time (see tsdown.config.ts). The scaffolder
@@ -56,6 +70,9 @@ function writeNimbusJson(
     templatesTag: preview ? null : `templates-v${version}`,
     variant: options.content,
     registry: DEFAULT_REGISTRY_URL,
+    ...(options.output === "server"
+      ? { serverOutput: { adapter: options.adapter } }
+      : {}),
     ...(preview ? { preview } : {}),
     install: {
       // src dir `add` writes registry files against; point at a nested package
@@ -90,9 +107,8 @@ const LOCKFILES_BY_PACKAGE_MANAGER = {
   bun: ["bun.lock", "bun.lockb"],
 } as const;
 
-export interface ScaffoldOptions {
+interface ScaffoldOptionsBase {
   dir: string;
-  deploy: "cloudflare" | "other";
   content: "starter" | "empty";
   packageManager: "npm" | "pnpm" | "yarn" | "bun";
   git: boolean;
@@ -106,6 +122,15 @@ export interface ScaffoldOptions {
    */
   templateDir?: string;
 }
+
+/**
+ * Output mode is the discriminant: static output picks a deploy target, server
+ * output picks an adapter. The union makes the two targets mutually exclusive
+ * at the type level, so the scaffold branch can't accidentally do both.
+ */
+export type ScaffoldOptions =
+  | (ScaffoldOptionsBase & { output: "static"; deploy: "cloudflare" | "other" })
+  | (ScaffoldOptionsBase & { output: "server"; adapter: AdapterId });
 
 /**
  * A known, user-facing scaffold failure. The CLI entry prints its message as
@@ -143,7 +168,7 @@ export async function scaffold(
   options: ScaffoldOptions,
   internals: ScaffoldInternals = {},
 ) {
-  const { dir, deploy, packageManager, git, skipInstall } = options;
+  const { dir, packageManager, git, skipInstall } = options;
   const cwd = internals.cwd ?? process.cwd();
 
   // Validate everything up front — before the spinner starts and before any
@@ -194,12 +219,34 @@ export async function scaffold(
   s.start("Fetching template…");
   try {
     await fetchTemplate(target, options);
+    assertNoTemplateSymlinks(target);
     s.stop("Template ready.");
 
     s.start("Configuring project…");
     normalizePackageManagerFiles(target, packageManager);
-    await applyDeployTarget(target, deploy);
-    await updatePackageJson(target, { name: basename(dir), deploy });
+    if (options.output === "server") {
+      await applyAdapter(target, options.adapter);
+      writeServerWrangler(target, options.adapter);
+      appendAdapterIgnoreEntries(target, options.adapter);
+      if (options.adapter === "cloudflare") {
+        // wrangler (added by updatePackageJson) pulls workerd; decline its
+        // build script so pnpm install doesn't trip the build-scripts gate —
+        // same as the static Cloudflare path.
+        declineBuildScript(target, "workerd");
+      }
+      await updatePackageJson(target, {
+        name: basename(dir),
+        output: "server",
+        adapter: options.adapter,
+      });
+    } else {
+      await applyDeployTarget(target, options.deploy);
+      await updatePackageJson(target, {
+        name: basename(dir),
+        output: "static",
+        deploy: options.deploy,
+      });
+    }
     writeNimbusJson(target, options, preview);
     s.stop("Project configured.");
   } catch (err) {
@@ -245,6 +292,21 @@ export async function scaffold(
       `Could not install dependencies. Run \`${packageManager} install\` manually in ${dir}.`,
     );
   }
+}
+
+function assertNoTemplateSymlinks(target: string): void {
+  const visit = (path: string): void => {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) {
+      throw new ScaffoldError(
+        `Template contains a symlink at ${relative(target, path) || "."}. ` +
+          `Nimbus templates must contain only regular files and directories.`,
+      );
+    }
+    if (!stat.isDirectory()) return;
+    for (const entry of readdirSync(path)) visit(join(path, entry));
+  };
+  visit(target);
 }
 
 /**

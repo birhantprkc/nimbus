@@ -5,6 +5,19 @@
  * is validated by a real `astro build` under `output: "server"`.
  */
 
+// Astro's own config resolution order (astro/dist/core/config/config.js →
+// `configPaths`): the first file that exists wins. `.cjs`/`.cts` are NOT in
+// Astro's list — it never loads a CommonJS config — so a resolver that wants to
+// rewrite the file Astro actually uses must search these, in THIS order. A
+// resolver that lists `.ts` first would rewrite the inactive file in a project
+// that also has `astro.config.mjs`.
+export const ASTRO_CONFIG_FILENAMES = [
+  "astro.config.mjs",
+  "astro.config.js",
+  "astro.config.ts",
+  "astro.config.mts",
+] as const;
+
 export type AdapterId = "vercel" | "node" | "netlify" | "cloudflare";
 
 export const ADAPTER_IDS: readonly AdapterId[] = [
@@ -22,6 +35,30 @@ export interface AdapterRecipe {
   importName: string;
   importStatement: string;
   adapterExpression: string;
+  serverWrangler?: ServerWranglerRecipe;
+}
+
+/**
+ * Declarative inputs for a Cloudflare server-worker `wrangler.jsonc`. Verified
+ * against a real `@astrojs/cloudflare` build: the adapter reads this file, then
+ * emits the deploy-ready `dist/server/wrangler.json` — deriving `main` and
+ * `assets.directory` itself, so this config must not set them. It does NOT add
+ * `compatibility_flags`, so a Node-compat worker needs `nodejs_compat` here;
+ * `assets.not_found_handling` is preserved through the merge — `"none"` so an
+ * unmatched path falls through to the SSR worker instead of being served the
+ * static 404 at the assets layer (which would shadow on-demand routes).
+ */
+export interface ServerWranglerRecipe {
+  /** Minimum wrangler the adapter's vite plugin requires (peer floor). */
+  wranglerFloor: string;
+  /** Flags the adapter won't inject but the worker needs at runtime. */
+  compatibilityFlags: readonly string[];
+  /**
+   * Served-asset miss behavior, preserved into the adapter's deploy config.
+   * `"none"` for server output: a non-asset path must reach the worker so
+   * on-demand routes render, rather than being intercepted with the static 404.
+   */
+  notFoundHandling: string;
 }
 
 export const ADAPTER_RECIPES: Record<AdapterId, AdapterRecipe> = {
@@ -37,7 +74,8 @@ export const ADAPTER_RECIPES: Record<AdapterId, AdapterRecipe> = {
   node: {
     id: "node",
     pkg: "@astrojs/node",
-    installSpec: "@astrojs/node@^11",
+    // Pin <11.1.3 (11.1.3 bumped its astro peer to ^7.2.1; we pin astro <7.1.0).
+    installSpec: "@astrojs/node@>=11.0.0 <11.1.3",
     extraDeps: [],
     importName: "node",
     importStatement: 'import node from "@astrojs/node";',
@@ -47,8 +85,7 @@ export const ADAPTER_RECIPES: Record<AdapterId, AdapterRecipe> = {
     id: "netlify",
     pkg: "@astrojs/netlify",
     installSpec: "@astrojs/netlify@^8",
-    // Netlify's session store bare-imports @netlify/blobs; missing → 500 at render.
-    extraDeps: ["@netlify/blobs@^9"],
+    extraDeps: [],
     importName: "netlify",
     importStatement: 'import netlify from "@astrojs/netlify";',
     adapterExpression: "netlify()",
@@ -65,6 +102,12 @@ export const ADAPTER_RECIPES: Record<AdapterId, AdapterRecipe> = {
     // prerenderEnvironment:"node" avoids workerd's node:wasi during prerender and
     // lets Sätteri tree-shake out of a no-feature worker.
     adapterExpression: 'cloudflare({ prerenderEnvironment: "node" })',
+    serverWrangler: {
+      // @astrojs/cloudflare 14.1.x → @cloudflare/vite-plugin 1.54.x peer floor.
+      wranglerFloor: "wrangler@^4.127.1",
+      compatibilityFlags: ["nodejs_compat"],
+      notFoundHandling: "none",
+    },
   },
 };
 
@@ -80,6 +123,7 @@ export type ApplyAdapterResult =
   | { status: "error"; code: ApplyAdapterErrorCode; message: string };
 
 export type ApplyAdapterErrorCode =
+  | "cjs-config"
   | "missing-marker"
   | "no-output"
   | "dirty-output"
@@ -440,13 +484,39 @@ function importedAdapter(source: string): AdapterImport | null {
 // extension is a separate signal the caller checks.
 export function isCommonJsConfig(source: string): boolean {
   const masked = mask(source, true);
-  if (findImportRanges(masked).length > 0) return false;
-  if (/(^|\n)[ \t]*export\b/.test(masked)) return false;
+  if (/(^|\n)[ \t]*export\s*=/.test(masked)) return true;
+  const hasEsmImport = findImportRanges(masked).some(([start, end]) => {
+    const statement = masked.slice(start, end);
+    if (/^import\s+[A-Za-z_$][\w$]*\s*=/.test(statement.trim())) return false;
+    const specifier = specifierRange(masked, start, end);
+    if (!specifier) return false;
+    return (
+      /^import\s*["']/.test(statement.trim()) ||
+      bindsRuntimeValue(statement, specifier[0] - start)
+    );
+  });
+  if (hasEsmImport) return false;
+  const hasEsmExport =
+    /(^|\n)[ \t]*export\s+(?!(?:type\b|interface\b|declare\b|import\b|as\s+namespace\b))/.test(masked);
+  if (hasEsmExport) return false;
   return (
     /\bmodule\s*\.\s*exports\b/.test(masked) ||
     /(^|\n)[ \t]*exports\s*\./.test(masked) ||
+    hasComputedCommonJsExport(source, masked) ||
     /\brequire\s*\(/.test(masked)
   );
+}
+
+function hasComputedCommonJsExport(source: string, masked: string): boolean {
+  const computed = /\b(?:module|exports)\s*\[\s*["'`][^"'`\n]*["'`]\s*\]/g;
+  for (const match of masked.matchAll(computed)) {
+    const raw = source
+      .slice(match.index, match.index + match[0].length)
+      .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ");
+    if (/\bmodule\s*\[\s*(["'`])exports\1\s*\]/.test(raw)) return true;
+    if (/\bexports\s*\[\s*(["'`])default\1\s*\]/.test(raw)) return true;
+  }
+  return false;
 }
 
 function curlyDepthAt(masked: string, index: number): number {
@@ -561,6 +631,16 @@ export function applyAdapterToConfig(
   adapterId: AdapterId,
 ): ApplyAdapterResult {
   const recipe = ADAPTER_RECIPES[adapterId];
+  if (isCommonJsConfig(source)) {
+    return {
+      status: "error",
+      code: "cjs-config",
+      message:
+        `Nimbus only rewrites ESM astro configs (the edit inserts an \`import\`). ` +
+        `Convert this config to ESM, or flip \`output\` to "server" and add ` +
+        `\`adapter: ${recipe.adapterExpression}\` by hand.`,
+    };
+  }
   const masked = mask(source, true);
 
   // Marker is a comment → search the comment-preserving mask.
@@ -705,6 +785,112 @@ export function alreadyWiredAdapterId(source: string): AdapterId | null {
   return ADAPTER_IDS.find((id) => ADAPTER_RECIPES[id].pkg === adapter.pkg) ?? null;
 }
 
+const WRANGLER_SCHEMA = "node_modules/wrangler/config-schema.json";
+
+export interface WranglerInputs {
+  name: string;
+  compatibilityDate: string;
+}
+
+/**
+ * The user-facing server `wrangler.jsonc` for an adapter that ships one. Returns
+ * `null` for adapters (all but Cloudflare) whose platform owns its own deploy
+ * config. `main` and `assets.directory` are intentionally absent — the adapter
+ * derives them into `dist/server/wrangler.json` at build.
+ */
+export function buildServerWranglerConfig(
+  recipe: AdapterRecipe,
+  inputs: WranglerInputs,
+): Record<string, unknown> | null {
+  const sw = recipe.serverWrangler;
+  if (!sw) return null;
+  return {
+    $schema: WRANGLER_SCHEMA,
+    name: inputs.name,
+    compatibility_date: inputs.compatibilityDate,
+    compatibility_flags: [...sw.compatibilityFlags],
+    assets: { not_found_handling: sw.notFoundHandling },
+  };
+}
+
+/**
+ * True when `parsed` is exactly the static-scaffold `wrangler.jsonc` Nimbus
+ * emits (Workers Static Assets → `./dist`), so the server opt-in may safely
+ * rewrite it. Any extra key or a changed shape means a hand-edit → the caller
+ * refuses and prints instead of clobbering the user's config.
+ */
+export function isNimbusStaticWrangler(parsed: unknown): boolean {
+  if (!isPlainObject(parsed)) return false;
+  const keys = Object.keys(parsed).sort();
+  if (keys.join(",") !== "$schema,assets,compatibility_date,name") return false;
+  if (parsed.$schema !== WRANGLER_SCHEMA) return false;
+  if (!isValidWorkerName(parsed.name)) return false;
+  if (!isValidCompatibilityDate(parsed.compatibility_date)) return false;
+  const assets = parsed.assets;
+  if (!isPlainObject(assets)) return false;
+  const assetKeys = Object.keys(assets).sort();
+  if (assetKeys.join(",") !== "directory,not_found_handling") return false;
+  return (
+    assets.directory === "./dist" && assets.not_found_handling === "404-page"
+  );
+}
+
+/**
+ * True when `parsed` is already the Nimbus server `wrangler.jsonc` this module
+ * emits — so a re-run of the opt-in leaves it untouched instead of refusing.
+ */
+export function isNimbusServerWrangler(parsed: unknown): boolean {
+  if (!isPlainObject(parsed)) return false;
+  const keys = Object.keys(parsed).sort();
+  if (keys.join(",") !== "$schema,assets,compatibility_date,compatibility_flags,name") {
+    return false;
+  }
+  if (parsed.$schema !== WRANGLER_SCHEMA) return false;
+  if (!isValidWorkerName(parsed.name)) return false;
+  if (!isValidCompatibilityDate(parsed.compatibility_date)) return false;
+  if (
+    !Array.isArray(parsed.compatibility_flags) ||
+    parsed.compatibility_flags.length !== 1 ||
+    parsed.compatibility_flags[0] !== "nodejs_compat"
+  ) {
+    return false;
+  }
+  const assets = parsed.assets;
+  if (!isPlainObject(assets)) return false;
+  return (
+    Object.keys(assets).join(",") === "not_found_handling" &&
+    assets.not_found_handling === "none"
+  );
+}
+
+export function isValidWorkerName(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(value)
+  );
+}
+
+export function sanitizeWorkerName(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/^-+/, "")
+      .slice(0, 63)
+      .replace(/-+$/, "") || "my-docs"
+  );
+}
+
+export function isValidCompatibilityDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /**
  * Insert after the last top-level import (full statement ranges, so a
  * multi-line import isn't split). No dedupe guard: only reached after
@@ -714,6 +900,13 @@ export function alreadyWiredAdapterId(source: string): AdapterId | null {
 function insertImport(source: string, importStatement: string): string {
   const ranges = findImportRanges(mask(source, true));
   if (ranges.length === 0) {
+    if (source.startsWith("#!")) {
+      const hashbangEnd = source.indexOf("\n");
+      if (hashbangEnd !== -1) {
+        const insertion = hashbangEnd + 1;
+        return source.slice(0, insertion) + importStatement + "\n" + source.slice(insertion);
+      }
+    }
     return `${importStatement}\n${source}`;
   }
   const lastEnd = ranges[ranges.length - 1]![1];

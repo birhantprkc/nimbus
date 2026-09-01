@@ -23,6 +23,13 @@ export interface FeatureRecipe {
   env: EnvRequirement[];
   /** npm package whose presence in the footprint means the feature is installed. */
   dep: string;
+  /**
+   * On-demand route patterns this feature owns (e.g. `/mcp`). The prerender
+   * invariant treats these as *explained* on-demand routes; every other
+   * non-infra on-demand route is a violation. Empty/omitted for prerendered
+   * features.
+   */
+  routes?: readonly string[];
 }
 
 // Populated by downstream feature slices (loaders, hosted MCP). Empty here: the
@@ -34,4 +41,9 @@ export function deriveFootprint(
   recipes: readonly FeatureRecipe[] = FEATURE_RECIPES,
 ): FeatureRecipe[] {
   return recipes.filter((recipe) => installedDeps.has(recipe.dep));
+}
+
+/** The on-demand routes a footprint's installed features declare (deduped). */
+export function footprintRoutes(footprint: readonly FeatureRecipe[]): string[] {
+  return [...new Set(footprint.flatMap((f) => f.routes ?? []))];
 }

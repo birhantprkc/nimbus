@@ -26,8 +26,6 @@ import {
 } from "./_internal/content.js";
 import {
   audienceCacheKey,
-  clearProjectionCache,
-  isGatedFor,
   resolveAudience,
   type ProjectionContext,
 } from "./_internal/projection.js";
@@ -320,8 +318,6 @@ export async function getIndexedEntries(
   const cached = indexedEntriesCache.get(cacheKey);
   if (cached) return cached;
   const { getCollection } = await import("astro:content");
-  const nimbusConfig = await loadNimbusConfig();
-  const gatedGlobs = nimbusConfig.gated ?? [];
   const collectionNames = await loadIndexedCollections();
   // Fall back to the primary collection name if the build-time parse
   // came up empty. Belt-and-braces: the integration also defaults to
@@ -341,7 +337,6 @@ export async function getIndexedEntries(
     for (const entry of entries) {
       const data = (entry.data ?? {}) as Record<string, unknown>;
       if (data.draft === true) continue;
-      if (isGatedFor(entry.id, gatedGlobs, audience)) continue;
 
       // A versioned API family stamps a per-entry `data.version`; prefer it over
       // the docs-axis `getCurrentVersion` (which is null for API collections).
@@ -665,7 +660,6 @@ export function clearNavCaches(): void {
   structuralTreeCache.clear();
   indexedEntriesCache.clear();
   clearValidInternalLinksCache();
-  clearProjectionCache();
   clearContentCaches();
 }
 

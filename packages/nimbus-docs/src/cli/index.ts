@@ -74,9 +74,8 @@ function barrelExports(item: ComponentItem): string[] {
   return names;
 }
 
-// Load .env from the user's cwd so per-project NIMBUS_REGISTRY_URL (and
-// any future env vars) work without shell prefixes. Shell-provided vars
-// always win (loadDotenv only sets undefined keys).
+// Load the CLI-only registry override without importing feature/build variables
+// into process.env before the Vite-parity preflight runs.
 loadDotenv(process.cwd());
 
 declare const __APP_VERSION__: string;
@@ -330,7 +329,7 @@ function listCommand(typeFilter: string | undefined): void {
 
 // `adapter-vercel` / `-node` / `-netlify` / `-cloudflare` are the server-output
 // opt-in slugs. They aren't registry items — they run the marker-anchored
-// installer directly (server-output ticket AC#1).
+// installer directly.
 const ADAPTER_SLUGS: Record<string, AdapterId> = Object.fromEntries(
   ADAPTER_IDS.map((id) => [`adapter-${id}`, id]),
 );
@@ -513,11 +512,12 @@ async function runAdapterInstall(adapter: AdapterId, label: string): Promise<voi
   for (const warning of outcome.warnings) p.log.warn(warning);
 
   if (outcome.status === "noop") {
-    const note =
-      outcome.depsInstalled.length > 0
-        ? ` Installed ${outcome.depsInstalled.join(", ")}.`
-        : " Nothing to do.";
-    p.outro(`${adapter} is already wired in ${outcome.configPath}.${note}`);
+    const lines = [`✓ ${adapter} is already wired in ${outcome.configPath}`];
+    if (outcome.depsInstalled.length > 0) {
+      lines.push(`+ Installed ${outcome.depsInstalled.join(", ")}`);
+    }
+    appendWranglerWriteLine(lines, outcome.wrangler);
+    p.outro(lines.join("\n"));
     return;
   }
 
@@ -525,11 +525,25 @@ async function runAdapterInstall(adapter: AdapterId, label: string): Promise<voi
   if (outcome.depsInstalled.length > 0) {
     lines.push(`+ Installed ${outcome.depsInstalled.join(", ")}`);
   }
+  appendWranglerWriteLine(lines, outcome.wrangler);
   lines.push(
     "Public doc pages stay prerendered — the adapter only enables on-demand routes.",
     `Verify with a build, then \`${invocation("check")}\`.`,
   );
   p.outro(lines.join("\n"));
+}
+
+function appendWranglerWriteLine(
+  lines: string[],
+  wrangler: { action: string } | null,
+): void {
+  if (wrangler?.action === "written") {
+    lines.push("+ Wrote wrangler.jsonc (server)");
+  } else if (wrangler?.action === "rewritten") {
+    lines.push("~ Updated wrangler.jsonc for server output");
+  } else if (wrangler?.action === "write-failed") {
+    lines.push("! Cloudflare server deployment is only partially configured");
+  }
 }
 
 function spawnInstall(bin: string, args: string[], cwd: string): Promise<void> {

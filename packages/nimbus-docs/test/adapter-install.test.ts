@@ -55,8 +55,8 @@ test("cloudflare recipe uses node prerender env and pins <14.2.0", () => {
   assert.match(cf.installSpec, /<\s*14\.2\.0/);
 });
 
-test("netlify recipe declares @netlify/blobs", () => {
-  assert.ok(ADAPTER_RECIPES.netlify.extraDeps.some((d) => d.startsWith("@netlify/blobs")));
+test("netlify relies on the adapter's own blobs dependency", () => {
+  assert.deepEqual(ADAPTER_RECIPES.netlify.extraDeps, []);
 });
 
 test("is idempotent: re-running the same adapter is a no-op", () => {
@@ -129,6 +129,19 @@ export default defineConfig({
   assert.match(res.source, /import \{\n {2}foo,\n {2}bar,\n\} from ".\/stuff";/);
   // The new import lands after it, on its own line.
   assert.match(res.source, /\} from ".\/stuff";\nimport vercel from "@astrojs\/vercel";/);
+});
+
+test("keeps a hashbang as the first line when inserting the first import", () => {
+  const cfg = `#!/usr/bin/env node
+export default {
+  // nimbus:adapter
+  output: "static",
+};
+`;
+  const res = applyAdapterToConfig(cfg, "node");
+  assert.equal(res.status, "applied");
+  if (res.status !== "applied") return;
+  assert.match(res.source, /^#!\/usr\/bin\/env node\nimport \w+ from "@astrojs\/node";/);
 });
 
 test("a same-line comment quoting an adapter pkg doesn't spoof conflict detection (F1)", () => {
@@ -513,11 +526,32 @@ test("isCommonJsConfig flags module.exports/require/exports. but not ESM", () =>
   );
   assert.equal(isCommonJsConfig(`exports.default = { output: "static" };\n`), true);
   assert.equal(isCommonJsConfig(STARTER_CONFIG), false);
+  assert.equal(
+    isCommonJsConfig(`import { value } from "pkg";\nmodule.exports = {};\n`),
+    false,
+  );
+  assert.equal(
+    isCommonJsConfig(`export const value = 1;\nmodule.exports = {};\n`),
+    false,
+  );
   // ESM with a dynamic import() is not CommonJS.
   assert.equal(
     isCommonJsConfig(`export default (async () => (await import("x")).cfg)();\n`),
     false,
   );
+});
+
+test("applyAdapterToConfig refuses CommonJS source", () => {
+  const cfg = `const { defineConfig } = require("astro/config");
+module.exports = defineConfig({
+  // nimbus:adapter
+  output: "static",
+});
+`;
+  const res = applyAdapterToConfig(cfg, "vercel");
+  assert.equal(res.status, "error");
+  if (res.status !== "error") return;
+  assert.equal(res.code, "cjs-config");
 });
 
 test("applies through a trailing comment after the output value (comment-aware value)", () => {

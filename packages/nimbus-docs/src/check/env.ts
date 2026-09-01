@@ -8,7 +8,7 @@
  * unknown`.
  */
 
-import { readDotenvVars } from "../_internal/dotenv.js";
+import { readBuildEnv } from "../_internal/dotenv.js";
 import { deriveFootprint, type FeatureRecipe } from "../_internal/footprint.js";
 import type { ConfigParseResult } from "../_internal/parse-nimbus-config.js";
 import type { CheckFinding, Note, ScopeReport } from "./finding.js";
@@ -43,7 +43,7 @@ export function checkEnv(cwd: string, parsed: ConfigParseResult): ScopeReport {
     checkWrangler(cwd, findings);
     const features = deriveFootprint(readDependencyNames(cwd));
     findings.push(
-      ...checkFeatureEnvKeys(features, process.env, readDotenvVars(cwd)),
+      ...checkFeatureEnvKeys(features, readBuildEnv(cwd)),
     );
   }
 
@@ -52,16 +52,15 @@ export function checkEnv(cwd: string, parsed: ConfigParseResult): ScopeReport {
 
 // Missing build-time keys fail the build (error); missing runtime keys build
 // green but 500 at request time (warn) — the reason a pre-deploy preflight
-// exists. Presence is process.env ∪ the committed `.env*` files.
+// exists. The supplied environment is Vite's resolved production environment,
+// including shell precedence, dotenv layering, and variable expansion.
 export function checkFeatureEnvKeys(
   features: readonly FeatureRecipe[],
-  processEnv: Record<string, string | undefined>,
-  dotenv: ReadonlyMap<string, string>,
+  env: Readonly<Record<string, string | undefined>>,
 ): CheckFinding[] {
   const nonEmpty = (value: string | undefined): boolean =>
     typeof value === "string" && value.trim() !== "";
-  const present = (name: string): boolean =>
-    nonEmpty(processEnv[name]) || nonEmpty(dotenv.get(name));
+  const present = (name: string): boolean => nonEmpty(env[name]);
 
   const findings: CheckFinding[] = [];
   for (const feature of features) {

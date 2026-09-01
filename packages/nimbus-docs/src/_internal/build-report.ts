@@ -1,22 +1,19 @@
 /**
- * Prerender invariant reporter (ticket AC#2, #13). From the routes Astro
- * resolves at build, it asserts the bidirectional invariant — every public doc
- * route stays prerendered, and every on-demand route is *explained* — and
- * produces the build summary line. An unexplained on-demand route is a build
- * failure, not a warning.
+ * Prerender invariant reporter. From the routes Astro resolves at build, it
+ * asserts the bidirectional invariant — every public doc route stays
+ * prerendered, and every on-demand route is *explained* — and produces the
+ * build summary line. An unexplained on-demand route is a build failure, not a
+ * warning.
  *
- * Empirically (Astro 7, `output: "server"`, no feature) Astro injects two
- * internal on-demand routes, `/_server-islands/[name]` and `/_image`, both
- * under the reserved `/_` prefix. Server-Island backing endpoints are
- * explicitly part of the explained set, so the rule is: an on-demand route
- * under `/_` is infrastructure (explained); a non-`/_` on-demand route is
- * explained only if it's a declared feature route (`/mcp`, …, empty in BG-1a).
+ * Astro's own internal routes are excluded by route provenance. Project and
+ * integration routes are explained only if they're declared feature routes.
  */
 
 export interface ResolvedRouteLike {
   pattern: string;
   type: string;
   isPrerendered: boolean;
+  origin: "internal" | "external" | "project";
 }
 
 export interface BuildReportInput {
@@ -35,23 +32,20 @@ export interface BuildReport {
   fatal: string | null;
 }
 
-const INFRA_PREFIX = "/_";
-
 export function analyzeBuild(input: BuildReportInput): BuildReport {
   const declared = new Set(input.declaredFeatureRoutes ?? []);
   const routable = input.routes.filter(
     (r) => r.type === "page" || r.type === "endpoint",
   );
-  const nonInfraOnDemand = routable.filter(
-    (r) => !r.isPrerendered && !r.pattern.startsWith(INFRA_PREFIX),
-  );
+  const reportable = routable.filter((r) => r.origin !== "internal");
+  const nonInfraOnDemand = reportable.filter((r) => !r.isPrerendered);
   const onDemandDocRoutes = nonInfraOnDemand.map((r) => r.pattern);
   const violations = nonInfraOnDemand
     .filter((r) => !declared.has(r.pattern))
     .map((r) => r.pattern);
 
   const fatal =
-    input.outputMode === "server" && routable.length === 0
+    input.outputMode === "server" && reportable.length === 0
       ? "nimbus: prerender invariant CANNOT BE VERIFIED — astro:routes:resolved " +
         "delivered no routable routes for this server build. This is a reporter " +
         "malfunction (a server build always resolves the doc route plus Astro's " +

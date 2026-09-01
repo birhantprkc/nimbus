@@ -24,13 +24,14 @@ import {
   type ScaffoldOptions,
 } from "../src/scaffold.js";
 
-const BASE_OPTIONS: Omit<ScaffoldOptions, "dir"> = {
+const BASE_OPTIONS = {
+  output: "static",
   deploy: "other",
   content: "starter",
   packageManager: "npm",
   git: false,
   skipInstall: true,
-};
+} satisfies Omit<Extract<ScaffoldOptions, { output: "static" }>, "dir">;
 
 /** A minimal but complete template: enough files that every transformer in
  * the happy path finds what it reads. `pkgJson` overrides let a test inject a
@@ -343,6 +344,66 @@ test("rolls back the partial directory when a transform fails mid-scaffold", asy
       "partial target dir removed on failure",
     );
   } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("rejects template symlinks before transformations can escape", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  const sentinel = path.join(cwd, "outside-package.json");
+  fs.writeFileSync(sentinel, "keep me\n");
+  fs.unlinkSync(path.join(tmpl, "package.json"));
+  fs.symlinkSync(sentinel, path.join(tmpl, "package.json"));
+  try {
+    await assert.rejects(
+      scaffold({ ...BASE_OPTIONS, dir: "my-docs" }, internals(cwd, tmpl)),
+      (err: unknown) =>
+        err instanceof ScaffoldError && /Template contains a symlink/.test(err.message),
+    );
+    assert.equal(fs.readFileSync(sentinel, "utf8"), "keep me\n");
+    assert.equal(fs.existsSync(path.join(cwd, "my-docs")), false);
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("rejects dangling template symlinks before creating their targets", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  const outside = path.join(cwd, "outside-nimbus.json");
+  try {
+    await assert.rejects(
+      scaffold(
+        { ...BASE_OPTIONS, dir: "my-docs" },
+        {
+          cwd,
+          fetchTemplate: async (target) => {
+            fs.cpSync(tmpl, target, { recursive: true });
+            fs.symlinkSync(outside, path.join(target, "nimbus.json"));
+          },
+        },
+      ),
+      (err: unknown) =>
+        err instanceof ScaffoldError && /Template contains a symlink/.test(err.message),
+    );
+    assert.equal(fs.existsSync(outside), false);
+    assert.equal(fs.existsSync(path.join(cwd, "my-docs")), false);
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("allows a target beneath a symlinked parent directory", async () => {
+  const cwd = makeCwd();
+  const cwdLink = `${cwd}-link`;
+  const tmpl = makeTemplate();
+  fs.symlinkSync(cwd, cwdLink, "dir");
+  try {
+    await scaffold({ ...BASE_OPTIONS, dir: "my-docs" }, internals(cwdLink, tmpl));
+    assert.ok(fs.existsSync(path.join(cwd, "my-docs", "package.json")));
+  } finally {
+    fs.unlinkSync(cwdLink);
     cleanup(cwd, tmpl);
   }
 });

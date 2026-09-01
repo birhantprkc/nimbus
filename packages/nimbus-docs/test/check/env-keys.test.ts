@@ -18,10 +18,8 @@ const mcp: FeatureRecipe = {
   dep: "@cloudflare/nimbus-mcp",
 };
 
-const NO_ENV = new Map<string, string>();
-
 test("missing build-time key is an error (fails the build)", () => {
-  const out = checkFeatureEnvKeys([loader], {}, NO_ENV);
+  const out = checkFeatureEnvKeys([loader], {});
   assert.equal(out.length, 1);
   assert.equal(out[0]!.severity, "error");
   assert.equal(out[0]!.code, "nimbus/env-build-time-missing");
@@ -29,55 +27,39 @@ test("missing build-time key is an error (fails the build)", () => {
 });
 
 test("missing runtime key is a warning (builds green)", () => {
-  const out = checkFeatureEnvKeys([mcp], {}, NO_ENV);
+  const out = checkFeatureEnvKeys([mcp], {});
   assert.equal(out.length, 1);
   assert.equal(out[0]!.severity, "warn");
   assert.equal(out[0]!.code, "nimbus/env-runtime-missing");
 });
 
 test("a key present in process.env is satisfied", () => {
-  const out = checkFeatureEnvKeys([loader], { NOTION_TOKEN: "secret" }, NO_ENV);
+  const out = checkFeatureEnvKeys([loader], { NOTION_TOKEN: "secret" });
   assert.deepEqual(out, []);
 });
 
-test("a key present only in .env is satisfied", () => {
-  const out = checkFeatureEnvKeys(
-    [loader],
-    {},
-    new Map([["NOTION_TOKEN", "secret"]]),
-  );
+test("a key present in the resolved build environment is satisfied", () => {
+  const out = checkFeatureEnvKeys([loader], { NOTION_TOKEN: "secret" });
   assert.deepEqual(out, []);
 });
 
 test("an empty/whitespace value counts as missing", () => {
   assert.equal(
-    checkFeatureEnvKeys([loader], { NOTION_TOKEN: "" }, NO_ENV).length,
+    checkFeatureEnvKeys([loader], { NOTION_TOKEN: "" }).length,
     1,
   );
   assert.equal(
-    checkFeatureEnvKeys([loader], { NOTION_TOKEN: "  " }, NO_ENV).length,
+    checkFeatureEnvKeys([loader], { NOTION_TOKEN: "  " }).length,
     1,
   );
 });
 
-test("process.env wins over a blank .env entry", () => {
-  const out = checkFeatureEnvKeys(
-    [loader],
-    { NOTION_TOKEN: "shell-secret" },
-    new Map([["NOTION_TOKEN", ""]]),
-  );
-  assert.deepEqual(out, []);
-});
-
-test("a blank shell var does not mask a real value from .env", () => {
-  const out = checkFeatureEnvKeys(
-    [loader],
-    { NOTION_TOKEN: "" },
-    new Map([["NOTION_TOKEN", "file-secret"]]),
-  );
-  assert.deepEqual(out, []);
+test("a blank resolved value is missing", () => {
+  const out = checkFeatureEnvKeys([loader], { NOTION_TOKEN: "" });
+  assert.equal(out.length, 1);
+  assert.equal(out[0]!.code, "nimbus/env-build-time-missing");
 });
 
 test("no installed features → no env findings (not false-green: nothing is required)", () => {
-  assert.deepEqual(checkFeatureEnvKeys([], {}, NO_ENV), []);
+  assert.deepEqual(checkFeatureEnvKeys([], {}), []);
 });

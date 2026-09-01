@@ -18,7 +18,8 @@ export function loadDotenv(cwd: string): void {
     return;
   }
 
-  for (const [key, value] of parseDotenv(raw)) {
-    if (process.env[key] === undefined) process.env[key] = value;
+  const registryUrl = parseDotenv(raw).get("NIMBUS_REGISTRY_URL");
+  if (process.env.NIMBUS_REGISTRY_URL === undefined && registryUrl !== undefined) {
+    process.env.NIMBUS_REGISTRY_URL = registryUrl;
   }
 }

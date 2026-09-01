@@ -251,10 +251,28 @@ test("server output with no adapter is not the static lane → no _redirects", a
   const { distEntries } = await driveBuild(t, {
     signal: "cloudflare",
     output: "server",
-    routes: [{ pattern: "/", type: "page", isPrerendered: true }],
+    routes: [{ pattern: "/", type: "page", isPrerendered: true, origin: "project" }],
     redirects: { "/old": "/new" },
   });
   assert.deepEqual(distEntries, BASELINE_DIST);
+});
+
+test("custom Astro infrastructure routes are excluded by origin", async (t) => {
+  const { distEntries, infos } = await driveBuild(t, {
+    output: "server",
+    adapter: "@astrojs/node",
+    routes: [
+      {
+        pattern: "/custom-image-endpoint",
+        type: "endpoint",
+        isPrerendered: false,
+        origin: "internal",
+      },
+      { pattern: "/", type: "page", isPrerendered: true, origin: "project" },
+    ],
+  });
+  assert.deepEqual(distEntries, BASELINE_DIST);
+  assert.ok(infos.some((message) => /on-demand routes=0/.test(message)));
 });
 
 test("a pre-existing dist/_redirects is preserved and the emit is idempotent", async (t) => {

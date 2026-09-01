@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { sanitizeWorkerName } from "@cloudflare/nimbus-docs/adapters";
 
 /**
  * Apply deploy target configuration.
@@ -36,7 +37,7 @@ export async function applyDeployTarget(
  * (pnpm-11 `allowBuilds` map + pnpm-10 `ignoredBuiltDependencies` list).
  * No-op if already listed or the file is absent.
  */
-function declineBuildScript(dir: string, name: string): void {
+export function declineBuildScript(dir: string, name: string): void {
   const wsPath = join(dir, "pnpm-workspace.yaml");
   if (!existsSync(wsPath)) return;
   let text = readFileSync(wsPath, "utf-8");
@@ -75,16 +76,6 @@ async function writeWranglerConfig(dir: string): Promise<void> {
   );
 }
 
-function sanitizeWorkerName(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 63) || "my-docs"
-  );
-}
-
-function today(): string {
+export function today(): string {
   return new Date().toISOString().slice(0, 10);
 }

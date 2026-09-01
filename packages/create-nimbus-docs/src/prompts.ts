@@ -1,12 +1,21 @@
 import * as p from "@clack/prompts";
+import { ADAPTER_RECIPES, type AdapterId } from "@cloudflare/nimbus-docs/adapters";
 
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
 export type DeployTarget = "cloudflare" | "other";
 export type ContentMode = "starter" | "empty";
+export type OutputMode = "static" | "server";
+export type { AdapterId };
+
+/** The known adapter ids, derived from the framework's recipe table. */
+export const ADAPTER_IDS = Object.keys(ADAPTER_RECIPES) as AdapterId[];
 
 export interface PromptOptions {
   dir?: string;
+  /** Static-lane deploy target. Ignored once an adapter selects the server lane. */
   deploy?: DeployTarget;
+  /** Server-lane adapter. Its presence selects `output: "server"`. */
+  adapter?: AdapterId;
   content?: ContentMode;
   yes?: boolean;
   skipInstall?: boolean;
@@ -14,14 +23,22 @@ export interface PromptOptions {
   git?: boolean;
 }
 
-export interface PromptResponses {
+interface ResponsesBase {
   dir: string;
-  deploy: DeployTarget;
   content: ContentMode;
   packageManager: PackageManager;
   git: boolean;
   skipInstall: boolean;
 }
+
+/**
+ * Output mode is primary; the target derives from it. A discriminated union
+ * makes `static + adapter` and `server + deploy` unrepresentable, so there is
+ * no runtime conflict rule to get wrong.
+ */
+export type PromptResponses =
+  | (ResponsesBase & { output: "static"; deploy: DeployTarget })
+  | (ResponsesBase & { output: "server"; adapter: AdapterId });
 
 function detectPackageManager(): PackageManager {
   const ua = process.env.npm_config_user_agent ?? "";
@@ -35,14 +52,17 @@ export async function getPromptResponses(opts: PromptOptions): Promise<PromptRes
   const defaultPM = opts.packageManager ?? detectPackageManager();
 
   if (opts.yes) {
-    return {
+    const base: ResponsesBase = {
       dir: opts.dir ?? "my-docs",
-      deploy: opts.deploy ?? "cloudflare",
       content: opts.content ?? "starter",
       packageManager: defaultPM,
       git: opts.git ?? true,
       skipInstall: opts.skipInstall ?? false,
     };
+    // An adapter selects the server lane; otherwise `--yes` defaults to static.
+    return opts.adapter
+      ? { ...base, output: "server", adapter: opts.adapter }
+      : { ...base, output: "static", deploy: opts.deploy ?? "cloudflare" };
   }
 
   // Interactive mode
@@ -126,25 +146,59 @@ export async function getPromptResponses(opts: PromptOptions): Promise<PromptRes
           return a;
         })();
 
-  const deploy =
-    opts.deploy ??
-    (await (async () => {
-      const a = await p.select({
-        message: "Deploy target?",
-        options: [
-          { value: "cloudflare", label: "Cloudflare" },
-          { value: "other", label: "Other" },
-        ],
-        initialValue: "cloudflare",
-      });
-      if (p.isCancel(a)) {
-        p.cancel("Cancelled.");
-        process.exit(0);
-      }
-      return a as DeployTarget;
-    })());
+  const base: ResponsesBase = {
+    dir,
+    content,
+    packageManager,
+    git,
+    skipInstall: opts.skipInstall ?? false,
+  };
 
-  const skipInstall = opts.skipInstall ?? false;
+  // Server lane if an adapter was passed; static lane if a deploy target was.
+  // Otherwise ask output mode, then the target that mode implies.
+  if (opts.adapter) return { ...base, output: "server", adapter: opts.adapter };
+  if (opts.deploy) return { ...base, output: "static", deploy: opts.deploy };
 
-  return { dir, deploy, content, packageManager, git, skipInstall };
+  const output = orExit(
+    await p.select({
+      message: "Output mode?",
+      options: [
+        { value: "static", label: "Static (default) — prerendered, deploy anywhere" },
+        { value: "server", label: "Server — enable on-demand routes (adds an adapter)" },
+      ],
+      initialValue: "static",
+    }),
+  ) as OutputMode;
+
+  if (output === "server") {
+    const adapter = orExit(
+      await p.select({
+        message: "Which adapter?",
+        options: ADAPTER_IDS.map((id) => ({ value: id, label: id })),
+        initialValue: "cloudflare" as AdapterId,
+      }),
+    ) as AdapterId;
+    return { ...base, output: "server", adapter };
+  }
+
+  const deploy = orExit(
+    await p.select({
+      message: "Deploy target?",
+      options: [
+        { value: "cloudflare", label: "Cloudflare" },
+        { value: "other", label: "Other" },
+      ],
+      initialValue: "cloudflare",
+    }),
+  ) as DeployTarget;
+  return { ...base, output: "static", deploy };
+}
+
+/** Turn a possibly-cancelled clack answer into a value, or exit cleanly. */
+function orExit<T>(value: T | symbol): T {
+  if (p.isCancel(value)) {
+    p.cancel("Cancelled.");
+    process.exit(0);
+  }
+  return value as T;
 }

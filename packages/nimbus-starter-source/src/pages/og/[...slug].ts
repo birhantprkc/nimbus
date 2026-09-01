@@ -6,9 +6,9 @@ import { ogCardConfig } from "./_og-card-config";
 // turn image generation into an on-demand route.
 export const prerender = true;
 
-// Enumerate via the framework projection (not a raw `getCollection`) so gated
-// and draft entries are excluded uniformly — otherwise a gated page's title
-// would leak as a guessable `/og/<id>.png` even though its page never emits.
+// Enumerate via the framework projection (not a raw `getCollection`) so draft
+// entries are excluded uniformly — a draft page emits no route, so its
+// `/og/<id>.png` shouldn't either.
 const entries = await getVisibleEntries(["docs"]);
 
 const pages = Object.fromEntries(

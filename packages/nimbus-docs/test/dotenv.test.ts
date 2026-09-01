@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { parseDotenv, readDotenvVars } from "../src/_internal/dotenv.js";
+import { parseDotenv, readBuildEnv } from "../src/_internal/dotenv.js";
+import { loadDotenv } from "../src/cli/dotenv.js";
 
 test("parseDotenv reads KEY=value pairs", () => {
   assert.deepEqual(
@@ -20,6 +21,15 @@ test("parseDotenv strips matching single/double quotes", () => {
   const out = parseDotenv(`A="quoted"\nB='single'`);
   assert.equal(out.get("A"), "quoted");
   assert.equal(out.get("B"), "single");
+});
+
+test("parseDotenv strips inline comments outside quoted values", () => {
+  const out = parseDotenv(
+    `EMPTY= # note\nVALUE=secret # note\nQUOTED="value # kept" # note "ignored"`,
+  );
+  assert.equal(out.get("EMPTY"), "");
+  assert.equal(out.get("VALUE"), "secret");
+  assert.equal(out.get("QUOTED"), "value # kept");
 });
 
 test("parseDotenv keeps `=` in the value", () => {
@@ -42,13 +52,14 @@ test("parseDotenv tolerates CRLF, blank lines, and # comments", () => {
   );
 });
 
-test("parseDotenv rejects invalid keys and leading-`=` lines", () => {
-  const out = parseDotenv("1BAD=x\nkebab-case=y\n=novalue\nGOOD=z");
-  assert.deepEqual([...out.keys()], ["GOOD"]);
-});
-
 test("parseDotenv treats a lone-quote value as empty after stripping", () => {
   assert.equal(parseDotenv(`A=""`).get("A"), "");
+});
+
+test("parseDotenv accepts export syntax and multiline quoted values", () => {
+  const out = parseDotenv('export TOKEN=value\nMULTI="one\ntwo"');
+  assert.equal(out.get("TOKEN"), "value");
+  assert.equal(out.get("MULTI"), "one\ntwo");
 });
 
 function withTmp(
@@ -66,32 +77,110 @@ function withTmp(
   }
 }
 
-test("readDotenvVars unions keys across all .env* files", () => {
+test("readBuildEnv unions keys across Vite's production .env files", () => {
   withTmp(
     { ".env": "A=1", ".env.production": "B=2", ".env.local": "C=3" },
     (dir) => {
-      const out = readDotenvVars(dir);
-      assert.equal(out.get("A"), "1");
-      assert.equal(out.get("B"), "2");
-      assert.equal(out.get("C"), "3");
+      const out = readBuildEnv(dir);
+      assert.equal(out.A, "1");
+      assert.equal(out.B, "2");
+      assert.equal(out.C, "3");
     },
   );
 });
 
-test("readDotenvVars: an empty placeholder in .env never shadows a real value in .env.production", () => {
+test("readBuildEnv: an empty placeholder never shadows a production value", () => {
   withTmp({ ".env": "TOKEN=", ".env.production": "TOKEN=real" }, (dir) => {
-    assert.equal(readDotenvVars(dir).get("TOKEN"), "real");
+    assert.equal(readBuildEnv(dir).TOKEN, "real");
   });
 });
 
-test("readDotenvVars: a real value in .env is not clobbered by a later empty entry", () => {
+test("readBuildEnv: a higher-precedence empty entry overrides an earlier value", () => {
   withTmp({ ".env": "TOKEN=real", ".env.production": "TOKEN=" }, (dir) => {
-    assert.equal(readDotenvVars(dir).get("TOKEN"), "real");
+    // `.env.production` outranks `.env` and wins even when empty — exactly how
+    // Vite resolves TOKEN at build time. The preflight must therefore see it as
+    // unset, not falsely report the shadowed `.env` value as present.
+    assert.equal(readBuildEnv(dir).TOKEN, "");
   });
 });
 
-test("readDotenvVars returns an empty map when no .env* files exist", () => {
+test("readBuildEnv expands variables and accepts export syntax", () => {
+  withTmp(
+    {
+      ".env": "BASE=secret\nTOKEN=$UNSET",
+      ".env.production": "export EXPANDED=$BASE-suffix",
+    },
+    (dir) => {
+      const out = readBuildEnv(dir);
+      assert.equal(out.TOKEN, "");
+      assert.equal(out.EXPANDED, "secret-suffix");
+    },
+  );
+});
+
+test("readBuildEnv ignores development mode files", () => {
+  withTmp({ ".env.development": "NIMBUS_DOTENV_DEV_ONLY=yes" }, (dir) => {
+    assert.equal(readBuildEnv(dir).NIMBUS_DOTENV_DEV_ONLY, undefined);
+  });
+});
+
+test("readBuildEnv preserves an explicitly empty shell value", () => {
+  const key = "NIMBUS_DOTENV_SHELL_EMPTY";
+  const previous = process.env[key];
+  process.env[key] = "";
+  try {
+    withTmp({ ".env.production": `${key}=file-secret` }, (dir) => {
+      assert.equal(readBuildEnv(dir)[key], "");
+    });
+  } finally {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  }
+});
+
+test("readBuildEnv exposes shell values when no dotenv files exist", () => {
+  const key = "NIMBUS_DOTENV_SHELL_ONLY";
+  const previous = process.env[key];
+  process.env[key] = "shell-secret";
+  try {
+    withTmp({}, (dir) => {
+      assert.equal(readBuildEnv(dir)[key], "shell-secret");
+    });
+  } finally {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  }
+});
+
+test("CLI dotenv startup loads only NIMBUS_REGISTRY_URL", () => {
+  const previousRegistry = process.env.NIMBUS_REGISTRY_URL;
+  const previousToken = process.env.NIMBUS_DOTENV_FEATURE_TOKEN;
+  delete process.env.NIMBUS_REGISTRY_URL;
+  delete process.env.NIMBUS_DOTENV_FEATURE_TOKEN;
+  try {
+    withTmp(
+      {
+        ".env":
+          "NIMBUS_REGISTRY_URL=https://registry.example.test\n" +
+          "NIMBUS_DOTENV_FEATURE_TOKEN=must-not-leak",
+      },
+      (dir) => loadDotenv(dir),
+    );
+    assert.equal(
+      process.env.NIMBUS_REGISTRY_URL,
+      "https://registry.example.test",
+    );
+    assert.equal(process.env.NIMBUS_DOTENV_FEATURE_TOKEN, undefined);
+  } finally {
+    if (previousRegistry === undefined) delete process.env.NIMBUS_REGISTRY_URL;
+    else process.env.NIMBUS_REGISTRY_URL = previousRegistry;
+    if (previousToken === undefined) delete process.env.NIMBUS_DOTENV_FEATURE_TOKEN;
+    else process.env.NIMBUS_DOTENV_FEATURE_TOKEN = previousToken;
+  }
+});
+
+test("readBuildEnv returns no project keys when no .env files exist", () => {
   withTmp({}, (dir) => {
-    assert.equal(readDotenvVars(dir).size, 0);
+    assert.equal(readBuildEnv(dir).NIMBUS_DOTENV_ABSENT, undefined);
   });
 });

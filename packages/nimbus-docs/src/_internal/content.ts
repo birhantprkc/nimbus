@@ -17,7 +17,6 @@ import type { CollectionEntry } from "astro:content";
 
 import {
   audienceCacheKey,
-  projectEntries,
   resolveAudience,
   type ProjectionContext,
 } from "./projection.js";
@@ -85,10 +84,8 @@ async function loadVisibleEntries(
   const published = import.meta.env.PROD
     ? all.filter((entry: CollectionEntry<string>) => !entry.data.draft)
     : all;
-  // Public projection: gated entries excluded from emission (dev + prod).
-  const visible = await projectEntries(published, (entry) => entry.id, ctx);
-  visibleEntriesByName.set(cacheKey, visible);
-  return visible;
+  visibleEntriesByName.set(cacheKey, published);
+  return published;
 }
 
 export async function getVisibleEntriesByCollection(

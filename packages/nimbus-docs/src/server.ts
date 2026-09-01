@@ -10,7 +10,7 @@
  * visibility, only the reverse.
  *
  * The audience `key` carries the identity kind (`public`, and later
- * `editor`/`preview` for CMS draft preview); `groups` carries gated-group
+ * `editor`/`preview` for CMS draft preview); `groups` carries permitted-group
  * membership. Anticipating an editor/preview identity keeps the seam shape
  * stable when preview unlocks unpublished content at request time.
  *

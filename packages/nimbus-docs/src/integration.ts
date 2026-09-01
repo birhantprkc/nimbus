@@ -49,6 +49,8 @@ import {
   formatInvariantFailure,
   type ResolvedRouteLike,
 } from "./_internal/build-report.js";
+import { deriveFootprint, footprintRoutes } from "./_internal/footprint.js";
+import { readDependencyNames } from "./check/probe.js";
 import { parseComponentsRegistry } from "./_internal/parse-components-registry.js";
 import {
   validateLintOptions,
@@ -100,8 +102,6 @@ import {
   shouldClassShikiTokens,
 } from "./_internal/code-style-registry.js";
 import type { SitemapSerialize } from "./_internal/sitemap-types.js";
-import { isGatedFor, PUBLIC_AUDIENCE } from "./_internal/projection.js";
-import { collectionMountPrefix } from "./_internal/collection-mount.js";
 import { scanVersionFrontmatter } from "./_internal/scan-version-frontmatter.js";
 import {
   buildVersionAlternates,
@@ -595,20 +595,11 @@ export function nimbus(
             projectRoot,
             versions: resolved,
           });
-          // Apply the public projection so gated entries never surface as
-          // alternates, canonicals, redirects, or in the serialized table.
-          const gatedGlobs = config.gated ?? [];
-          const versionEntries =
-            gatedGlobs.length === 0
-              ? scannedEntries
-              : scannedEntries.filter(
-                  (entry) => !isGatedFor(entry.id, gatedGlobs, PUBLIC_AUDIENCE),
-                );
-          versionAlternates = buildVersionAlternates(resolved, versionEntries);
+          versionAlternates = buildVersionAlternates(resolved, scannedEntries);
           versionRedirects = computeMissingPageRedirects(
             resolved,
             versionAlternates,
-            versionEntries,
+            scannedEntries,
           );
         }
 
@@ -653,12 +644,7 @@ export function nimbus(
                 >["serialize"],
               }),
               ...(sitemapOpts?.customPages && {
-                customPages: filterProjectedCustomPages(
-                  sitemapOpts.customPages,
-                  config,
-                  astroBaseForBuild,
-                  indexedCollections,
-                ),
+                customPages: sitemapOpts.customPages,
               }),
               ...(hiddenPrefixes.length > 0 && {
                 filter: makeHiddenSitemapFilter(config, astroConfig.base),
@@ -978,6 +964,7 @@ export function nimbus(
           pattern: r.pattern,
           type: r.type,
           isPrerendered: r.isPrerendered,
+          origin: r.origin,
         }));
       },
       "astro:build:done": async ({ dir, pages, logger }) => {
@@ -1003,11 +990,20 @@ export function nimbus(
         // `config:setup`, so a build whose `routes:resolved` never fires trips
         // the empty-routes guard instead of reusing stale routes.
         const resolvedRoutes = resolvedRoutesForBuild;
+        // Re-derive the installed-feature footprint from committed deps so the
+        // invariant can *explain* a feature's on-demand routes (e.g. a future
+        // `/mcp`) instead of failing them, and the summary names the features.
+        // Empty until a feature slice populates FEATURE_RECIPES.
+        const footprint = deriveFootprint(
+          readDependencyNames(projectRootForBuild),
+        );
         const report = analyzeBuild({
           outputMode: outputModeForBuild,
           adapterName: adapterNameForBuild,
           routes: resolvedRoutes,
           prerenderedPageCount: pages.length,
+          declaredFeatureRoutes: footprintRoutes(footprint),
+          serverFeatures: footprint.map((f) => f.id),
         });
         logger.info(report.summaryLine);
         if (report.fatal) {
@@ -1198,70 +1194,6 @@ function canonicalizePathname(pathname: string): string {
   if (!s.startsWith("/")) s = `/${s}`;
   if (s.length > 1 && s.endsWith("/")) s = s.slice(0, -1);
   return s;
-}
-
-export function filterProjectedCustomPages(
-  pages: readonly string[],
-  config: NimbusConfig,
-  base: string,
-  collections: readonly string[] = [],
-): string[] {
-  const gatedGlobs = config.gated ?? [];
-  if (gatedGlobs.length === 0) return [...pages];
-
-  // Gating matches the bare, collection-relative entry id, but a URL carries
-  // the collection's mount prefix (`/blog`, a version `/v2`). Strip those
-  // leading segments so a gated non-primary-collection page can't leak into
-  // the sitemap. A leading segment is a mount only if it's a registered
-  // prefix — never guessed — so a docs page at `/blog/post` is left intact.
-  const versionInfo = config.versions ? { others: config.versions.others ?? [] } : null;
-  const mounts = new Set<string>(versionInfo?.others ?? []);
-  for (const collection of collections) {
-    const prefix = collectionMountPrefix(collection, versionInfo);
-    if (prefix) mounts.add(prefix.slice(1));
-  }
-
-  return pages.filter((page) => {
-    const pathname = new URL(page, config.site).pathname;
-    const routeId = pathnameToEntryId(pathname, mounts, base);
-    return !isGatedFor(routeId, gatedGlobs, PUBLIC_AUDIENCE);
-  });
-}
-
-function pathnameToEntryId(
-  pathname: string,
-  mountSegments: ReadonlySet<string>,
-  base: string,
-): string {
-  // Work in decoded segments throughout: entry ids are decoded
-  // (`internal pages/x`) but a URL pathname is percent-encoded, and `base` may
-  // be authored decoded (`/über`) while the pathname carries it encoded
-  // (`/%C3%BCber`). Decoding both before comparison keeps base/mount stripping
-  // and glob matching consistent. Malformed escapes pass through.
-  const decode = (parts: string[]): string[] =>
-    parts.map(decodeSegment).filter((s) => s.length > 0);
-  const split = (p: string): string[] => p.replace(/^\/+|\/+$/g, "").split("/");
-  const segments = decode(split(pathname));
-  const baseSegments = decode(split(base));
-
-  let start = 0;
-  if (baseSegments.every((seg, i) => segments[i] === seg)) start = baseSegments.length;
-  const rest = segments.slice(start);
-  const body = rest.length > 0 && mountSegments.has(rest[0]!) ? rest.slice(1) : rest;
-  return body.length > 0 ? body.join("/") : "index";
-}
-
-function decodeSegment(segment: string): string {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
-}
-
-function assetPathWithBase(base: string, assetPath: string): string {
-  const cleanBase = base && base !== "/" ? `/${base.replace(/^\/+|\/+$/g, "")}` : "";
-  return `${cleanBase}/${assetPath.replace(/^\/+/, "")}`;
 }
 
 function normalizeShikiCSS(currentCSS: string): string {

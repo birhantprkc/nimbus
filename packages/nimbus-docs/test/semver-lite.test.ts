@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { satisfies } from "../src/_internal/semver-lite.js";
+import { isRangeSubset, satisfies } from "../src/_internal/semver-lite.js";
 
 test("compound range matches the cloudflare recipe pin", () => {
   assert.equal(satisfies("14.1.0", ">=14.1.0 <14.2.0"), true);
@@ -30,4 +30,15 @@ test("fails open on anything it can't parse (never a false warning)", () => {
   assert.equal(satisfies("14.2.0", "workspace:*"), true);
   assert.equal(satisfies("next", ">=1.0.0"), true);
   assert.equal(satisfies("14.2.0", ""), true);
+});
+
+test("uses npm prerelease semantics", () => {
+  assert.equal(satisfies("11.0.0-beta.1", "^11"), false);
+});
+
+test("proves a declared range stays inside the recipe range", () => {
+  assert.equal(isRangeSubset("^11.0.0", "^11"), true);
+  assert.equal(isRangeSubset(">=11.0.0 <11.1.2", ">=11.0.0 <11.1.3"), true);
+  assert.equal(isRangeSubset("^11", ">=11.0.0 <11.1.3"), false);
+  assert.equal(isRangeSubset("workspace:*", "^11"), false);
 });
