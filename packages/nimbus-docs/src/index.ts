@@ -190,8 +190,8 @@ export { defaultCodeTransformers } from "./_internal/code-transformers.js";
  * Drafts are filtered in production builds. Pass an explicit
  * `collections` argument to scope the query to a subset.
  *
- * Returns `CollectionEntry<string>[]` so cross-collection traversal
- * doesn't need per-name type narrowing.
+ * Literal collection names preserve their Astro `CollectionEntry` types;
+ * runtime-derived names return the union of registered collection entries.
  */
 export { getVisibleEntry, getVisibleEntries };
 

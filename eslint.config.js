@@ -39,6 +39,7 @@ export default tseslint.config(
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      "@typescript-eslint/no-namespace": ["error", { allowDeclarations: true }],
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
     },
