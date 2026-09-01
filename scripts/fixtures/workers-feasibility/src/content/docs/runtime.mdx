@@ -1,0 +1,19 @@
+---
+title: Workers request prose
+description: Request-rendered MDX using the current docs layout.
+lastUpdated: 2026-09-01
+---
+
+Request prose body.
+
+## Prose heading
+
+<Aside type="note" title="Registered component">
+  This component rendered from the MDX registry.
+</Aside>
+
+```ts title="worker.ts"
+export default { fetch: () => new Response("healthy") };
+```
+
+<Render file="worker-partial" />

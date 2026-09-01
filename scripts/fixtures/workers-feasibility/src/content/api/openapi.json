@@ -1,0 +1,55 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Feasibility API",
+    "version": "1.0.0",
+    "description": "API data prepared during content sync."
+  },
+  "x-feasibility-source-only": "raw-openapi-must-not-ship",
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Health operations."
+    }
+  ],
+  "paths": {
+    "/ping": {
+      "get": {
+        "operationId": "ping",
+        "summary": "Ping",
+        "description": "Returns a **healthy** response.",
+        "tags": ["Health"],
+        "responses": {
+          "200": {
+            "description": "Healthy response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ping"
+                },
+                "example": {
+                  "ok": true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Ping": {
+        "type": "object",
+        "description": "A prepared schema page.",
+        "required": ["ok"],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Service health."
+          }
+        }
+      }
+    }
+  }
+}
