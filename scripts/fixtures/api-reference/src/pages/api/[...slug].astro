@@ -10,12 +10,14 @@ export const getStaticPaths = getApiStaticPaths("api");
 const result = await getApiRoute(Astro);
 if (result instanceof Response) return result;
 const { page, nav, collection, version, coordinate } = result;
+const socialImage = `/og${page.href.replace(/\/$/, "")}.png`;
 ---
 
 <BaseLayout
   title={`${page.title} · API`}
   description={page.description}
   markdownUrl={page.markdownHref}
+  socialImage={socialImage}
   collection={collection}
   apiVersion={version ?? undefined}
   coordinate={coordinate}

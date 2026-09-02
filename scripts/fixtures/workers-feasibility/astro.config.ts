@@ -16,6 +16,9 @@ const integration = nimbus({
 export default defineConfig({
   output: "server",
   adapter: cloudflare({ prerenderEnvironment: "node" }),
+  redirects: {
+    "/legacy-runtime": "/runtime",
+  },
   vite: {
     plugins: [tailwindcss()],
   },

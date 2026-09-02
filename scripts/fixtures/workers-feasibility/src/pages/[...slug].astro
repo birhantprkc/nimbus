@@ -4,8 +4,8 @@ import {
   getBreadcrumbs,
   getDocsStaticPaths,
   getDocsPage,
-  getDocsPageProps,
   getEditUrl,
+  getLastUpdated,
   getPrevNext,
   getRouteFlags,
   getSidebar,
@@ -17,9 +17,7 @@ import { components } from "../components";
 export const prerender = true;
 export const getStaticPaths = getDocsStaticPaths;
 
-const page = Astro.url.pathname === "/runtime/"
-  ? await getDocsPageProps(Astro)
-  : await getDocsPage(Astro);
+const page = await getDocsPage(Astro);
 if (page instanceof Response) return page;
 const { entry, Content, headings } = page;
 const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
@@ -36,6 +34,7 @@ const breadcrumbs = await getBreadcrumbs(currentSlug, {
   collection: entry.collection,
 });
 const editUrl = await getEditUrl(entry);
+const lastUpdated = entry.data.lastUpdated ?? await getLastUpdated(entry);
 const tocConfig = entry.data.tableOfContents;
 const toc = tocOn && tocConfig !== false ? getTOC(headings, tocConfig) : false;
 const markdownPath = entry.id === "index" ? "/index.md" : `/${entry.id}/index.md`;
@@ -61,7 +60,7 @@ const requestProbe = Astro.request.headers.get("x-nimbus-probe") ?? "";
   noindex={entry.data.noindex}
   markdownUrl={markdownUrl}
   socialImage={socialImage}
-  lastUpdated={entry.data.lastUpdated}
+  lastUpdated={lastUpdated}
   editUrl={editUrl}
   draft={entry.data.draft}
   collection={entry.collection}

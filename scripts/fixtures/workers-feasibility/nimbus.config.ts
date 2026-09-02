@@ -6,7 +6,6 @@ export default defineConfig({
   description: "BG-1c.0 request-rendering fixture.",
   locale: "en",
   github: null,
-  search: false,
   rendering: { collections: { api: "request" } },
   api: [
     {

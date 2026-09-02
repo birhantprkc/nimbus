@@ -66,7 +66,7 @@ async function detectShallow(): Promise<boolean> {
 // One streaming `git log` over the content tree, indexed into `cache`. `spawn`
 // (not `execFile`) avoids a maxBuffer cap on large histories. Rejects on spawn
 // error (e.g. git missing) or non-zero exit (e.g. not a repository).
-function streamBulk(): Promise<void> {
+function streamBulk(map: DateSink = cache, cwd?: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const child = spawn(
       "git",
@@ -80,10 +80,10 @@ function streamBulk(): Promise<void> {
         "--",
         CONTENT_PATHSPEC,
       ],
-      { stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
+      { cwd, stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
     );
 
-    const index = createIndexer(cache);
+    const index = createIndexer(map);
     let buf = "";
     const consume = (chunk: string, flush: boolean) => {
       buf += chunk;
@@ -109,6 +109,20 @@ function streamBulk(): Promise<void> {
       else reject(new Error(`git log exited with code ${code}`));
     });
   });
+}
+
+export async function buildLastUpdatedIndex(
+  cwd: string,
+): Promise<Record<string, string>> {
+  const dates = new Map<string, Date>();
+  try {
+    await streamBulk(dates, cwd);
+  } catch {
+    return {};
+  }
+  return Object.fromEntries(
+    [...dates].map(([filePath, date]) => [filePath, date.toISOString()]),
+  );
 }
 
 async function doBulkLoad(): Promise<void> {

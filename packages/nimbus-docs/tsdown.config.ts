@@ -23,6 +23,7 @@ export default defineConfig({
     "cli/index": "src/cli/index.ts",
     "_internal/request-route-inventory":
       "src/_internal/request-route-inventory.ts",
+    "_internal/git-last-updated": "src/_internal/git-last-updated.ts",
   },
   format: "esm",
   dts: true,

@@ -25,7 +25,8 @@ const RESOLVED_ID = `\0${VIRTUAL_ID}`;
 
 export interface VitePluginLike {
   name: string;
-  resolveId(id: string): string | undefined;
+  enforce?: "pre" | "post";
+  resolveId(id: string, importer?: string): string | undefined;
   load(id: string): string | undefined;
 }
 

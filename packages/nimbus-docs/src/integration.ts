@@ -99,7 +99,10 @@ import {
   NIMBUS_DEFAULT_SHIKI_THEMES,
   shouldClassShikiTokens,
 } from "./_internal/code-style-registry.js";
-import type { SitemapSerialize } from "./_internal/sitemap-types.js";
+import type {
+  SitemapItem,
+  SitemapSerialize,
+} from "./_internal/sitemap-types.js";
 import { scanVersionFrontmatter } from "./_internal/scan-version-frontmatter.js";
 import {
   buildVersionAlternates,
@@ -120,6 +123,11 @@ import {
   normalizeRouteComponent,
   routeComponentKeys,
 } from "./_internal/rendering-policy.js";
+import type { RequestRouteInventoryEntry } from "./_internal/request-route-url.js";
+import { safeDecode, withBase } from "./_internal/url.js";
+import { buildLastUpdatedIndex } from "./_internal/git-last-updated.js";
+import { virtualLastUpdatedPlugin } from "./_internal/last-updated-virtual.js";
+import { pagefindDocument } from "./_internal/pagefind-document.js";
 import type { NimbusConfig, RenderingMode } from "./types.js";
 
 /**
@@ -329,6 +337,9 @@ export function nimbus(
   let requestRenderingConfigured = false;
   let requestRenderingCollections = new Set<string>();
   let requestRoutePatterns = new Set<string>();
+  let sitemapRequestPages: string[] = [];
+  let sitemapExcludedPaths = new Set<string>();
+  let sitemapTrailingSlash: "always" | "never" | "ignore" = "ignore";
   let building = false;
 
   // Built eagerly at config:setup, reassigned by the dev re-bake; both the
@@ -395,6 +406,9 @@ export function nimbus(
         }
 
         const integrationsToAdd: AstroIntegration[] = [];
+        sitemapRequestPages = [];
+        sitemapExcludedPaths = new Set();
+        sitemapTrailingSlash = astroConfig.trailingSlash;
 
         // Materialize the resolved lint config so the standalone
         // `nimbus-docs lint` CLI can read severities authored here. Guarded
@@ -521,7 +535,13 @@ export function nimbus(
             ? ["docs"]
             : filterIndexableCollections(rawCollections);
         const indexedCollections = [
-          ...new Set([...parsedIndexedCollections, ...apiCollections]),
+          ...new Set([
+            ...parsedIndexedCollections,
+            ...(config.versions?.others ?? []).map(
+              (version) => `docs-${version}`,
+            ),
+            ...apiCollections,
+          ]),
         ];
 
         renderingRoutes = new Map();
@@ -771,27 +791,55 @@ export function nimbus(
             config,
             astroConfig.base,
           );
-          integrationsToAdd.push(
-            sitemap({
-              // Our public `SitemapSerialize` types `changefreq` as a
-              // string-literal union and may return `null` to drop an entry.
-              // @astrojs/sitemap types `changefreq` as its own `EnumChangefreq`
-              // and drops on any falsy return (so `null` is correct at
-              // runtime). The values are identical — the gap is purely nominal,
-              // so cast at this boundary.
-              ...(sitemapOpts?.serialize && {
-                serialize: sitemapOpts.serialize as unknown as NonNullable<
-                  Parameters<typeof sitemap>[0]
-                >["serialize"],
-              }),
-              ...(sitemapOpts?.customPages && {
-                customPages: sitemapOpts.customPages,
-              }),
-              ...(hiddenPrefixes.length > 0 && {
-                filter: makeHiddenSitemapFilter(config, astroConfig.base),
-              }),
-            }),
+          const customPages = [...(sitemapOpts?.customPages ?? [])];
+          const hiddenFilter = makeHiddenSitemapFilter(
+            config,
+            astroConfig.base,
           );
+          const sitemapIntegration = sitemap({
+            // Our public `SitemapSerialize` types `changefreq` as a
+            // string-literal union and may return `null` to drop an entry.
+            // @astrojs/sitemap types `changefreq` as its own `EnumChangefreq`
+            // and drops on any falsy return (so `null` is correct at
+            // runtime). The values are identical — the gap is purely nominal,
+            // so cast at this boundary.
+            ...(sitemapOpts?.serialize && {
+              serialize: sitemapOpts.serialize as unknown as NonNullable<
+                Parameters<typeof sitemap>[0]
+              >["serialize"],
+            }),
+            ...((sitemapOpts?.customPages || requestRenderingConfigured) && {
+              customPages,
+            }),
+            ...((hiddenPrefixes.length > 0 || requestRenderingConfigured) && {
+              filter: (url: string) =>
+                hiddenFilter(url) &&
+                !isRequestRouteInventoryPath(
+                  new URL(url, config.site).pathname,
+                  astroConfig.base,
+                ) &&
+                !sitemapExcludedPaths.has(
+                  canonicalizePathname(
+                    safeDecode(new URL(url, config.site).pathname),
+                  ),
+                ),
+            }),
+          });
+          if (requestRenderingConfigured) {
+            const buildDone = sitemapIntegration.hooks["astro:build:done"];
+            if (!buildDone) {
+              throw new Error("@astrojs/sitemap is missing astro:build:done");
+            }
+            sitemapIntegration.hooks["astro:build:done"] = async (params) => {
+              await buildDone(params);
+              await appendRequestSitemapPages(
+                params.dir,
+                sitemapRequestPages,
+                sitemapOpts?.serialize,
+              );
+            };
+          }
+          integrationsToAdd.push(sitemapIntegration);
         }
 
         // Admonition transform plugin: only constructed when enabled
@@ -818,6 +866,9 @@ export function nimbus(
         const citationContentDirs = ["src/content"].map((d) =>
           path.isAbsolute(d) ? d : path.join(projectRoot, d),
         );
+        const lastUpdatedByPath = requestRenderingConfigured
+          ? await buildLastUpdatedIndex(projectRoot)
+          : null;
 
         const markdownProcessor =
           options.markdown?.processor ??
@@ -940,6 +991,7 @@ export function nimbus(
                 manifest: coordinatesManifest,
               })),
               virtualApiBuildConfigPlugin(config.api, projectRoot),
+              virtualLastUpdatedPlugin(lastUpdatedByPath),
               virtualConfigPlugin(config, {
                 indexedCollections,
                 requestRenderingCollections: [...requestRenderingCollections],
@@ -1180,15 +1232,31 @@ export function nimbus(
         const prerenderedRoutes = new Set(
           publicPages.map(({ pathname }) => canonicalizePathname(pathname)),
         );
-        const requestRoutes = (
-          requestRenderingConfigured
-            ? readRequestRouteInventory(
-                distDir,
-                astroBaseForBuild,
-                requestRenderingCollections,
-              )
-            : []
-        ).filter((pathname) => !prerenderedRoutes.has(pathname));
+        const inventory = requestRenderingConfigured
+          ? readRequestRouteInventory(
+              distDir,
+              astroBaseForBuild,
+              requestRenderingCollections,
+            )
+          : { entries: [], path: null };
+        const requestRoutes = inventory.entries
+          .filter((entry) => entry.request)
+          .map((entry) => canonicalizePathname(entry.url))
+          .filter((pathname) => !prerenderedRoutes.has(pathname));
+        for (const entry of inventory.entries) {
+          const pathname = canonicalizePathname(
+            safeDecode(withBase(entry.url, astroBaseForBuild)),
+          );
+          if (!entry.discoverable) sitemapExcludedPaths.add(pathname);
+          if (entry.request && entry.discoverable) {
+            const basedPath = withBase(entry.url, astroBaseForBuild);
+            const sitemapPath =
+              sitemapTrailingSlash === "never"
+                ? basedPath
+                : `${basedPath.replace(/\/$/, "")}/`;
+            sitemapRequestPages.push(new URL(sitemapPath, config.site).href);
+          }
+        }
         // Materialize the site's route truth from Astro's emitted `pages`
         // array — the single source of truth: every URL on this list is a
         // page Astro just wrote to disk. No reconstruction, no slug
@@ -1257,12 +1325,16 @@ export function nimbus(
 
         await writeShikiStyleSheet({ distDir, logger });
 
-        if (config.search === false || config.search?.provider === "custom") {
-          return;
+        if (config.search !== false && config.search?.provider !== "custom") {
+          await runPagefind(
+            distDir,
+            inventory.entries.filter(
+              (entry) => entry.request && entry.searchable,
+            ),
+          );
         }
 
-        // Pagefind reindexes the full dist on every run.
-        await runPagefind(distDir);
+        if (inventory.path) fs.rmSync(inventory.path, { force: true });
       },
     },
   };
@@ -1371,7 +1443,7 @@ function readRequestRouteInventory(
   distDir: string,
   base: string,
   requestCollections: ReadonlySet<string>,
-): string[] {
+): { entries: RequestRouteInventoryEntry[]; path: string | null } {
   const relativeInventoryPath = REQUEST_ROUTE_INVENTORY_PATTERN.slice(1);
   const basePath = base.replace(/^\/+|\/+$/g, "");
   const candidates = [
@@ -1399,7 +1471,7 @@ function readRequestRouteInventory(
     throw new Error("nimbus-docs: request route inventory must be an array.");
   }
 
-  const routes = new Set<string>();
+  const entries: RequestRouteInventoryEntry[] = [];
   for (const entry of inventory) {
     if (
       typeof entry !== "object" ||
@@ -1411,14 +1483,26 @@ function readRequestRouteInventory(
         "nimbus-docs: request route inventory contains an invalid entry.",
       );
     }
-    const { collection, url } = entry as { collection: string; url: string };
-    if (requestCollections.has(collection)) {
-      routes.add(canonicalizePathname(url));
-    }
+    const value = entry as Partial<RequestRouteInventoryEntry> & {
+      collection: string;
+      url: string;
+    };
+    entries.push({
+      collection: value.collection,
+      url: value.url,
+      request: value.request ?? requestCollections.has(value.collection),
+      discoverable: value.discoverable ?? true,
+      searchable: value.searchable ?? false,
+      title: value.title ?? value.url,
+      language: value.language ?? "en",
+      ...(value.description ? { description: value.description } : {}),
+      ...(value.content ? { content: value.content } : {}),
+      ...(value.version ? { version: value.version } : {}),
+      ...(value.deprecated ? { deprecated: true } : {}),
+    });
   }
 
-  fs.rmSync(inventoryPath, { force: true });
-  return [...routes];
+  return { entries, path: inventoryPath };
 }
 
 /** Absolute paths of every local spec file backing `config.api`. */
@@ -1560,10 +1644,94 @@ async function emitPlatformRedirects({
   }
 }
 
-function runPagefind(siteDir: string): Promise<void> {
+export async function appendRequestSitemapPages(
+  dir: URL,
+  pages: readonly string[],
+  serialize?: SitemapSerialize,
+): Promise<void> {
+  const sitemapFiles = await collectSitemapFiles(fileURLToPath(dir));
+  const target = sitemapFiles.find(
+    (file) => path.basename(file) !== "sitemap-index.xml",
+  );
+  if (!target) return;
+  let xml = await fs.promises.readFile(target, "utf8");
+  const additions: SitemapItem[] = [];
+  for (const url of new Set(pages)) {
+    if (xml.includes(`<loc>${escapeXml(url)}</loc>`)) continue;
+    const item = serialize ? await serialize({ url }) : { url };
+    if (item) additions.push(item);
+  }
+  if (additions.length === 0) return;
+  if (
+    additions.some((item) => item.links?.length) &&
+    !xml.includes("xmlns:xhtml=")
+  ) {
+    xml = xml.replace(
+      "<urlset ",
+      '<urlset xmlns:xhtml="http://www.w3.org/1999/xhtml" ',
+    );
+  }
+  xml = xml.replace(
+    "</urlset>",
+    `${additions.map(sitemapItemXml).join("")}\n</urlset>`,
+  );
+  await fs.promises.writeFile(target, xml, "utf8");
+}
+
+async function collectSitemapFiles(directory: string): Promise<string[]> {
+  const files: string[] = [];
+  for (const entry of await fs.promises.readdir(directory, {
+    withFileTypes: true,
+  })) {
+    const child = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...(await collectSitemapFiles(child)));
+    else if (/^sitemap.*\.xml$/.test(entry.name)) files.push(child);
+  }
+  return files;
+}
+
+function sitemapItemXml(item: SitemapItem): string {
+  return [
+    "<url>",
+    `<loc>${escapeXml(item.url)}</loc>`,
+    item.lastmod ? `<lastmod>${escapeXml(item.lastmod)}</lastmod>` : "",
+    item.changefreq ? `<changefreq>${item.changefreq}</changefreq>` : "",
+    item.priority !== undefined ? `<priority>${item.priority}</priority>` : "",
+    ...(item.links ?? []).map(
+      (link) =>
+        `<xhtml:link rel="alternate" hreflang="${escapeXml(link.lang)}" href="${escapeXml(link.url)}" />`,
+    ),
+    "</url>",
+  ].join("");
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function runPagefind(
+  siteDir: string,
+  requestEntries: readonly RequestRouteInventoryEntry[],
+): Promise<void> {
+  const syntheticFiles: string[] = [];
+  for (const entry of requestEntries) {
+    const route = entry.url.replace(/^\/+|\/+$/g, "");
+    const file = path.join(siteDir, route, "index.html");
+    if (fs.existsSync(file)) continue;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, pagefindDocument(entry), "utf8");
+    syntheticFiles.push(file);
+  }
+
   const bin = process.platform === "win32" ? "pagefind.cmd" : "pagefind";
   return new Promise((resolve) => {
     execFile(bin, ["--site", siteDir], (error, stdout, stderr) => {
+      for (const file of syntheticFiles) fs.rmSync(file, { force: true });
       if (stdout) process.stdout.write(stdout);
       if (stderr) process.stderr.write(stderr);
       if (error) {

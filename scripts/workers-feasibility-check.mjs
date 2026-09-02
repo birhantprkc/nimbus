@@ -3,6 +3,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -81,6 +82,112 @@ function findMarkedPages(pages, attribute) {
   return [...pages].filter(([, html]) => html.includes(attribute));
 }
 
+function prosePages(pages) {
+  return findMarkedPages(pages, "data-feasibility-prose").filter(([, html]) =>
+    html.includes("Request prose body."),
+  );
+}
+
+function normalizedHtml(html) {
+  const sensitive = [];
+  const protectedHtml = html.replace(
+    /<(pre|code|textarea)(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi,
+    (value) => {
+      const token = `NIMBUSSENSITIVE${sensitive.length}END`;
+      sensitive.push(value);
+      return token;
+    },
+  );
+  return protectedHtml
+    .replace(/data-request-probe="[^"]*"/g, 'data-request-probe=""')
+    .replace(/<style(?:\s[^>]*)?>[\s\S]*?<\/style>/g, "")
+    .replace(/<link\s+rel="stylesheet"[^>]*>/g, "")
+    .replace(
+      /(\/_astro\/[^"'<>\s]+?)\.[A-Za-z0-9_-]{8}(\.(?:css|js|mjs))/g,
+      "$1.HASH$2",
+    )
+    .replace(/\s([\w:-]+)=""/g, " $1")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(
+      /NIMBUSSENSITIVE(\d+)END/g,
+      (_, index) => sensitive[Number(index)],
+    );
+}
+
+function assertGeneratedAssetsExist(site, html, label) {
+  for (const match of html.matchAll(/(?:src|href)="(\/_astro\/[^"?#]+)["?#]/g)) {
+    const asset = join(site, "dist", "client", match[1].slice(1));
+    assert(existsSync(asset), `${label} references missing asset ${match[1]}`);
+  }
+}
+
+function assertEquivalent(actual, expected, label) {
+  const actualNormalized = normalizedHtml(actual);
+  const expectedNormalized = normalizedHtml(expected);
+  if (actualNormalized === expectedNormalized) return;
+  let index = 0;
+  while (
+    index < actualNormalized.length &&
+    actualNormalized[index] === expectedNormalized[index]
+  ) {
+    index += 1;
+  }
+  fail(
+    `${label} changed between build and request rendering at byte ${index}: ` +
+      `${JSON.stringify(expectedNormalized.slice(index, index + 180))} !== ` +
+      JSON.stringify(actualNormalized.slice(index, index + 180)),
+  );
+}
+
+function assertDiscoverySurfaces(site) {
+  const client = join(site, "dist", "client");
+  const sitemap = filesUnder(client)
+    .filter((file) => /sitemap.*\.xml$/.test(file))
+    .map((file) => readFileSync(file, "utf8"))
+    .join("\n");
+  assert(/https:\/\/workers-feasibility\.test\/runtime\/?<\/loc>/.test(sitemap), "sitemap omitted prose");
+  assert(/https:\/\/workers-feasibility\.test\/api\/Health\/ping\/?<\/loc>/.test(sitemap), "sitemap omitted API operation");
+  assert(!sitemap.includes("https://workers-feasibility.test/private/"), "sitemap included noindex prose");
+  assert(!sitemap.includes("request-route-inventory"), "sitemap exposed the transient inventory");
+
+  const pagefindFiles = filesUnder(join(client, "pagefind"));
+  assert(pagefindFiles.some((file) => file.endsWith(".pf_meta")), "Pagefind metadata was not generated");
+  assert(pagefindFiles.some((file) => file.endsWith(".pf_index")), "Pagefind index was not generated");
+  assert(
+    pagefindFiles.filter((file) => file.endsWith(".pf_fragment")).length === 5,
+    "Pagefind did not preserve the five searchable routes",
+  );
+  assert(existsSync(join(client, "og", "runtime.png")), "prose Open Graph image was not generated");
+  assert(
+    existsSync(join(client, "og", "api", "Health", "ping.png")),
+    "API Open Graph image was not generated",
+  );
+  assert(!existsSync(join(client, "og", "private.png")), "noindex Open Graph image was generated");
+  assert(
+    !existsSync(join(client, "_nimbus", "request-route-inventory.json")),
+    "request inventory leaked into the deploy output",
+  );
+}
+
+async function assertStaticSurfaces(origin) {
+  for (const [route, evidence] of [
+    ["/runtime/index.md", "This content rendered from a reusable partial."],
+    ["/runtime/index.mdx", '<Aside type="note"'],
+    ["/api/Health/ping/index.md", "Ping"],
+    ["/llms.txt", "Workers request prose"],
+    ["/api/llms.txt", "Ping"],
+    ["/robots.txt", "Sitemap:"],
+  ]) {
+    const result = await request(origin, route);
+    assert(result.response.status === 200, `${route} was not 200`);
+    assert(result.html.includes(evidence), `${route} omitted expected content`);
+  }
+  const redirect = await request(origin, "/legacy-runtime");
+  assert([301, 302, 307, 308].includes(redirect.response.status), "configured redirect was not preserved");
+  assert(redirect.response.headers.get("location")?.endsWith("/runtime"), "configured redirect target changed");
+}
+
 function apiKinds(pages) {
   const found = new Map();
   for (const [route, html] of findMarkedPages(pages, "data-feasibility-api-kind")) {
@@ -100,6 +207,10 @@ function assertProse(html) {
   );
   assert(html.includes("class=\"astro-code"), "syntax-highlighted code did not render");
   assert(html.includes("nb-shiki-"), "syntax-highlighted tokens did not render");
+  assert(
+    html.includes('datetime="2026-08-31T12:34:56.000Z"'),
+    "build-prepared Git last-updated metadata did not render",
+  );
   assert(html.includes('href="/favicon.ico"'), "build-derived favicon metadata did not render");
   assert(
     html.includes('content="https://workers-feasibility.test/opengraph.png"'),
@@ -208,6 +319,7 @@ async function request(origin, route, probe) {
 function build(site, policy) {
   writeRenderingPolicy(site, policy);
   run("pnpm", ["build"], { cwd: site });
+  assertDiscoverySurfaces(site);
 }
 
 function writeRenderingPolicy(site, policy) {
@@ -267,6 +379,17 @@ for (const component of ["api-code-rail", "api-field-row", "api-layout", "api-si
   );
 }
 cpSync(FIXTURE, site, { recursive: true });
+run("git", ["init", "--quiet"], { cwd: site });
+run("git", ["config", "user.name", "Nimbus Fixture"], { cwd: site });
+run("git", ["config", "user.email", "fixture@nimbus.test"], { cwd: site });
+run("git", ["add", "src/content/docs/runtime.mdx"], { cwd: site });
+run("git", ["commit", "--quiet", "-m", "Add runtime fixture"], {
+  cwd: site,
+  env: {
+    GIT_AUTHOR_DATE: "2026-08-31T12:34:56Z",
+    GIT_COMMITTER_DATE: "2026-08-31T12:34:56Z",
+  },
+});
 
 const packagePath = join(site, "package.json");
 const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
@@ -286,7 +409,7 @@ run("pnpm", ["typecheck"], { cwd: site });
 console.log(`${PREFIX} establishing the all-build baseline`);
 build(site, { docs: "build", api: "build" });
 const staticPages = captureStaticPages(site);
-const proseStatic = findMarkedPages(staticPages, "data-feasibility-prose");
+const proseStatic = prosePages(staticPages);
 assert(proseStatic.length === 1, `expected one prose fixture, found ${proseStatic.length}`);
 assertProse(proseStatic[0][1]);
 const staticKinds = apiKinds(staticPages);
@@ -300,7 +423,7 @@ assert(shikiCss.includes(".nb-shiki-"), "all-build baseline omitted Shiki token 
 console.log(`${PREFIX} proving request prose beside build-rendered API pages`);
 build(site, { docs: "request", api: "build" });
 const requestProsePages = captureStaticPages(site);
-assert(findMarkedPages(requestProsePages, "data-feasibility-prose").length === 0, "request prose emitted static HTML");
+assert(prosePages(requestProsePages).length === 0, "request prose emitted static HTML");
 assert(apiKinds(requestProsePages).size === 4, "build API pages were not emitted beside request prose");
 await withWorkerd(site, async (origin) => {
   const first = await request(origin, proseStatic[0][0], "prose-one");
@@ -310,8 +433,10 @@ await withWorkerd(site, async (origin) => {
     `request prose returned ${first.response.status}/${second.response.status}: ${first.html.slice(0, 500)}`,
   );
   assertProse(first.html);
+  assertGeneratedAssetsExist(site, first.html, "request prose");
   assertProbe(first.html, "prose-one");
   assertProbe(second.html, "prose-two");
+  assertEquivalent(first.html, proseStatic[0][1], "prose response");
   const missing = await request(origin, "/missing-prose/", "missing");
   assert(missing.response.status === 404, "unknown request prose was not 404");
   assert(missing.html.includes("Page not found"), "unknown request prose bypassed the custom 404 page");
@@ -319,6 +444,7 @@ await withWorkerd(site, async (origin) => {
   assert(styles.response.status === 200 && styles.html.includes(".nb-shiki-"), "Shiki styles were not served");
   for (const { route } of staticKinds.values()) {
     const response = await request(origin, route, "static-api");
+    assertGeneratedAssetsExist(site, response.html, `build API ${route}`);
     assert(response.response.status === 200, `build-rendered API route ${route} was not 200`);
     assertNoProbe(response.html, "static-api");
   }
@@ -327,11 +453,12 @@ await withWorkerd(site, async (origin) => {
 console.log(`${PREFIX} proving request API pages beside build-rendered prose`);
 build(site, { docs: "build", api: "request" });
 const requestApiPages = captureStaticPages(site);
-assert(findMarkedPages(requestApiPages, "data-feasibility-prose").length === 1, "build prose was not emitted beside request API pages");
+assert(prosePages(requestApiPages).length === 1, "build prose was not emitted beside request API pages");
 assert(apiKinds(requestApiPages).size === 0, "request API emitted static HTML");
 const serverSource = outputText(join(site, "dist", "server"));
 assert(serverSource.includes("Feasibility API"), "prepared API data is absent from the Worker bundle");
 assert(!serverSource.includes("raw-openapi-must-not-ship"), "raw OpenAPI leaked into the Worker bundle");
+assert(!serverSource.includes("--is-shallow-repository"), "Git last-updated code leaked into the Worker bundle");
 
 await withWorkerd(site, async (origin) => {
   const prose = await request(origin, proseStatic[0][0], "static-prose");
@@ -347,8 +474,10 @@ await withWorkerd(site, async (origin) => {
       `${kind} API route ${route} returned ${first.response.status}/${second.response.status}: ${first.html.slice(0, 500)}`,
     );
     assertPreparedApi(first.html, kind);
+    assertGeneratedAssetsExist(site, first.html, `request API ${route}`);
     assertProbe(first.html, `${kind}-one`);
     assertProbe(second.html, `${kind}-two`);
+    assertEquivalent(first.html, staticKinds.get(kind).html, `${kind} API response`);
   }
   const missing = await request(origin, "/api/missing/", "missing");
   assert(missing.response.status === 404, "unknown request API page was not 404");
@@ -357,25 +486,34 @@ await withWorkerd(site, async (origin) => {
 console.log(`${PREFIX} proving both route families in request mode`);
 build(site, { docs: "request", api: "request" });
 const requestOnlyPages = captureStaticPages(site);
-assert(findMarkedPages(requestOnlyPages, "data-feasibility-prose").length === 0, "request-only build emitted prose HTML");
+assert(prosePages(requestOnlyPages).length === 0, "request-only build emitted prose HTML");
 assert(apiKinds(requestOnlyPages).size === 0, "request-only build emitted API HTML");
 const requestOnlyServerSource = outputText(join(site, "dist", "server"));
 assert(requestOnlyServerSource.includes("Feasibility API"), "prepared API data is absent from the request-only Worker bundle");
 assert(!requestOnlyServerSource.includes("raw-openapi-must-not-ship"), "raw OpenAPI leaked into the request-only Worker bundle");
+assert(!requestOnlyServerSource.includes("--is-shallow-repository"), "Git last-updated code leaked into the request-only Worker bundle");
 rmSync(join(site, "src", "content", "api", "openapi.json"));
 
 await withWorkerd(site, async (origin) => {
   const prose = await request(origin, proseStatic[0][0], "both-prose");
   assert(prose.response.status === 200, "request-only prose was not 200");
   assertProse(prose.html);
+  assertGeneratedAssetsExist(site, prose.html, "request-only prose");
   assertProbe(prose.html, "both-prose");
+  assertEquivalent(prose.html, proseStatic[0][1], "request-only prose response");
 
   for (const [kind, { route }] of staticKinds) {
     const api = await request(origin, route, `both-${kind}`);
     assert(api.response.status === 200, `request-only ${kind} API route was not 200`);
     assertPreparedApi(api.html, kind);
+    assertGeneratedAssetsExist(site, api.html, `request-only API ${route}`);
     assertProbe(api.html, `both-${kind}`);
+    assertEquivalent(api.html, staticKinds.get(kind).html, `request-only ${kind} API response`);
   }
+  await assertStaticSurfaces(origin);
 });
+
+console.log(`${PREFIX} validating the production deployment bundle`);
+run("pnpm", ["exec", "wrangler", "deploy", "--dry-run"], { cwd: site });
 
 console.log(`${PREFIX} OK - technical build/request matrix passed on workerd`);

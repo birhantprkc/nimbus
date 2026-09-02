@@ -36,13 +36,13 @@ import type {
 type CodeLang = NonNullable<Parameters<typeof Code>[0]["lang"]>;
 
 interface Props
-  extends Pick<ApiOperationPage, "responses" | "samples" | "method"> {
+  extends Pick<ApiOperationPage, "responses" | "samples" | "method" | "coordinate"> {
   /** Operation title, shown in the request card header. */
   title: string;
   class?: string;
 }
 
-const { responses, samples, title, method, class: className } = Astro.props;
+const { responses, samples, title, method, coordinate, class: className } = Astro.props;
 
 // Highlighter language for a sample's advertised language. cURL is shell; the
 // node/fetch snippet is TypeScript-labelled but valid TS. A spec-authored
@@ -94,8 +94,7 @@ const railLabel =
       ? "Request sample"
       : "Response examples";
 
-// Per-instance ids so multiple rails on a page keep distinct tab↔panel wiring.
-const respUid = `nb-cr-resp-${Math.random().toString(36).slice(2, 10)}`;
+const respUid = `nb-cr-resp-${encodeURIComponent(coordinate)}`;
 const respTabId = (i: number) => `${respUid}-tab-${i}`;
 const respPanelId = (i: number) => `${respUid}-panel-${i}`;
 ---

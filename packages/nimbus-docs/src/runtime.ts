@@ -161,7 +161,18 @@ export async function getEntryMarkdown(
 ): Promise<string> {
   const { loadCitationIndex } =
     await import("./_internal/api/load-citation-index.js");
-  return renderEntryAsMarkdown(entry, {
+  let expandedEntry = entry;
+  if (entry.body?.includes("<Render")) {
+    const { expandWorkerPartials } =
+      await import("./_internal/worker-partial-headings.js");
+    expandedEntry = {
+      ...entry,
+      body: await expandWorkerPartials(entry.body, (collection, id) =>
+        getVisibleEntry(collection, id),
+      ),
+    };
+  }
+  return renderEntryAsMarkdown(expandedEntry, {
     ...options,
     citationIndex: await loadCitationIndex(),
   });
@@ -491,11 +502,7 @@ export async function renderIndexedEntryMarkdown(
 ): Promise<string> {
   const apiCollections = await loadApiCollections();
   if (!apiCollections.includes(item.collection)) {
-    const { loadCitationIndex } =
-      await import("./_internal/api/load-citation-index.js");
-    return renderEntryAsMarkdown(item.entry, {
-      citationIndex: await loadCitationIndex(),
-    });
+    return getEntryMarkdown(item.entry);
   }
   const { renderApiPageMarkdown } = await import("./_internal/api/markdown.js");
   const { isPreparedApiPage } = await import("./_internal/api/prepared.js");
@@ -1552,7 +1559,6 @@ export function getApiRoute(
 async function resolveApiRoute(
   astro: AstroGlobal,
 ): Promise<ApiRouteProps | Response> {
-
   const result = await resolveApiPage(
     pageResolutionContext(astro),
     {},

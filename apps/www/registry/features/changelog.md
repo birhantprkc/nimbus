@@ -716,13 +716,15 @@ route in 5j entirely.
 import { Icon } from "astro-icon/components";
 import ChangelogLayout from "@/layouts/ChangelogLayout.astro";
 import { Badge } from "@/components/ui/badge";
-import { getCollectionStaticPaths, getCollectionPageProps, withBase } from "@cloudflare/nimbus-docs";
+import { getCollectionStaticPaths, getCollectionPage, withBase } from "@cloudflare/nimbus-docs";
 import { components } from "@/components";
 
 export const prerender = true;
 export const getStaticPaths = getCollectionStaticPaths("changelog");
 
-const { entry, Content } = await getCollectionPageProps<"changelog">(Astro);
+const page = await getCollectionPage<"changelog">(Astro);
+if (page instanceof Response) return page;
+const { entry, Content } = page;
 const { title, description, date, tags } = entry.data;
 
 const iso = date.toISOString().slice(0, 10);

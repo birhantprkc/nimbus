@@ -61,7 +61,7 @@ conventions:
   name).
 - `src/pages/[...slug].astro` — read it. The new route will mirror this
   shape exactly except for the helper names (`getCollectionStaticPaths` /
-  `getCollectionPageProps` instead of the `Docs` variants).
+  `getCollectionPage` instead of the `Docs` variants).
 - `src/pages/[...slug]/index.md.ts` — read it. The new `.md` alternate
   will mirror it.
 - `src/layouts/DocsLayout.astro` — confirm it exists. The new route uses
@@ -191,7 +191,7 @@ Write `src/pages/<prefix>/[...slug].astro`:
 import DocsLayout from "../../layouts/DocsLayout.astro";
 import {
   getCollectionStaticPaths,
-  getCollectionPageProps,
+  getCollectionPage,
   getSidebar,
   getPrevNext,
   getBreadcrumbs,
@@ -205,7 +205,9 @@ import { components } from "../../components";
 export const prerender = true;
 export const getStaticPaths = getCollectionStaticPaths("<collection>");
 
-const { entry, Content, headings } = await getCollectionPageProps<"<collection>">(Astro);
+const page = await getCollectionPage<"<collection>">(Astro);
+if (page instanceof Response) return page;
+const { entry, Content, headings } = page;
 
 const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
 // Pass collection so the sidebar/prev-next resolve against the current
@@ -218,7 +220,8 @@ const prevNext = await getPrevNext(currentSlug, {
 });
 const breadcrumbs = await getBreadcrumbs(currentSlug);
 const editUrl = await getEditUrl(entry);
-const lastUpdated = entry.data.lastUpdated ?? await getLastUpdated(entry);
+const lastUpdated = entry.data.lastUpdated ??
+  await getLastUpdated(entry);
 const toc = getTOC(headings, entry.data.tableOfContents);
 const markdownPath = `/<prefix>/${entry.id}/index.md`;
 const basedMarkdownPath = withBase(markdownPath, import.meta.env.BASE_URL);
@@ -414,7 +417,7 @@ Ask the user whether to replace, skip, or show a diff first. The
   to a Nimbus site. Blogs, API references, changelogs, glossaries, versioned
   docs siblings — all the same shape underneath.
 - The framework helpers `getCollectionStaticPaths(collection)` and
-  `getCollectionPageProps<C>(astro)` are sibling functions to
+  `getCollectionPage<C>(astro)` are sibling functions to
   `getDocsStaticPaths`/`getDocsPageProps`. Use the `Collection` variants in
   scaffolded routes; the `Docs` variants stay for the primary route only.
 - The URL convention is intentional: primary `docs` mounts at root, every

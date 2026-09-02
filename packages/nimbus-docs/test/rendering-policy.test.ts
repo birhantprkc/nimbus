@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { test, type TestContext } from "node:test";
 
 import nimbus from "../src/index.js";
+import { appendRequestSitemapPages } from "../src/integration.js";
 import {
   canonicalCollectionRouteComponent,
   compileRenderingPolicy,
@@ -14,7 +15,10 @@ import {
 } from "../src/_internal/rendering-policy.js";
 import { getCodeStyleCSS } from "../src/_internal/code-style-registry.js";
 import { parseContentCollections } from "../src/_internal/parse-content-collections.js";
-import { requestInventoryEntryUrl } from "../src/_internal/request-route-url.js";
+import {
+  requestInventoryEntryUrl,
+  requestInventoryVersionStatusKey,
+} from "../src/_internal/request-route-url.js";
 import { validateNimbusConfig } from "../src/_internal/validate.js";
 import type { NimbusConfig, RenderingConfig } from "../src/types.js";
 
@@ -37,6 +41,37 @@ test("request inventory preserves prose ids and only collapses the API root", ()
     requestInventoryEntryUrl("/api", "guides/index", true),
     "/api/guides/index",
   );
+  assert.equal(requestInventoryVersionStatusKey("docs-v1", false, "v1"), "docs-v1");
+  assert.equal(requestInventoryVersionStatusKey("api", true, "v1"), "api@v1");
+});
+
+test("request sitemap finalizer preserves namespaces and serialized fields", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "nimbus-request-sitemap-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sitemap = path.join(root, "sitemap-0.xml");
+  await writeFile(
+    sitemap,
+    '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml"><url><loc>https://example.test/</loc></url></urlset>',
+    "utf8",
+  );
+
+  await appendRequestSitemapPages(
+    pathToFileURL(`${root}${path.sep}`),
+    ["https://example.test/runtime/", "https://example.test/runtime/"],
+    ({ url }) => ({
+      url,
+      changefreq: "daily",
+      priority: 0.7,
+      links: [{ lang: "fr", url: "https://example.test/fr/runtime/?a=1&b=2" }],
+    }),
+  );
+
+  const xml = await readFile(sitemap, "utf8");
+  assert.equal(xml.match(/xmlns:xhtml=/g)?.length, 1);
+  assert.equal(xml.match(/<loc>https:\/\/example\.test\/runtime\/<\/loc>/g)?.length, 1);
+  assert.match(xml, /<changefreq>daily<\/changefreq>/);
+  assert.match(xml, /<priority>0\.7<\/priority>/);
+  assert.match(xml, /href="https:\/\/example\.test\/fr\/runtime\/\?a=1&amp;b=2"/);
 });
 
 test("rendering config is optional and validates only build/request modes", () => {
@@ -307,6 +342,10 @@ test("opaque version registrations still reach the request inventory", async (t)
   assert.match(
     virtualConfig.load(resolved) ?? "",
     /requestRenderingCollections = \["docs-v1"\]/,
+  );
+  assert.match(
+    virtualConfig.load(resolved) ?? "",
+    /indexedCollections = \["docs","docs-v1"\]/,
   );
 });
 

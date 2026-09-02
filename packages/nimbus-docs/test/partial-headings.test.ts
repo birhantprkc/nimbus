@@ -8,7 +8,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { mergePartialHeadings } from "../src/_internal/partial-headings.js";
-import { mergeWorkerPartialHeadings } from "../src/_internal/worker-partial-headings.js";
+import {
+  expandWorkerPartials,
+  mergeWorkerPartialHeadings,
+} from "../src/_internal/worker-partial-headings.js";
 
 import type { Heading } from "../src/_internal/partial-headings.js";
 
@@ -20,6 +23,7 @@ interface MockEntry {
   id: string;
   body: string;
   headings: Heading[];
+  data?: { params?: string[] };
 }
 
 function makeGetEntry(partials: Record<string, MockEntry>) {
@@ -84,11 +88,74 @@ test("Worker parser preserves partial heading order", async () => {
     makeGetEntry(partials),
     makeRender(partials),
   );
-  assert.deepEqual(result.map(({ slug }) => slug), [
-    "before",
-    "worker-partial",
-    "after",
-  ]);
+  assert.deepEqual(
+    result.map(({ slug }) => slug),
+    ["before", "worker-partial", "after"],
+  );
+});
+
+test("Worker markdown expansion preserves nested partial content in place", async () => {
+  const partials: Record<string, MockEntry> = {
+    outer: {
+      id: "outer",
+      body: 'Outer before.\n\n<Render file="inner" />\n\nOuter after.',
+      headings: [],
+    },
+    inner: {
+      id: "inner",
+      body: "## Inner heading\n\nSearchable partial sentence.",
+      headings: [],
+    },
+  };
+  const expanded = await expandWorkerPartials(
+    'Page before.\n\n<Render file="outer" />\n\nPage after.',
+    makeGetEntry(partials),
+  );
+
+  assert.equal(
+    expanded,
+    "Page before.\n\nOuter before.\n\n## Inner heading\n\nSearchable partial sentence.\n\nOuter after.\n\nPage after.",
+  );
+});
+
+test("Worker markdown expansion resolves and forwards declared partial params", async () => {
+  const partials: Record<string, MockEntry> = {
+    outer: {
+      id: "outer",
+      body: 'Outer targets {props.runtime}.\n\n<Render file="inner" params={{ runtime: props.runtime }} />',
+      headings: [],
+      data: { params: ["runtime"] },
+    },
+    inner: {
+      id: "inner",
+      body: "Inner targets {props.runtime}.",
+      headings: [],
+      data: { params: ["runtime"] },
+    },
+  };
+  const expanded = await expandWorkerPartials(
+    '<Render file="outer" params={{ runtime: "node" }} />',
+    makeGetEntry(partials),
+  );
+
+  assert.equal(expanded, "Outer targets node.\n\nInner targets node.");
+});
+
+test("Worker markdown expansion validates required partial params", async () => {
+  const partials: Record<string, MockEntry> = {
+    runtime: {
+      id: "runtime",
+      body: "Runtime: {props.runtime}",
+      headings: [],
+      data: { params: ["runtime"] },
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      expandWorkerPartials('<Render file="runtime" />', makeGetEntry(partials)),
+    /Missing required params \["runtime"\] for "runtime"/,
+  );
 });
 
 test("nested partial headings are included recursively", async () => {
@@ -202,7 +269,9 @@ test("custom resolvePartialId is used (product convention)", async () => {
     "bots/snippet": {
       id: "bots/snippet",
       body: "## Snippet heading\n",
-      headings: [{ depth: 2, text: "Snippet heading", slug: "snippet-heading" }],
+      headings: [
+        { depth: 2, text: "Snippet heading", slug: "snippet-heading" },
+      ],
     },
   };
 
@@ -244,9 +313,7 @@ test("extra Astro headings without source nodes are appended (e.g. footnote-labe
 });
 
 test("entry with no body returns Astro headings unchanged", async () => {
-  const parentHeadings: Heading[] = [
-    { depth: 2, text: "Foo", slug: "foo" },
-  ];
+  const parentHeadings: Heading[] = [{ depth: 2, text: "Foo", slug: "foo" }];
 
   const result = await mergePartialHeadings(
     undefined,
