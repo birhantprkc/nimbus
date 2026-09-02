@@ -3,7 +3,7 @@ import type { GetStaticPaths } from "astro";
 import DocsLayout from "../layouts/DocsLayout.astro";
 import {
   getDocsStaticPaths,
-  getDocsPageProps,
+  getDocsPage,
   getRouteFlags,
   getSidebar,
   getPrevNext,
@@ -28,7 +28,9 @@ export const getStaticPaths: GetStaticPaths = async (options) => {
   );
 };
 
-const { entry, Content, headings } = await getDocsPageProps(Astro);
+const page = await getDocsPage(Astro);
+if (page instanceof Response) return page;
+const { entry, Content, headings } = page;
 
 const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
 

@@ -1,4 +1,4 @@
-import { getVisibleEntries } from "@cloudflare/nimbus-docs";
+import { getVisibleEntries } from "@cloudflare/nimbus-docs/runtime";
 import { OGImageRoute } from "astro-og-canvas";
 import { ogCardConfig } from "./_og-card-config";
 
