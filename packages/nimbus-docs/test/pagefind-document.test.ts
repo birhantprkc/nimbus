@@ -17,6 +17,17 @@ test("synthetic Pagefind Markdown preserves headings as subresult anchors", () =
   assert.match(html, /<pre>[\s\S]*## Not a heading[\s\S]*<\/pre>/);
 });
 
+test("synthetic Pagefind headings cannot inject incomplete HTML tags", () => {
+  const html = pagefindMarkdown("## Before <script after");
+
+  assert.equal(html, '<h2 id="before-script-after">Before script after</h2>');
+  assert.doesNotMatch(html, /<script/i);
+  assert.equal(
+    pagefindMarkdown("## Before <em>after</em>"),
+    '<h2 id="before-after">Before after</h2>',
+  );
+});
+
 test("synthetic Pagefind document retains route metadata and heading HTML", () => {
   const html = pagefindDocument({
     url: "/v1/runtime/",

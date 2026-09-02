@@ -10,11 +10,38 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
+function stripInlineHtml(value: string): string {
+  let output = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const start = value.indexOf("<", cursor);
+    if (start === -1) return output + value.slice(cursor);
+    let end = start + 1;
+    let quote: '"' | "'" | undefined;
+    for (; end < value.length; end++) {
+      const character = value[end];
+      if (quote) {
+        if (character === quote) quote = undefined;
+      } else if (character === '"' || character === "'") {
+        quote = character;
+      } else if (character === ">") {
+        break;
+      }
+    }
+    if (end === value.length) return output + value.slice(cursor);
+    output += value.slice(cursor, start);
+    cursor = end + 1;
+  }
+  return output;
+}
+
 function headingText(markdown: string): string {
-  return markdown
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/<[^>]+>/g, "")
+  return stripInlineHtml(
+    markdown
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1"),
+  )
+    .replace(/[<>]/g, "")
     .replace(/[`*_~]/g, "")
     .trim();
 }
