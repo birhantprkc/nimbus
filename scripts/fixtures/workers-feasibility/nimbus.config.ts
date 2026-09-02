@@ -7,5 +7,12 @@ export default defineConfig({
   locale: "en",
   github: null,
   search: false,
-  socialImage: "/og.png",
+  rendering: { collections: { api: "request" } },
+  api: [
+    {
+      collection: "api",
+      spec: "src/content/api/openapi.json",
+      label: "Feasibility API",
+    },
+  ],
 });

@@ -1,23 +1,15 @@
 ---
-import { getCollection, getEntry, type CollectionEntry } from "astro:content";
+import { getApiRoute, getApiStaticPaths } from "@cloudflare/nimbus-docs/runtime";
 import Header from "@/components/Header.astro";
 import { ApiLayout } from "@/components/ui/api-layout";
 import BaseLayout from "@/layouts/BaseLayout.astro";
 
 export const prerender = true;
-export async function getStaticPaths() {
-  const entries = await getCollection("api");
-  return entries.map((entry) => ({
-    params: { slug: entry.id === "index" ? undefined : entry.id },
-    props: { entry },
-  }));
-}
+export const getStaticPaths = getApiStaticPaths("api");
 
-const requestEntry = await getEntry("api", Astro.params.slug ?? "index");
-const entry = (Astro.props.entry ?? requestEntry) as CollectionEntry<"api"> | undefined;
-if (!entry) return new Response("Not found", { status: 404 });
-
-const { page, nav, coordinate } = entry.data;
+const result = await getApiRoute(Astro);
+if (result instanceof Response) return result;
+const { page, nav, coordinate } = result;
 const requestProbe = Astro.request.headers.get("x-nimbus-probe") ?? "";
 ---
 

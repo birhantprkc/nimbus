@@ -1,31 +1,30 @@
 ---
 import DocsLayout from "../layouts/DocsLayout.astro";
-import { render, type CollectionEntry } from "astro:content";
 import {
   getBreadcrumbs,
   getDocsStaticPaths,
+  getDocsPage,
+  getDocsPageProps,
   getEditUrl,
   getPrevNext,
   getRouteFlags,
   getSidebar,
   getTOC,
-  getVisibleEntry,
   withBase,
-} from "@cloudflare/nimbus-docs";
+} from "@cloudflare/nimbus-docs/runtime";
 import { components } from "../components";
-import { mergeFixturePartialHeadings } from "../worker-safe-partial-headings";
 
 export const prerender = true;
 export const getStaticPaths = getDocsStaticPaths;
 
-const staticEntry = (Astro.props as { entry?: CollectionEntry<"docs"> }).entry;
-const entry = staticEntry ?? await getVisibleEntry("docs", Astro.params.slug ?? "index");
-if (!entry) return new Response("Not found", { status: 404 });
-
-const { Content, headings: ownHeadings } = await render(entry);
-const headings = await mergeFixturePartialHeadings(entry.body, ownHeadings);
+const page = Astro.url.pathname === "/runtime/"
+  ? await getDocsPageProps(Astro)
+  : await getDocsPage(Astro);
+if (page instanceof Response) return page;
+const { entry, Content, headings } = page;
 const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
-const { sidebar: sidebarOn, tableOfContents: tocOn } = await getRouteFlags(entry);
+const { sidebar: sidebarOn, tableOfContents: tocOn } =
+  await getRouteFlags(entry);
 const sidebar = sidebarOn
   ? await getSidebar(currentSlug, { collection: entry.collection })
   : false;
@@ -33,14 +32,18 @@ const prevNext = await getPrevNext(currentSlug, {
   sidebarTree: sidebar === false ? [] : sidebar,
   overrides: { prev: entry.data.prev, next: entry.data.next },
 });
-const breadcrumbs = await getBreadcrumbs(currentSlug, { collection: entry.collection });
+const breadcrumbs = await getBreadcrumbs(currentSlug, {
+  collection: entry.collection,
+});
 const editUrl = await getEditUrl(entry);
 const tocConfig = entry.data.tableOfContents;
 const toc = tocOn && tocConfig !== false ? getTOC(headings, tocConfig) : false;
 const markdownPath = entry.id === "index" ? "/index.md" : `/${entry.id}/index.md`;
 const basedMarkdownPath = withBase(markdownPath, import.meta.env.BASE_URL);
-const markdownUrl = Astro.site ? new URL(basedMarkdownPath, Astro.site).href : basedMarkdownPath;
-const socialImage = entry.data.socialImage ?? `/og/${entry.id}.png`;
+const markdownUrl = Astro.site
+  ? new URL(basedMarkdownPath, Astro.site).href
+  : basedMarkdownPath;
+const socialImage = entry.data.socialImage;
 const requestProbe = Astro.request.headers.get("x-nimbus-probe") ?? "";
 ---
 

@@ -100,6 +100,11 @@ function assertProse(html) {
   );
   assert(html.includes("class=\"astro-code"), "syntax-highlighted code did not render");
   assert(html.includes("nb-shiki-"), "syntax-highlighted tokens did not render");
+  assert(html.includes('href="/favicon.ico"'), "build-derived favicon metadata did not render");
+  assert(
+    html.includes('content="https://workers-feasibility.test/opengraph.png"'),
+    "build-derived social metadata did not render",
+  );
 }
 
 function assertPreparedApi(html, kind) {
@@ -218,8 +223,6 @@ const nimbusPackage = JSON.parse(readFileSync(NIMBUS_PACKAGE, "utf8"));
 for (const dependency of [
   "micromark",
   "micromark-extension-gfm",
-  "remark-mdx",
-  "remark-parse",
 ]) {
   for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
     assert(
@@ -271,15 +274,7 @@ packageJson.dependencies["@cloudflare/nimbus-docs"] = `file:${join(packRoot, tar
 packageJson.dependencies["@bruits/satteri-wasm32-wasi"] = "0.9.5";
 packageJson.dependencies["@readme/httpsnippet"] = "11.4.0";
 packageJson.dependencies["@scalar/openapi-parser"] = "0.28.12";
-packageJson.dependencies["hast-util-from-html"] = "2.0.3";
-packageJson.dependencies["hast-util-sanitize"] = "5.0.2";
-packageJson.dependencies["hast-util-to-html"] = "9.0.5";
-packageJson.dependencies.micromark = "4.0.2";
-packageJson.dependencies["micromark-extension-gfm"] = "3.0.0";
 packageJson.dependencies["openapi-sampler"] = "1.7.4";
-packageJson.dependencies["remark-mdx"] = "3.1.1";
-packageJson.dependencies["remark-parse"] = "11.0.0";
-packageJson.dependencies.unified = "11.0.5";
 writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
 mkdirSync(join(site, "src", "pages", "api"), { recursive: true });
 
@@ -302,27 +297,24 @@ for (const kind of ["api", "section", "operation", "schema"]) {
 const shikiCss = readFileSync(join(site, "dist", "client", "_nimbus", "shiki.css"), "utf8");
 assert(shikiCss.includes(".nb-shiki-"), "all-build baseline omitted Shiki token styles");
 
-function restoreShikiCss() {
-  const cssDir = join(site, "dist", "client", "_nimbus");
-  mkdirSync(cssDir, { recursive: true });
-  writeFileSync(join(cssDir, "shiki.css"), shikiCss);
-}
-
 console.log(`${PREFIX} proving request prose beside build-rendered API pages`);
 build(site, { docs: "request", api: "build" });
-restoreShikiCss();
 const requestProsePages = captureStaticPages(site);
 assert(findMarkedPages(requestProsePages, "data-feasibility-prose").length === 0, "request prose emitted static HTML");
 assert(apiKinds(requestProsePages).size === 4, "build API pages were not emitted beside request prose");
 await withWorkerd(site, async (origin) => {
   const first = await request(origin, proseStatic[0][0], "prose-one");
   const second = await request(origin, proseStatic[0][0], "prose-two");
-  assert(first.response.status === 200 && second.response.status === 200, "request prose was not 200");
+  assert(
+    first.response.status === 200 && second.response.status === 200,
+    `request prose returned ${first.response.status}/${second.response.status}: ${first.html.slice(0, 500)}`,
+  );
   assertProse(first.html);
   assertProbe(first.html, "prose-one");
   assertProbe(second.html, "prose-two");
   const missing = await request(origin, "/missing-prose/", "missing");
   assert(missing.response.status === 404, "unknown request prose was not 404");
+  assert(missing.html.includes("Page not found"), "unknown request prose bypassed the custom 404 page");
   const styles = await request(origin, "/_nimbus/shiki.css");
   assert(styles.response.status === 200 && styles.html.includes(".nb-shiki-"), "Shiki styles were not served");
   for (const { route } of staticKinds.values()) {
@@ -334,7 +326,6 @@ await withWorkerd(site, async (origin) => {
 
 console.log(`${PREFIX} proving request API pages beside build-rendered prose`);
 build(site, { docs: "build", api: "request" });
-restoreShikiCss();
 const requestApiPages = captureStaticPages(site);
 assert(findMarkedPages(requestApiPages, "data-feasibility-prose").length === 1, "build prose was not emitted beside request API pages");
 assert(apiKinds(requestApiPages).size === 0, "request API emitted static HTML");
@@ -365,7 +356,6 @@ await withWorkerd(site, async (origin) => {
 
 console.log(`${PREFIX} proving both route families in request mode`);
 build(site, { docs: "request", api: "request" });
-restoreShikiCss();
 const requestOnlyPages = captureStaticPages(site);
 assert(findMarkedPages(requestOnlyPages, "data-feasibility-prose").length === 0, "request-only build emitted prose HTML");
 assert(apiKinds(requestOnlyPages).size === 0, "request-only build emitted API HTML");
