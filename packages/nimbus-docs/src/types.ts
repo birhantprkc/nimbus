@@ -92,6 +92,20 @@ export interface NimbusConfig {
    * wedges this site's build (unlike a broken *local* citation, which fails).
    */
   apiReferences?: ApiReference[];
+  /**
+   * Where each routed collection renders. Omit to preserve the all-build
+   * default. Overrides are collection names, not URL patterns or API versions.
+   */
+  rendering?: RenderingConfig;
+}
+
+export type RenderingMode = "build" | "request";
+
+export interface RenderingConfig {
+  /** Mode for canonical collection routes without an explicit override. */
+  default?: RenderingMode;
+  /** Per-collection overrides keyed by registered Astro collection name. */
+  collections?: Record<string, RenderingMode>;
 }
 
 /**

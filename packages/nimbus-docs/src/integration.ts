@@ -35,13 +35,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AstroIntegration, ShikiConfig } from "astro";
 import mdx from "@astrojs/mdx";
-import { satteri } from "@astrojs/markdown-satteri";
-import type {
-  HastPluginDefinition,
-  HastPluginInput,
-  MdastPluginDefinition,
-  MdastPluginInput,
-} from "satteri";
+import type { HastPluginInput, MdastPluginInput } from "satteri";
 import sitemap from "@astrojs/sitemap";
 import { admonitionPlugin } from "./_internal/admonition-vite-plugin.js";
 import {
@@ -84,6 +78,7 @@ import {
   makeHiddenSitemapFilter,
 } from "./_internal/hidden-sitemap.js";
 import { virtualConfigPlugin } from "./_internal/virtual-config.js";
+import { virtualApiBuildConfigPlugin } from "./_internal/virtual-api-build-config.js";
 import { virtualCoordinatesPlugin } from "./_internal/virtual-coordinates.js";
 import { citationPlugin } from "./_internal/api/citation-vite-plugin.js";
 import {
@@ -91,8 +86,11 @@ import {
   type CoordinatesManifest,
 } from "./_internal/api/citation-index.js";
 import { ingestApiReferences } from "./_internal/api/ingest-references.js";
-import { iconVirtualPlugin, type IconPluginOptions } from "./_internal/icon-virtual.js";
-import { scanCodeBlockLanguages } from "./_internal/scan-code-langs.js";
+import {
+  iconVirtualPlugin,
+  type IconPluginOptions,
+} from "./_internal/icon-virtual.js";
+import { scanCodeBlocks } from "./_internal/scan-code-langs.js";
 import {
   clearCodeStyleRegistry,
   getCodeStyleCSS,
@@ -116,7 +114,13 @@ import {
   type RedirectConfigLike,
 } from "./_internal/redirect-emitters.js";
 import { resolveSite } from "./_internal/site-detect.js";
-import type { NimbusConfig } from "./types.js";
+import {
+  canonicalCollectionRouteComponent,
+  compileRenderingPolicy,
+  normalizeRouteComponent,
+  routeComponentKeys,
+} from "./_internal/rendering-policy.js";
+import type { NimbusConfig, RenderingMode } from "./types.js";
 
 /**
  * Common shorthand fences that Shiki doesn't recognise out of the box.
@@ -129,6 +133,12 @@ const SHIKI_LANG_ALIAS: Record<string, string> = {
   console: "bash",
   shellsession: "shellscript",
 };
+
+const REQUEST_ROUTE_INVENTORY_PATTERN = "/_nimbus/request-route-inventory.json";
+const REQUEST_ROUTE_INVENTORY_ENTRYPOINT = new URL(
+  `./_internal/request-route-inventory.${import.meta.url.endsWith(".ts") ? "ts" : "js"}`,
+  import.meta.url,
+);
 
 export interface SitemapOptions {
   serialize?: SitemapSerialize;
@@ -259,9 +269,7 @@ export interface NimbusIntegrationOptions {
    *   - `false`: disable the icon plugin entirely.
    *   - `{ iconDir, include, svgoOptions }`: explicit configuration.
    */
-  icons?:
-    | boolean
-    | IconPluginOptions;
+  icons?: boolean | IconPluginOptions;
   /**
    * Authoring-lint severity overrides for `nimbus-docs lint`. Maps a rule
    * code to `"error" | "warn" | "off"` or a `[severity, options]` tuple.
@@ -317,22 +325,56 @@ export function nimbus(
   let resolvedRoutesForBuild: ResolvedRouteLike[] = [];
   // Resolved `redirects` (user ∪ version-alternate) for the platform emitter.
   let redirectsForBuild: Record<string, RedirectConfigLike> = {};
+  let renderingRoutes = new Map<string, RenderingMode>();
+  let requestRenderingConfigured = false;
+  let requestRenderingCollections = new Set<string>();
+  let requestRoutePatterns = new Set<string>();
+  let building = false;
 
   // Built eagerly at config:setup, reassigned by the dev re-bake; both the
   // citation plugin and virtual:nimbus/coordinates read it through a getter.
   let citationIndex = new Map<string, string>();
-  let coordinatesManifest: CoordinatesManifest = { version: 1, collections: {} };
+  let coordinatesManifest: CoordinatesManifest = {
+    version: 1,
+    collections: {},
+  };
 
   return {
     name: "@cloudflare/nimbus-docs",
     hooks: {
       "astro:config:setup": async (params) => {
-        const { updateConfig, config: astroConfig, logger, command } = params;
+        const {
+          updateConfig,
+          injectRoute,
+          config: astroConfig,
+          logger,
+          command,
+        } = params;
+        building = command === "build";
 
         // App files (content.config.ts, pages/, components.ts) follow srcDir;
         // content/assets stay root-relative via their collection bases.
         const srcDir = fileURLToPath(astroConfig.srcDir);
         const projectRoot = fileURLToPath(astroConfig.root);
+        const publicDir = astroConfig.publicDir
+          ? fileURLToPath(astroConfig.publicDir)
+          : path.join(projectRoot, "public");
+        const faviconCandidates = [
+          { file: "favicon.svg", type: "image/svg+xml" },
+          { file: "favicon.ico", type: "image/x-icon" },
+          { file: "favicon.png", type: "image/png" },
+        ];
+        const favicon =
+          faviconCandidates.find(({ file }) =>
+            fs.existsSync(path.join(publicDir, file)),
+          ) ?? faviconCandidates[0]!;
+        const defaultSocialImage = fs.existsSync(
+          path.join(publicDir, "opengraph.png"),
+        )
+          ? "/opengraph.png"
+          : fs.existsSync(path.join(publicDir, "logo.png"))
+            ? "/logo.png"
+            : "/og.png";
 
         // Resolve `site` from platform env when it's still a placeholder, before
         // anything reads it. Mutating the validated config propagates the origin
@@ -385,9 +427,9 @@ export function nimbus(
                 `Create the file with \`export const components = { /* ... */ };\` or set \`validateMdx: false\` to silence this warning.`,
             );
           } else {
-            const contentDirs = (validateOpts.contentDirs ?? ["src/content"]).map(
-              (d) => (path.isAbsolute(d) ? d : path.join(projectRoot, d)),
-            );
+            const contentDirs = (
+              validateOpts.contentDirs ?? ["src/content"]
+            ).map((d) => (path.isAbsolute(d) ? d : path.join(projectRoot, d)));
             const failures = await validateMdxContent({
               globals,
               contentDirs,
@@ -426,18 +468,29 @@ export function nimbus(
         // so Shiki eager-loads grammars at startup. This makes cold-build
         // output stable regardless of file processing order (Shiki's lazy
         // load otherwise depends on which file hits a grammar first).
-        const codeBlockLangs = await scanCodeBlockLanguages(
-          projectRoot,
-          SHIKI_LANG_ALIAS,
-        );
+        const codeBlocks = await scanCodeBlocks(projectRoot, SHIKI_LANG_ALIAS);
+        const codeBlockLangs = [
+          ...new Set(codeBlocks.map(({ lang }) => lang)),
+        ].sort();
         const userShikiConfig = astroConfig.markdown?.shikiConfig as
-          | Record<string, unknown>
-          | undefined;
+          Record<string, unknown> | undefined;
         const classShikiTokens = shouldClassShikiTokens(userShikiConfig);
         const hasCustomTheme = hasCustomShikiTheme(userShikiConfig);
         const useNimbusDefaultThemes = !hasCustomTheme;
-        const useNimbusDefaultColor = !hasCustomTheme &&
-          !hasCustomShikiDefaultColor(userShikiConfig);
+        const useNimbusDefaultColor =
+          !hasCustomTheme && !hasCustomShikiDefaultColor(userShikiConfig);
+        clearCodeStyleRegistry();
+        if (
+          classShikiTokens &&
+          (config.rendering?.default === "request" ||
+            Object.values(config.rendering?.collections ?? {}).includes(
+              "request",
+            ))
+        ) {
+          const { registerCodeBlockStyles } =
+            await import("./_internal/register-code-styles.js");
+          await registerCodeBlockStyles(codeBlocks);
+        }
 
         // Parse `content.config.ts` up front: we need
         //   - the registered collection set (for `virtual:nimbus/config`'s
@@ -447,33 +500,122 @@ export function nimbus(
         //     scanned at the right on-disk location rather than being
         //     silently skipped).
         const contentConfigPath = path.join(srcDir, "content.config.ts");
-        const rawCollections = await parseContentCollections(contentConfigPath);
+        const parsedCollections =
+          await parseContentCollections(contentConfigPath);
+        const rawCollections = parsedCollections?.names ?? null;
         const collectionBases = await parseCollectionBases(contentConfigPath);
         // API collections carry no MDX body, but they DO reach the agent index:
         // their `.md` twins are served by `renderApiPageMarkdown` (dispatched in
         // `renderIndexedEntryMarkdown`), so llms.txt/corpus links resolve. The
         // reserved-name filter still applies; `null` (no parseable config) falls
         // back to `["docs"]`, matching `getIndexedEntries()`.
-        const indexedCollections =
-          rawCollections === null ? ["docs"] : filterIndexableCollections(rawCollections);
         // Which of those are API collections — render-time dispatch (prose vs
         // emitter) keys off this, and `getApiModel` resolves specs against
         // `projectRoot` (declared above — the loader's base), not `process.cwd()`.
-        const apiCollections = (config.api ?? []).map((entry) => entry.collection);
+        const apiCollections = (config.api ?? []).map(
+          (entry) => entry.collection,
+        );
+        const parsedIndexedCollections =
+          rawCollections === null ||
+          (parsedCollections?.complete === false && rawCollections.length === 0)
+            ? ["docs"]
+            : filterIndexableCollections(rawCollections);
+        const indexedCollections = [
+          ...new Set([...parsedIndexedCollections, ...apiCollections]),
+        ];
+
+        renderingRoutes = new Map();
+        requestRenderingConfigured = false;
+        requestRenderingCollections = new Set();
+        requestRoutePatterns = new Set();
+        if (config.rendering) {
+          const versions = config.versions
+            ? { others: config.versions.others ?? [] }
+            : null;
+          const candidates = new Set([
+            ...indexedCollections,
+            ...(config.versions?.others ?? []).map(
+              (version) => `docs-${version}`,
+            ),
+          ]);
+          const unresolvedOverrides = Object.keys(
+            config.rendering.collections ?? {},
+          ).filter((collection) => !candidates.has(collection));
+          if (
+            parsedCollections?.complete === false &&
+            (config.rendering.default === "request" ||
+              unresolvedOverrides.length > 0)
+          ) {
+            throw new Error(
+              "nimbus-docs: rendering policy cannot safely enumerate collections because " +
+                "`src/content.config.ts` contains registrations Nimbus cannot identify statically. " +
+                "Use explicit top-level collection keys before applying a request default " +
+                "or overriding a collection Nimbus cannot statically identify.",
+            );
+          }
+          const canonicalCollections = [...candidates].filter((collection) =>
+            fs.existsSync(
+              canonicalCollectionRouteComponent(srcDir, collection, versions),
+            ),
+          );
+          const policy = compileRenderingPolicy(
+            config.rendering,
+            canonicalCollections,
+          );
+          requestRenderingConfigured = Object.values(
+            policy.collections,
+          ).includes("request");
+          requestRenderingCollections = new Set(
+            Object.entries(policy.collections)
+              .filter(([, mode]) => mode === "request")
+              .map(([collection]) => collection),
+          );
+          for (const [collection, mode] of Object.entries(policy.collections)) {
+            const component = canonicalCollectionRouteComponent(
+              srcDir,
+              collection,
+              versions,
+            );
+            for (const key of routeComponentKeys(projectRoot, component)) {
+              renderingRoutes.set(key, mode);
+            }
+          }
+          if (building && requestRenderingConfigured) {
+            injectRoute({
+              pattern: REQUEST_ROUTE_INVENTORY_PATTERN,
+              entrypoint: REQUEST_ROUTE_INVENTORY_ENTRYPOINT,
+              prerender: true,
+            });
+          }
+        }
 
         // Remote refs fold into the citation index but not the manifest (which republishes
         // only local collections).
         {
-          const { index, manifest } = await buildCitationIndex(config.api, projectRoot);
-          await ingestApiReferences(config.apiReferences, index, projectRoot, logger);
+          const { index, manifest } = await buildCitationIndex(
+            config.api,
+            projectRoot,
+          );
+          await ingestApiReferences(
+            config.apiReferences,
+            index,
+            projectRoot,
+            logger,
+          );
           citationIndex = index;
           coordinatesManifest = manifest;
         }
 
         if (rawCollections === null) {
           logger.warn(
-            `nimbus-docs: \`src/content.config.ts\` is missing or doesn't expose a parseable \`export const collections = { ... }\`. ` +
+            `nimbus-docs: \`src/content.config.ts\` is missing. ` +
               `Falling back to indexing the \`docs\` collection only.`,
+          );
+        } else if (parsedCollections?.complete === false) {
+          logger.warn(
+            "nimbus-docs: `src/content.config.ts` contains collection registrations " +
+              "that cannot be identified statically. Only explicit top-level keys " +
+              "are available to collection-aware tooling.",
           );
         }
 
@@ -551,7 +693,7 @@ export function nimbus(
         // collection named `docs-<v>`. We can only check this when we
         // actually parsed content.config.ts — if `rawCollections` is null
         // the user is on a brand-new project and we already warned.
-        if (config.versions && rawCollections !== null) {
+        if (config.versions && parsedCollections?.complete === true) {
           const registered = new Set(rawCollections);
           const missing = config.versions.others.filter(
             (slug) => !registered.has(`docs-${slug}`),
@@ -608,9 +750,8 @@ export function nimbus(
         // every docs key, so the merge is a plain spread. Runs even when the
         // site has no docs versions.
         if (config.api?.some((e) => e.versions && e.versions.length > 1)) {
-          const { buildApiVersionAlternates } = await import(
-            "./_internal/api/api-alternates.js"
-          );
+          const { buildApiVersionAlternates } =
+            await import("./_internal/api/api-alternates.js");
           const apiAlternates = await buildApiVersionAlternates(
             config.api,
             projectRoot,
@@ -656,12 +797,14 @@ export function nimbus(
         // Admonition transform plugin: only constructed when enabled
         // (default on). Same `contentDirs` defaulting as the MDX
         // validator — keeps the two scans aligned.
-        const admonitionVitePlugins = [] as Array<ReturnType<typeof admonitionPlugin>>;
+        const admonitionVitePlugins = [] as Array<
+          ReturnType<typeof admonitionPlugin>
+        >;
         if (options.admonitions !== false) {
           const admoOpts =
             typeof options.admonitions === "object" ? options.admonitions : {};
-          const contentDirs = (admoOpts.contentDirs ?? ["src/content"]).map((d) =>
-            path.isAbsolute(d) ? d : path.join(projectRoot, d),
+          const contentDirs = (admoOpts.contentDirs ?? ["src/content"]).map(
+            (d) => (path.isAbsolute(d) ? d : path.join(projectRoot, d)),
           );
           admonitionVitePlugins.push(
             admonitionPlugin({
@@ -675,6 +818,15 @@ export function nimbus(
         const citationContentDirs = ["src/content"].map((d) =>
           path.isAbsolute(d) ? d : path.join(projectRoot, d),
         );
+
+        const markdownProcessor =
+          options.markdown?.processor ??
+          (
+            await import("./_internal/default-markdown-processor.js")
+          ).createDefaultMarkdownProcessor({
+            hastPlugins: options.markdown?.hastPlugins,
+            mdastPlugins: options.markdown?.mdastPlugins,
+          });
 
         updateConfig({
           // Bridge `nimbusConfig.site` → Astro's top-level `site`. The
@@ -707,13 +859,7 @@ export function nimbus(
             // applies), so existing sites are unaffected. A full `processor`
             // override bypasses this. The `*Input[]` → `*Definition[]` cast is
             // safe: `markdownToHtml` resolves factory entries at runtime.
-            processor: (options.markdown?.processor ??
-              satteri({
-                hastPlugins: (options.markdown?.hastPlugins ??
-                  []) as HastPluginDefinition[],
-                mdastPlugins: (options.markdown?.mdastPlugins ??
-                  []) as MdastPluginDefinition[],
-              })) as never,
+            processor: markdownProcessor as never,
             // Dual-theme Shiki output. `defaultColor: false` makes Shiki
             // emit BOTH themes as inline CSS variables (`--shiki-light`,
             // `--shiki-dark`, `--shiki-light-bg`, `--shiki-dark-bg`)
@@ -753,7 +899,9 @@ export function nimbus(
               // Shiki resolves bundled-language *names* (strings) at runtime,
               // but Astro's `shikiConfig.langs` type only admits
               // `LanguageRegistration` objects — cast the scanned names here.
-              langs: codeBlockLangs as unknown as NonNullable<ShikiConfig["langs"]>,
+              langs: codeBlockLangs as unknown as NonNullable<
+                ShikiConfig["langs"]
+              >,
             },
           },
           // Versioning: auto-redirects from old-version URLs whose
@@ -791,17 +939,21 @@ export function nimbus(
                 coordinates: Object.fromEntries(citationIndex),
                 manifest: coordinatesManifest,
               })),
+              virtualApiBuildConfigPlugin(config.api, projectRoot),
               virtualConfigPlugin(config, {
                 indexedCollections,
+                requestRenderingCollections: [...requestRenderingCollections],
                 versionAlternates,
                 apiCollections,
-                root: projectRoot,
+                headDefaults: { favicon, socialImage: defaultSocialImage },
               }),
               ...(options.icons !== false
                 ? [
                     iconVirtualPlugin({
                       root: fileURLToPath(astroConfig.root),
-                      ...(typeof options.icons === "object" ? options.icons : {}),
+                      ...(typeof options.icons === "object"
+                        ? options.icons
+                        : {}),
                     }),
                   ]
                 : []),
@@ -842,11 +994,46 @@ export function nimbus(
           },
         });
       },
-      "astro:config:done": ({ injectTypes, config: astroConfig }) => {
-        outputModeForBuild = astroConfig.output === "server" ? "server" : "static";
+      "astro:route:setup": ({ route }) => {
+        const mode = renderingRoutes.get(
+          normalizeRouteComponent(route.component),
+        );
+        if (!mode) return;
+        route.prerender = mode === "build";
+      },
+      "astro:config:done": ({
+        injectTypes,
+        config: astroConfig,
+        buildOutput,
+      }) => {
+        outputModeForBuild =
+          buildOutput ??
+          (astroConfig.output === "server" ? "server" : "static");
         adapterNameForBuild = astroConfig.adapter?.name ?? null;
-        redirectsForBuild = (astroConfig.redirects ??
-          {}) as Record<string, RedirectConfigLike>;
+        if (
+          building &&
+          requestRenderingConfigured &&
+          (outputModeForBuild !== "server" || !adapterNameForBuild)
+        ) {
+          throw new Error(
+            'nimbus-docs: rendering mode "request" requires Astro `output: "server"` and a compatible adapter for production builds. ' +
+              `Received output=${outputModeForBuild}, adapter=${adapterNameForBuild ?? "none"}.`,
+          );
+        }
+        if (
+          building &&
+          requestRenderingConfigured &&
+          adapterNameForBuild?.replace(/^@astrojs\//, "") !== "cloudflare"
+        ) {
+          throw new Error(
+            'nimbus-docs: rendering mode "request" currently requires `@astrojs/cloudflare`. ' +
+              `Received adapter=${adapterNameForBuild}. Other production adapters are deferred until BG-1c.7.`,
+          );
+        }
+        redirectsForBuild = (astroConfig.redirects ?? {}) as Record<
+          string,
+          RedirectConfigLike
+        >;
         // TypeScript declaration for the virtual module. Written to
         // `.astro/integrations/nimbus-docs/virtual-config.d.ts` and
         // auto-referenced by the project tsconfig via Astro's generated
@@ -859,12 +1046,14 @@ export function nimbus(
             "  export const config: NimbusConfig;",
             "  /** Build-time list of indexable collection names. See `getIndexedEntries()`. */",
             "  export const indexedCollections: readonly string[];",
+            "  /** Collections whose canonical routes render on request. Build-only. */",
+            "  export const requestRenderingCollections: readonly string[];",
             "  /** Build-time cross-version alternates table. See `getVersionAlternates()`. */",
             "  export const versionAlternates: VersionAlternatesTable;",
             "  /** Subset of `indexedCollections` that are OpenAPI reference collections. Server-only. */",
             "  export const apiCollections: readonly string[];",
-            "  /** Absolute project root (the loader's spec-resolution base). Build/server-only. */",
-            "  export const root: string;",
+            "  /** Build-time defaults derived from Astro's public directory. */",
+            "  export const headDefaults: { favicon: { file: string; type: string }; socialImage: string };",
             "}",
             "",
           ].join("\n"),
@@ -873,7 +1062,7 @@ export function nimbus(
           filename: "virtual-icons.d.ts",
           content: [
             'declare module "virtual:nimbus/icons" {',
-            "  import type { IconifyJSON } from \"@iconify/types\";",
+            '  import type { IconifyJSON } from "@iconify/types";',
             "  export type Icon = string;",
             "  export const config: { include: Record<string, string[]> };",
             "  const icons: Record<string, IconifyJSON>;",
@@ -884,9 +1073,9 @@ export function nimbus(
         });
       },
       "astro:server:setup": ({ server }) => {
-        clearCodeStyleRegistry();
         server.middlewares.use((req, res, next) => {
-          const pathname = new URL(req.url ?? "/", "http://nimbus.local").pathname;
+          const pathname = new URL(req.url ?? "/", "http://nimbus.local")
+            .pathname;
           // Match by suffix so the shiki stylesheet is served regardless of
           // how Vite's dev server presents `base` on `req.url` at a non-root
           // base (the build serves this file statically, so it's dev-only).
@@ -922,7 +1111,10 @@ export function nimbus(
         // re-executes load-citation-index.ts.
         const rebakePaths = new Set([
           ...collectSpecFilePaths(config.api, projectRootForBuild),
-          ...collectLocalManifestPaths(config.apiReferences, projectRootForBuild),
+          ...collectLocalManifestPaths(
+            config.apiReferences,
+            projectRootForBuild,
+          ),
         ]);
         if (rebakePaths.size > 0) {
           const rebakeCitationIndex = async (file: string) => {
@@ -953,13 +1145,23 @@ export function nimbus(
         }
       },
       "astro:build:start": async () => {
-        // Reset the per-build code-style registry so Shiki token classes
-        // don't leak across builds in a long-lived dev/CI process.
-        clearCodeStyleRegistry();
         const { clearNavCaches } = await import("./index.js");
         clearNavCaches();
       },
       "astro:routes:resolved": ({ routes }) => {
+        requestRoutePatterns =
+          renderingRoutes.size === 0
+            ? new Set()
+            : new Set(
+                routes
+                  .filter(
+                    (route) =>
+                      renderingRoutes.get(
+                        normalizeRouteComponent(route.entrypoint),
+                      ) === "request",
+                  )
+                  .map((route) => route.pattern),
+              );
         resolvedRoutesForBuild = routes.map((r) => ({
           pattern: r.pattern,
           type: r.type,
@@ -968,6 +1170,25 @@ export function nimbus(
         }));
       },
       "astro:build:done": async ({ dir, pages, logger }) => {
+        const distDir = fileURLToPath(dir);
+        const publicPages = requestRenderingConfigured
+          ? pages.filter(
+              ({ pathname }) =>
+                !isRequestRouteInventoryPath(pathname, astroBaseForBuild),
+            )
+          : pages;
+        const prerenderedRoutes = new Set(
+          publicPages.map(({ pathname }) => canonicalizePathname(pathname)),
+        );
+        const requestRoutes = (
+          requestRenderingConfigured
+            ? readRequestRouteInventory(
+                distDir,
+                astroBaseForBuild,
+                requestRenderingCollections,
+              )
+            : []
+        ).filter((pathname) => !prerenderedRoutes.has(pathname));
         // Materialize the site's route truth from Astro's emitted `pages`
         // array — the single source of truth: every URL on this list is a
         // page Astro just wrote to disk. No reconstruction, no slug
@@ -982,7 +1203,8 @@ export function nimbus(
         materializeRouteTruthFromPages(
           projectRootForBuild,
           astroBaseForBuild,
-          pages,
+          publicPages,
+          requestRoutes,
           logger,
         );
 
@@ -1001,8 +1223,10 @@ export function nimbus(
           outputMode: outputModeForBuild,
           adapterName: adapterNameForBuild,
           routes: resolvedRoutes,
-          prerenderedPageCount: pages.length,
+          prerenderedPageCount: publicPages.length,
+          requestRenderedPageCount: requestRoutes.length,
           declaredFeatureRoutes: footprintRoutes(footprint),
+          declaredRequestRoutes: [...requestRoutePatterns],
           serverFeatures: footprint.map((f) => f.id),
         });
         logger.info(report.summaryLine);
@@ -1018,8 +1242,6 @@ export function nimbus(
           coordinatesManifest,
           logger,
         );
-
-        const distDir = fileURLToPath(dir);
 
         // Emit platform redirects only with no adapter; an adapter emits its
         // own (and static-output-with-adapter is a valid combo).
@@ -1076,9 +1298,9 @@ function materializeLintConfig(
 }
 
 /**
- * Write the site's route truth to `<root>/.nimbus/routes.json` from the
- * `pages` array Astro hands us at `astro:build:done`. Each entry in `pages`
- * is a real emitted URL — no reconstruction, no slug mirroring.
+ * Write the site's route truth to `<root>/.nimbus/routes.json` from Astro's
+ * emitted pages plus the concrete inventory produced for request-rendered
+ * collections.
  *
  * Best-effort write, same as `materializeLintConfig`. When the file is
  * missing (e.g. lint ran before any `astro build`), `internal-link` skips
@@ -1093,6 +1315,7 @@ function materializeRouteTruthFromPages(
   projectRoot: string,
   base: string,
   pages: readonly { pathname: string }[],
+  requestRoutes: readonly string[],
   logger: { warn: (msg: string) => void; debug?: (msg: string) => void },
 ): void {
   // Normalize and dedupe pathnames into the canonical `/foo` form used by
@@ -1104,14 +1327,16 @@ function materializeRouteTruthFromPages(
   for (const { pathname } of pages) {
     canonical.add(canonicalizePathname(pathname));
   }
+  for (const pathname of requestRoutes) {
+    canonical.add(canonicalizePathname(pathname));
+  }
 
   const truth: RouteTruth = {
     version: 1,
     base,
     knownRoutes: [...canonical].sort(),
-    // With `pages` as the truth, every emitted URL is in `knownRoutes` —
-    // there are no opaque namespaces. The field stays in the schema for
-    // forward-compat with future SSR-route handling.
+    // Nimbus collections remain enumerable even when their HTML is rendered
+    // on request, so broad opaque namespaces would only hide broken links.
     opaqueNamespaces: [],
   };
 
@@ -1128,6 +1353,72 @@ function materializeRouteTruthFromPages(
       `failed to write .nimbus/routes.json — internal-link will skip: ${(err as Error).message}`,
     );
   }
+}
+
+function isRequestRouteInventoryPath(pathname: string, base: string): boolean {
+  const canonical = canonicalizePathname(pathname);
+  const normalizedBase = canonicalizePathname(base);
+  const basedPattern =
+    normalizedBase === "/"
+      ? REQUEST_ROUTE_INVENTORY_PATTERN
+      : `${normalizedBase}${REQUEST_ROUTE_INVENTORY_PATTERN}`;
+  return (
+    canonical === REQUEST_ROUTE_INVENTORY_PATTERN || canonical === basedPattern
+  );
+}
+
+function readRequestRouteInventory(
+  distDir: string,
+  base: string,
+  requestCollections: ReadonlySet<string>,
+): string[] {
+  const relativeInventoryPath = REQUEST_ROUTE_INVENTORY_PATTERN.slice(1);
+  const basePath = base.replace(/^\/+|\/+$/g, "");
+  const candidates = [
+    path.join(distDir, relativeInventoryPath),
+    ...(basePath ? [path.join(distDir, basePath, relativeInventoryPath)] : []),
+  ];
+  const inventoryPath = candidates.find((candidate) =>
+    fs.existsSync(candidate),
+  );
+  if (!inventoryPath) {
+    throw new Error(
+      "nimbus-docs: request route inventory was not emitted; cannot materialize exact route truth.",
+    );
+  }
+
+  let inventory: unknown;
+  try {
+    inventory = JSON.parse(fs.readFileSync(inventoryPath, "utf8"));
+  } catch (err) {
+    throw new Error(
+      `nimbus-docs: request route inventory is invalid: ${(err as Error).message}`,
+    );
+  }
+  if (!Array.isArray(inventory)) {
+    throw new Error("nimbus-docs: request route inventory must be an array.");
+  }
+
+  const routes = new Set<string>();
+  for (const entry of inventory) {
+    if (
+      typeof entry !== "object" ||
+      entry === null ||
+      typeof (entry as { collection?: unknown }).collection !== "string" ||
+      typeof (entry as { url?: unknown }).url !== "string"
+    ) {
+      throw new Error(
+        "nimbus-docs: request route inventory contains an invalid entry.",
+      );
+    }
+    const { collection, url } = entry as { collection: string; url: string };
+    if (requestCollections.has(collection)) {
+      routes.add(canonicalizePathname(url));
+    }
+  }
+
+  fs.rmSync(inventoryPath, { force: true });
+  return [...routes];
 }
 
 /** Absolute paths of every local spec file backing `config.api`. */
@@ -1155,7 +1446,10 @@ function collectLocalManifestPaths(
 ): Set<string> {
   const paths = new Set<string>();
   for (const ref of apiReferences ?? []) {
-    if (typeof ref.manifest === "string" && !/^https:\/\//i.test(ref.manifest)) {
+    if (
+      typeof ref.manifest === "string" &&
+      !/^https:\/\//i.test(ref.manifest)
+    ) {
       paths.add(path.resolve(root, ref.manifest));
     }
   }
@@ -1239,7 +1533,10 @@ async function emitPlatformRedirects({
 }): Promise<void> {
   if (!shouldEmitRedirects(detectDeploySignals(projectRoot))) return;
 
-  const { redirects: normalized, skipped } = normalizeRedirects(redirects, base);
+  const { redirects: normalized, skipped } = normalizeRedirects(
+    redirects,
+    base,
+  );
   if (skipped.length > 0) {
     logger.warn(
       `nimbus: ${skipped.length} dynamic redirect${skipped.length === 1 ? "" : "s"} ` +

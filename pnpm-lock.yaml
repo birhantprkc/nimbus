@@ -7,6 +7,19 @@ settings:
 importers:
 
   .:
+    dependencies:
+      eslint-scope:
+        specifier: ^9.1.2
+        version: 9.1.2
+      eslint-visitor-keys:
+        specifier: ^5.0.1
+        version: 5.0.1
+      prettier:
+        specifier: ^3.9.6
+        version: 3.9.6
+      volar-service-prettier:
+        specifier: ^0.0.71
+        version: 0.0.71(@volar/language-service@2.4.28)(prettier@3.9.6)
     devDependencies:
       '@changesets/changelog-github':
         specifier: ^0.7.0
@@ -293,6 +306,12 @@ importers:
       openapi-sampler:
         specifier: ^1.7.4
         version: 1.7.4
+      remark-mdx:
+        specifier: ^3.1.1
+        version: 3.1.1
+      remark-parse:
+        specifier: ^11.0.0
+        version: 11.0.0
       tsdown:
         specifier: ^0.20.3
         version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(typescript@5.9.3)
@@ -8053,7 +8072,7 @@ snapshots:
   esast-util-from-js@2.0.1:
     dependencies:
       '@types/estree-jsx': 1.0.5
-      acorn: 8.16.0
+      acorn: 8.18.0
       esast-util-from-estree: 2.0.0
       vfile-message: 4.0.3
 
@@ -9004,7 +9023,7 @@ snapshots:
   mdast-util-mdx-jsx@3.2.0:
     dependencies:
       '@types/estree-jsx': 1.0.5
-      '@types/hast': 3.0.4
+      '@types/hast': 3.0.5
       '@types/mdast': 4.0.4
       '@types/unist': 3.0.3
       ccount: 2.0.1
@@ -9197,8 +9216,8 @@ snapshots:
 
   micromark-extension-mdxjs@3.0.0:
     dependencies:
-      acorn: 8.16.0
-      acorn-jsx: 5.3.2(acorn@8.16.0)
+      acorn: 8.18.0
+      acorn-jsx: 5.3.2(acorn@8.18.0)
       micromark-extension-mdx-expression: 3.0.1
       micromark-extension-mdx-jsx: 3.0.2
       micromark-extension-mdx-md: 2.0.0

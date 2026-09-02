@@ -104,7 +104,7 @@ test("a doc route forced on-demand fails the invariant", () => {
     prerenderedPageCount: 1,
   });
   assert.deepEqual(r.violations, ["/llms.txt"]);
-  assert.match(r.summaryLine, /\(1 moved\)/);
+  assert.match(r.summaryLine, /\(0 moved\)/);
 });
 
 test("declared feature routes explain a non-`/_` on-demand route", () => {
@@ -124,6 +124,28 @@ test("declared feature routes explain a non-`/_` on-demand route", () => {
   assert.deepEqual(r.onDemandDocRoutes, ["/mcp"]);
   assert.match(r.summaryLine, /on-demand routes=1 \(\/mcp\)/);
   assert.match(r.summaryLine, /server features=\[hosted-mcp\]/);
+});
+
+test("declared request routes are explained and counted as moved docs", () => {
+  const r = analyzeBuild({
+    outputMode: "server",
+    adapterName: "cloudflare",
+    routes: [
+      {
+        pattern: "/[...slug]",
+        type: "page",
+        isPrerendered: false,
+        origin: "project",
+      },
+    ],
+    prerenderedPageCount: 3,
+    requestRenderedPageCount: 100,
+    declaredRequestRoutes: ["/[...slug]"],
+  });
+
+  assert.deepEqual(r.violations, []);
+  assert.deepEqual(r.onDemandDocRoutes, ["/[...slug]"]);
+  assert.match(r.summaryLine, /docs prerendered=3\/103 \(100 moved\)/);
 });
 
 test("static build: adapter=none, on-demand routes=0, no server-features field", () => {

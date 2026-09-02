@@ -74,7 +74,8 @@ describe("prose page resolution", () => {
     ["docs-v1:guides/setup", entry("docs-v1", "guides/setup")],
     ["blog:v1", entry("blog", "v1")],
   ]);
-  let lookups: Array<{ collection: string; id: string; audience?: string }> = [];
+  let lookups: Array<{ collection: string; id: string; audience?: string }> =
+    [];
   const dependencies = {
     async getVisibleEntry(
       collection: string,
@@ -90,7 +91,9 @@ describe("prose page resolution", () => {
     async render(value: CollectionEntry<string>) {
       return {
         Content,
-        headings: [{ depth: 1, text: value.id, slug: value.id.replaceAll("/", "-") }],
+        headings: [
+          { depth: 1, text: value.id, slug: value.id.replaceAll("/", "-") },
+        ],
       };
     },
   };
@@ -201,7 +204,10 @@ describe("API page resolution", () => {
     ["api:index", entry("api", "index", { coordinate: "root", version: "v2" })],
     [
       "api:charges/create",
-      entry("api", "charges/create", { coordinate: "createCharge", version: "v2" }),
+      entry("api", "charges/create", {
+        coordinate: "createCharge",
+        version: "v2",
+      }),
     ],
     ["api:v1", entry("api", "v1", { coordinate: "root", version: "v1" })],
     [
@@ -212,12 +218,13 @@ describe("API page resolution", () => {
       }),
     ],
   ]);
-  let lookups: Array<{ collection: string; id: string; audience?: string }> = [];
-  let specLoads = 0;
+  let lookups: Array<{ collection: string; id: string; audience?: string }> =
+    [];
+  let collectionLoads = 0;
   const dependencies = {
-    async getApiSpecs() {
-      specLoads++;
-      return api;
+    async getApiCollections() {
+      collectionLoads++;
+      return api.map(({ collection }) => collection);
     },
     async getVisibleEntry(
       collection: string,
@@ -227,7 +234,11 @@ describe("API page resolution", () => {
       lookups.push({ collection, id, audience: projection?.audience?.key });
       return entries.get(`${collection}:${id}`) ?? null;
     },
-    async render(collection: string, version: string | null, coordinate: string) {
+    async render(
+      collection: string,
+      version: string | null,
+      coordinate: string,
+    ) {
       const page: ApiPageProps = {
         apiSchemaVersion: 1,
         kind: "api",
@@ -248,7 +259,7 @@ describe("API page resolution", () => {
 
   test("uses existing static API identity without request lookup", async () => {
     lookups = [];
-    specLoads = 0;
+    collectionLoads = 0;
     const result = await resolveApiPage(
       context("/api/charges/create/", "ignored", {
         collection: "api",
@@ -264,7 +275,7 @@ describe("API page resolution", () => {
     assert.equal(result.page.coordinate, "createCharge");
     assert.equal(result.page.version, "v2");
     assert.deepEqual(lookups, []);
-    assert.equal(specLoads, 0);
+    assert.equal(collectionLoads, 0);
   });
 
   test("resolves default root and nested API request paths", async () => {
@@ -303,7 +314,8 @@ describe("API page resolution", () => {
     assert.equal(root.status, "found");
     assert.equal(leaf.status, "found");
     if (root.status === "found") assert.equal(root.page.version, "v1");
-    if (leaf.status === "found") assert.equal(leaf.page.coordinate, "createCharge");
+    if (leaf.status === "found")
+      assert.equal(leaf.page.coordinate, "createCharge");
   });
 
   test("returns not-found for missing and unknown API paths", async () => {
@@ -334,8 +346,8 @@ describe("API page resolution", () => {
       { collection: "legacy" },
       {
         ...dependencies,
-        async getApiSpecs() {
-          return [{ collection: "legacy", spec: {} }];
+        async getApiCollections() {
+          return ["legacy"];
         },
         async getVisibleEntry() {
           return entry("legacy", "index", { coordinate: "root" });

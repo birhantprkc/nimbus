@@ -50,6 +50,7 @@ import {
   type ApiVariant,
   type JsonValue,
 } from "./api-view-types.js";
+import { renderMarkdown } from "../../markdown/render.js";
 
 export * from "./api-view-types.js";
 
@@ -430,7 +431,10 @@ function fieldView(
   const example = jsonOrOmit(f.example);
   if (example !== undefined) out.example = example;
   const description = descriptionOf(node);
-  if (description) out.description = description;
+  if (description) {
+    out.description = description;
+    out.descriptionHtml = renderMarkdown(description);
+  }
   if (f.union) out.union = unionView(view, f.union, allowInline);
   if (f.typeRef?.coordinate && view.node(f.typeRef.coordinate)) {
     out.typeRef = { label: f.typeRef.label, href: view.href(f.typeRef.coordinate) };
@@ -531,7 +535,10 @@ function responseViews(view: ModelView, opCoord: Coordinate): ApiResponseView[] 
     const statusClass = statusClassOf(f.status);
     if (statusClass) out.statusClass = statusClass;
     if (bounded.truncated) out.truncated = { total: bounded.total };
-    if (f.description) out.description = f.description;
+    if (f.description) {
+      out.description = f.description;
+      out.descriptionHtml = renderMarkdown(f.description);
+    }
     if (f.union) out.bodyUnion = unionView(view, f.union, true);
     if (f.example) {
       const value = jsonOrOmit(f.example.value);
@@ -571,7 +578,10 @@ function base(view: ModelView, node: Node): ApiPageBase {
     breadcrumbs: breadcrumbs(view, node),
   };
   const description = descriptionOf(node);
-  if (description) out.description = description;
+  if (description) {
+    out.description = description;
+    out.descriptionHtml = renderMarkdown(description);
+  }
   return out;
 }
 

@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { mergePartialHeadings } from "../src/_internal/partial-headings.js";
+import { mergeWorkerPartialHeadings } from "../src/_internal/worker-partial-headings.js";
 
 import type { Heading } from "../src/_internal/partial-headings.js";
 
@@ -64,6 +65,30 @@ test("partial heading is inserted between parent headings in document order", as
     result.map((h) => h.slug),
     ["before", "mid-heading", "after"],
   );
+});
+
+test("Worker parser preserves partial heading order", async () => {
+  const partials: Record<string, MockEntry> = {
+    mid: {
+      id: "mid",
+      body: "## Worker partial\n",
+      headings: [{ depth: 2, text: "Worker partial", slug: "worker-partial" }],
+    },
+  };
+  const result = await mergeWorkerPartialHeadings(
+    '## Before\n\n<Render file="mid" />\n\n## After\n',
+    [
+      { depth: 2, text: "Before", slug: "before" },
+      { depth: 2, text: "After", slug: "after" },
+    ],
+    makeGetEntry(partials),
+    makeRender(partials),
+  );
+  assert.deepEqual(result.map(({ slug }) => slug), [
+    "before",
+    "worker-partial",
+    "after",
+  ]);
 });
 
 test("nested partial headings are included recursively", async () => {

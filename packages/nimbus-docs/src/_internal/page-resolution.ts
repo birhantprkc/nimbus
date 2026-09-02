@@ -2,13 +2,11 @@ import type { CollectionEntry } from "astro:content";
 import type { AstroComponentFactory } from "astro/runtime/server/index.js";
 
 import type { ApiNav, ApiPageProps } from "../api/index.js";
-import type { ApiSpec } from "../types.js";
 import {
   collectionMountPrefix,
   PRIMARY_COLLECTION,
   type VersionInfo,
 } from "./collection-mount.js";
-import { resolveApiVersion } from "./api/resolve-versions.js";
 import type { ProjectionContext } from "./projection.js";
 import { toRouteKey } from "./url.js";
 
@@ -36,7 +34,9 @@ export interface ApiPage {
   coordinate: string;
 }
 
-export type PageResolution<P extends ProsePage | ApiPage = ProsePage | ApiPage> =
+export type PageResolution<
+  P extends ProsePage | ApiPage = ProsePage | ApiPage,
+> =
   | { status: "found"; page: P }
   | { status: "redirect"; location: string; permanent: boolean }
   | { status: "not-found" };
@@ -62,7 +62,7 @@ interface ProseResolutionDependencies {
 }
 
 interface ApiResolutionDependencies {
-  getApiSpecs(): Promise<ApiSpec[] | undefined>;
+  getApiCollections(): Promise<readonly string[]>;
   getVisibleEntry(
     collection: string,
     id: string,
@@ -72,6 +72,7 @@ interface ApiResolutionDependencies {
     collection: string,
     version: string | null,
     coordinate: string,
+    entry?: CollectionEntry<string>,
   ): Promise<{ page: ApiPageProps; nav: ApiNav }>;
 }
 
@@ -85,7 +86,9 @@ function normalizedPageId(param: string | undefined): string {
   return route === "/" ? "index" : route.slice(1);
 }
 
-function mountedCollectionSegment(context: PageResolutionContext): string | null {
+function mountedCollectionSegment(
+  context: PageResolutionContext,
+): string | null {
   const pathname = normalizedPathname(context.url);
   const pathSegments = pathname.split("/").filter(Boolean);
   const param = context.params.slug;
@@ -135,7 +138,8 @@ export async function resolveProsePage(
   options: { collection?: string },
   dependencies: ProseResolutionDependencies,
 ): Promise<PageResolution<ProsePage>> {
-  const staticEntry = context.props.entry as CollectionEntry<string> | undefined;
+  const staticEntry = context.props.entry as
+    CollectionEntry<string> | undefined;
   const requestIdentity = staticEntry
     ? null
     : await requestProseIdentity(
@@ -175,20 +179,26 @@ export async function resolveApiPage(
   dependencies: ApiResolutionDependencies,
 ): Promise<PageResolution<ApiPage>> {
   const staticCollection =
-    typeof context.props.collection === "string" ? context.props.collection : undefined;
+    typeof context.props.collection === "string"
+      ? context.props.collection
+      : undefined;
   const staticCoordinate =
-    typeof context.props.coordinate === "string" ? context.props.coordinate : undefined;
-  const hasStaticIdentity = staticCollection !== undefined && staticCoordinate !== undefined;
+    typeof context.props.coordinate === "string"
+      ? context.props.coordinate
+      : undefined;
+  const hasStaticIdentity =
+    staticCollection !== undefined && staticCoordinate !== undefined;
 
   let collection = staticCollection ?? options.collection;
   let version =
     typeof context.props.version === "string" ? context.props.version : null;
   let coordinate = staticCoordinate;
+  let entry = context.props.entry as CollectionEntry<string> | undefined;
 
   if (!hasStaticIdentity) {
-    const api = await dependencies.getApiSpecs();
+    const apiCollections = await dependencies.getApiCollections();
     collection ??= mountedCollectionSegment(context) ?? undefined;
-    if (!collection || !(api ?? []).some((entry) => entry.collection === collection)) {
+    if (!collection || !apiCollections.includes(collection)) {
       return { status: "not-found" };
     }
 
@@ -196,27 +206,39 @@ export async function resolveApiPage(
     if (id === "index" && context.params.slug !== undefined) {
       return { status: "not-found" };
     }
-    const entry = await dependencies.getVisibleEntry(
-      collection,
-      id,
-      context.projection,
-    );
+    entry =
+      (await dependencies.getVisibleEntry(
+        collection,
+        id,
+        context.projection,
+      )) ?? undefined;
     if (!entry) return { status: "not-found" };
 
     coordinate =
-      typeof entry.data.coordinate === "string" ? entry.data.coordinate : undefined;
-    version = typeof entry.data.version === "string" ? entry.data.version : null;
-    if (!coordinate || !resolveApiVersion(api, collection, version)) {
+      typeof entry.data.coordinate === "string"
+        ? entry.data.coordinate
+        : undefined;
+    version =
+      typeof entry.data.version === "string" ? entry.data.version : null;
+    if (!coordinate) {
       return { status: "not-found" };
     }
   }
 
-  const rendered = await dependencies.render(collection!, version, coordinate!);
+  const rendered = await dependencies.render(
+    collection!,
+    version,
+    coordinate!,
+    entry,
+  );
   return {
     status: "found",
     page: {
       kind: "api",
-      identity: { pathname: normalizedPathname(context.url), collection: collection! },
+      identity: {
+        pathname: normalizedPathname(context.url),
+        collection: collection!,
+      },
       ...rendered,
       collection: collection!,
       version,

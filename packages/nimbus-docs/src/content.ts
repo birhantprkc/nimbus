@@ -43,7 +43,11 @@ export {
   partialsSchema,
   componentsSchema,
 } from "./schemas.js";
-export type { DefineSchemaOptions, DocSchemaConfig, ComponentProp } from "./schemas.js";
+export type {
+  DefineSchemaOptions,
+  DocSchemaConfig,
+  ComponentProp,
+} from "./schemas.js";
 
 export interface DocsCollectionOptions<
   TFields extends Record<string, z.ZodTypeAny> = Record<string, never>,
@@ -166,7 +170,9 @@ export interface ComponentsCollectionOptions {
  * matching `<Showcase>` / `<Example>` MDX wrappers and the `/components`
  * route. Frontmatter shape: `{ title, tagline, props }`.
  */
-export function componentsCollection(options: ComponentsCollectionOptions = {}) {
+export function componentsCollection(
+  options: ComponentsCollectionOptions = {},
+) {
   const base = `./src/content/${options.base ?? "components"}`;
   const pattern = options.pattern ?? DEFAULT_PATTERN;
 
@@ -202,12 +208,9 @@ export interface ApiCollectionOptions {
 
 /**
  * Content-collection config for one OpenAPI reference spec. The loader is a
- * thin **index**: it parses the spec once at build time and writes one small
- * DataStore entry per page (`{ id: slug, data: { coordinate, title,
- * description? } }`). Only routing + display metadata is stored — the heavy
- * parsed model is NOT, so render re-derives it from the same spec via
- * `getApiModel()` and nothing depends on a cache surviving the content-sync →
- * render phase boundary.
+ * build artifact: it parses the spec once and writes one DataStore entry per
+ * page with its JSON-safe view model. One root entry per version also carries
+ * the shared navigation tree used by static and request-rendered routes.
  *
  *   // src/content.config.ts
  *   import nimbus from "./nimbus.config";
@@ -234,29 +237,53 @@ export function apiCollection(options: ApiCollectionOptions): {
     title: string;
     description?: string;
     version?: string;
+    prepared: import("./_internal/api/prepared.js").PreparedApiPage;
   }>;
 } {
-  const { collection, spec, label, versions, requireOperationId, routes } = options;
+  const { collection, spec, label, versions, requireOperationId, routes } =
+    options;
 
   const loader: Loader = {
     name: "nimbus-docs:api",
     async load(context) {
-      const { logger, store, parseData, config: astroConfig, watcher } = context;
+      const {
+        logger,
+        store,
+        parseData,
+        config: astroConfig,
+        watcher,
+      } = context;
 
       assertSupportedNode();
 
       const [
-        { buildApiModel, getApiPageIndex, getApiRouteProvenance, clearApiModelCache },
+        {
+          buildApiModel,
+          getApiNav,
+          getApiPageIndex,
+          getApiPageProps,
+          getApiRouteProvenance,
+          clearApiModelCache,
+        },
         { resolveSpecSource },
         { resolveApiFamily, apiPageRoute },
+        { prepareApiNav, preparedApiVersion },
       ] = await Promise.all([
         import("./api/index.js"),
         import("./_internal/api/resolve-spec.js"),
         import("./_internal/api/resolve-versions.js"),
+        import("./_internal/api/prepared.js"),
       ]);
 
       const rootDir = fileURLToPath(astroConfig.root);
-      const targets = resolveApiFamily({ collection, spec, label, versions, requireOperationId, routes });
+      const targets = resolveApiFamily({
+        collection,
+        spec,
+        label,
+        versions,
+        requireOperationId,
+        routes,
+      });
 
       // M4: a non-default version id must not collide with a top-level page
       // slug of the default version (both would claim `/<collection>/<id>`).
@@ -306,9 +333,14 @@ export function apiCollection(options: ApiCollectionOptions): {
           }
 
           const provenance = getApiRouteProvenance(model);
-          for (const { coordinate, slug, title, description } of getApiPageIndex(
-            model,
-          )) {
+          const navEntryId = apiPageRoute(target, "").storeId;
+          const preparedNav = prepareApiNav(getApiNav(model));
+          for (const {
+            coordinate,
+            slug,
+            title,
+            description,
+          } of getApiPageIndex(model)) {
             if (target.isDefault && slug !== "") {
               const top = slug.split("/")[0]!;
               const kinds = defaultTopSegments.get(top) ?? new Set<string>();
@@ -339,6 +371,12 @@ export function apiCollection(options: ApiCollectionOptions): {
                 title,
                 ...(description === undefined ? {} : { description }),
                 ...(target.version ? { version: target.version } : {}),
+                prepared: {
+                  version: preparedApiVersion,
+                  page: getApiPageProps(model, coordinate),
+                  navEntryId,
+                  ...(id === navEntryId ? { nav: preparedNav } : {}),
+                },
               },
             });
             store.set({ id, data });
@@ -416,6 +454,8 @@ export function apiCollection(options: ApiCollectionOptions): {
       title: z.string(),
       description: z.string().optional(),
       version: z.string().optional(),
+      prepared:
+        z.custom<import("./_internal/api/prepared.js").PreparedApiPage>(),
     }),
   };
 }

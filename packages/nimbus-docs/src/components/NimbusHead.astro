@@ -26,16 +26,14 @@
  * re-doing their head tags.
  */
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { config } from "virtual:nimbus/config";
+import { config, headDefaults } from "virtual:nimbus/config";
 import {
   getApiVersionAlternates,
   getCollectionLlmsUrl,
   getVersionAlternates,
   getVersionStatus,
   withBase,
-} from "@cloudflare/nimbus-docs";
+} from "@cloudflare/nimbus-docs/runtime";
 import type { HeadElement } from "@cloudflare/nimbus-docs/types";
 
 export interface Props {
@@ -164,35 +162,15 @@ const lang = config.locale ?? "en";
 const isHomePage = Astro.url.pathname === "/";
 const ogType = isHomePage ? "website" : "article";
 
-// `process.cwd()` resolves to the consumer's project root at build time.
-// The checks below let users drop files into `public/` and have them
-// picked up automatically — no config touch needed.
-const publicDir = join(process.cwd(), "public");
-
 // Favicon precedence: svg > ico > png. The first file that exists wins;
 // when none exists we still emit the svg link so users who drop one in
 // later don't need to touch the layout.
-const faviconCandidates: ReadonlyArray<{ file: string; type: string }> = [
-  { file: "favicon.svg", type: "image/svg+xml" },
-  { file: "favicon.ico", type: "image/x-icon" },
-  { file: "favicon.png", type: "image/png" },
-];
-const matchedFavicon =
-  faviconCandidates.find((c) => existsSync(join(publicDir, c.file))) ??
-  faviconCandidates[0];
-const faviconHref = `${import.meta.env.BASE_URL}${matchedFavicon.file}`;
-const faviconType = matchedFavicon.type;
+const faviconHref = `${import.meta.env.BASE_URL}${headDefaults.favicon.file}`;
+const faviconType = headDefaults.favicon.type;
 
 // Social image precedence: page prop > config > `public/opengraph.png` >
 // `public/logo.png` > generated `/og.png` fallback.
-const userOpenGraphImage = join(publicDir, "opengraph.png");
-const userLogoImage = join(publicDir, "logo.png");
-const defaultSocialImage = existsSync(userOpenGraphImage)
-  ? "/opengraph.png"
-  : existsSync(userLogoImage)
-    ? "/logo.png"
-    : "/og.png";
-const socialImagePath = socialImage ?? config.socialImage ?? defaultSocialImage;
+const socialImagePath = socialImage ?? config.socialImage ?? headDefaults.socialImage;
 const ogImage = socialImagePath
   ? Astro.site
     ? new URL(withBase(socialImagePath, baseUrl), Astro.site).href

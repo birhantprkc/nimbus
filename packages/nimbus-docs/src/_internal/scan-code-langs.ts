@@ -8,15 +8,30 @@
  * grammar, which makes cold-build output non-deterministic.
  */
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { extname, resolve } from "node:path";
 import { bundledLanguagesInfo, isSpecialLang } from "shiki";
+import { markdownToMdast, mdxToMdast } from "satteri";
 
 import { walkFiles } from "./fs-walk.js";
 
-// Opening backtick fence + language token. CommonMark forbids backticks in a
-// backtick fence's info string, so `[^\n`]*$` rejects a line with a later
-// backtick — i.e. inline `` ```x``` ``, not a block.
-const FENCE_RE = /^[ \t]*```([a-zA-Z][a-zA-Z0-9_+\-]*)[^\n`]*$/gm;
+function fencedCodeBlocks(content: string, extension: string): ScannedCodeBlock[] {
+  const blocks: ScannedCodeBlock[] = [];
+  const tree = (extension === ".mdx" ? mdxToMdast(content) : markdownToMdast(content)) as {
+    type: string;
+    lang?: string | null;
+    value?: string;
+    children?: unknown[];
+  };
+  const visit = (node: typeof tree) => {
+    if (node.type === "code" && node.lang && typeof node.value === "string") {
+      blocks.push({ lang: node.lang.toLowerCase(), code: `${node.value}\n` });
+    }
+    for (const child of node.children ?? []) visit(child as typeof tree);
+  };
+  visit(tree);
+
+  return blocks;
+}
 
 // Grammars Shiki can resolve (bundled ids + aliases). Tokens outside this set
 // are dropped before reaching Shiki, which throws on grammars it can't load;
@@ -50,14 +65,57 @@ export async function scanCodeBlockLanguages(
     } catch {
       continue;
     }
-    // Reset stateful regex iterator across files.
-    FENCE_RE.lastIndex = 0;
-    for (const m of content.matchAll(FENCE_RE)) {
-      const raw = m[1]!.toLowerCase();
+    let parsed: ScannedCodeBlock[];
+    try {
+      parsed = fencedCodeBlocks(content, extname(abs));
+    } catch {
+      continue;
+    }
+    for (const block of parsed) {
+      const raw = block.lang;
       const mapped = langAlias[raw] ?? raw;
       if (SHIKI_KNOWN.has(mapped) || isSpecialLang(mapped)) langs.add(mapped);
     }
   }
 
   return Array.from(langs).sort();
+}
+
+export interface ScannedCodeBlock {
+  lang: string;
+  code: string;
+}
+
+export async function scanCodeBlocks(
+  projectRoot: string,
+  langAlias: Record<string, string> = {},
+): Promise<ScannedCodeBlock[]> {
+  const blocks: ScannedCodeBlock[] = [];
+  const contentRoot = resolve(projectRoot, "src/content");
+
+  for await (const { abs } of walkFiles(contentRoot, {
+    extensions: [".mdx", ".md"],
+    onReadError: "lenient",
+  })) {
+    let content: string;
+    try {
+      content = await readFile(abs, "utf8");
+    } catch {
+      continue;
+    }
+    let parsed: ScannedCodeBlock[];
+    try {
+      parsed = fencedCodeBlocks(content, extname(abs));
+    } catch {
+      continue;
+    }
+    for (const block of parsed) {
+      const raw = block.lang;
+      const lang = langAlias[raw] ?? raw;
+      if (!SHIKI_KNOWN.has(lang) && !isSpecialLang(lang)) continue;
+      blocks.push({ lang, code: block.code });
+    }
+  }
+
+  return blocks;
 }

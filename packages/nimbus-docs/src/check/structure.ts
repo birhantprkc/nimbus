@@ -101,10 +101,14 @@ async function checkDuplicateRoutes(
   if (!existsSync(contentRoot)) return;
 
   const contentConfigPath = path.join(srcDir, "content.config.ts");
-  const rawCollections = await parseContentCollections(contentConfigPath);
+  const parsedCollections = await parseContentCollections(contentConfigPath);
+  const rawCollections = parsedCollections?.names ?? null;
   const collectionBases = await parseCollectionBases(contentConfigPath);
   const indexedCollections =
-    rawCollections === null ? ["docs"] : filterIndexableCollections(rawCollections);
+    rawCollections === null ||
+    (parsedCollections?.complete === false && rawCollections.length === 0)
+      ? ["docs"]
+      : filterIndexableCollections(rawCollections);
   const indexedSet = new Set(indexedCollections);
 
   const versions =

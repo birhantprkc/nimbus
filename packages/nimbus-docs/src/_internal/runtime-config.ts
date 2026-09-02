@@ -22,9 +22,9 @@ import type { VersionAlternatesTable } from "./version-alternates.js";
 
 let _cached: NimbusConfig | null = null;
 let _cachedCollections: readonly string[] | null = null;
+let _cachedRequestRenderingCollections: readonly string[] | null = null;
 let _cachedAlternates: VersionAlternatesTable | null = null;
 let _cachedApiCollections: readonly string[] | null = null;
-let _cachedRoot: string | null = null;
 
 export async function loadNimbusConfig(): Promise<NimbusConfig> {
   if (_cached) return _cached;
@@ -47,6 +47,14 @@ export async function loadIndexedCollections(): Promise<readonly string[]> {
   const mod = await import("virtual:nimbus/config");
   const value = mod.indexedCollections;
   _cachedCollections = value;
+  return value;
+}
+
+export async function loadRequestRenderingCollections(): Promise<readonly string[]> {
+  if (_cachedRequestRenderingCollections) return _cachedRequestRenderingCollections;
+  const mod = await import("virtual:nimbus/config");
+  const value = mod.requestRenderingCollections ?? [];
+  _cachedRequestRenderingCollections = value;
   return value;
 }
 
@@ -77,19 +85,5 @@ export async function loadApiCollections(): Promise<readonly string[]> {
   const mod = await import("virtual:nimbus/config");
   const value = mod.apiCollections ?? [];
   _cachedApiCollections = value;
-  return value;
-}
-
-/**
- * Absolute project root — the base the `apiCollection()` loader resolves
- * specs against. `getApiModel` uses it so render-time spec resolution matches
- * the loader regardless of `process.cwd()`. Falls back to `process.cwd()`
- * when the virtual module predates the field.
- */
-export async function loadProjectRoot(): Promise<string> {
-  if (_cachedRoot) return _cachedRoot;
-  const mod = await import("virtual:nimbus/config");
-  const value = mod.root ?? process.cwd();
-  _cachedRoot = value;
   return value;
 }

@@ -37,6 +37,7 @@ export interface VirtualConfigExtras {
    * works.
    */
   indexedCollections: string[];
+  requestRenderingCollections: string[];
   /**
    * Build-time alternates table for cross-version SEO links. Empty `{}`
    * when the site is unversioned or has only the current version.
@@ -49,19 +50,34 @@ export interface VirtualConfigExtras {
    * server endpoints — never a client component.
    */
   apiCollections: string[];
-  /**
-   * Absolute project root — the same base the `apiCollection()` loader
-   * resolves specs against (`fileURLToPath(astroConfig.root)`). `getApiModel`
-   * uses it so render-time resolution matches the loader regardless of
-   * `process.cwd()`. Build/server-only; never a client component.
-   */
-  root: string;
+  headDefaults: {
+    favicon: { file: string; type: string };
+    socialImage: string;
+  };
 }
 
 export function virtualConfigPlugin(
   config: NimbusConfig,
   extras: VirtualConfigExtras,
 ): VitePluginLike {
+  const runtimeConfig: NimbusConfig = {
+    ...config,
+    ...(config.api
+      ? {
+          api: config.api.map((entry) =>
+            entry.versions
+              ? {
+                  ...entry,
+                  versions: entry.versions.map((version) => ({
+                    ...version,
+                    spec: {},
+                  })),
+                }
+              : { ...entry, spec: {} },
+          ),
+        }
+      : {}),
+  };
   return {
     name: "nimbus-docs:virtual-config",
     resolveId(id: string) {
@@ -71,11 +87,12 @@ export function virtualConfigPlugin(
     load(id: string) {
       if (id === RESOLVED_ID) {
         return (
-          `export const config = ${JSON.stringify(config)};\n` +
+          `export const config = ${JSON.stringify(runtimeConfig)};\n` +
           `export const indexedCollections = ${JSON.stringify(extras.indexedCollections)};\n` +
+          `export const requestRenderingCollections = ${JSON.stringify(extras.requestRenderingCollections)};\n` +
           `export const versionAlternates = ${JSON.stringify(extras.versionAlternates)};\n` +
           `export const apiCollections = ${JSON.stringify(extras.apiCollections)};\n` +
-          `export const root = ${JSON.stringify(extras.root)};\n`
+          `export const headDefaults = ${JSON.stringify(extras.headDefaults)};\n`
         );
       }
       return undefined;
