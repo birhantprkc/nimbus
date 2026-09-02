@@ -350,7 +350,7 @@ async function merge(
   options: PartialHeadingOptions | undefined,
   seen: Set<string>,
 ): Promise<Heading[]> {
-  if (!body) return astroHeadings;
+  if (!body || !body.includes("<Render")) return astroHeadings;
 
   let tree: MdNode;
   try {
@@ -391,9 +391,15 @@ async function merge(
     }
     if (!partial) continue;
 
+    let rendered: { headings: Heading[] };
+    try {
+      rendered = await render(partial);
+    } catch {
+      continue;
+    }
+
     seen.add(id);
     try {
-      const rendered = await render(partial);
       merged.push(
         ...(await merge(
           (partial as { body?: string }).body,
@@ -404,13 +410,6 @@ async function merge(
           seen,
         )),
       );
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message.includes("Circular <Render>")
-      ) {
-        throw error;
-      }
     } finally {
       seen.delete(id);
     }

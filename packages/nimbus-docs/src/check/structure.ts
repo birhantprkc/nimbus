@@ -20,6 +20,10 @@ import {
   filterIndexableCollections,
 } from "../_internal/parse-content-collections.js";
 import { parseComponentsRegistry } from "../_internal/parse-components-registry.js";
+import {
+  canonicalCollectionRouteComponent,
+  compileRenderingPolicy,
+} from "../_internal/rendering-policy.js";
 import { validateMdxContent } from "../_internal/validate-mdx-content.js";
 import { validateNimbusConfig } from "../_internal/validate.js";
 import {
@@ -31,6 +35,7 @@ import {
 } from "../lint/site-model.js";
 import type { CheckFinding, Note, ScopeReport } from "./finding.js";
 import { lineOf, relFile } from "./loc.js";
+import type { NimbusConfig } from "../types.js";
 
 export async function checkStructure(
   cwd: string,
@@ -39,19 +44,110 @@ export async function checkStructure(
   const findings: CheckFinding[] = [];
   const notes: Note[] = [];
 
-  checkConfigZod(findings, notes, parsed);
+  const config = checkConfigZod(findings, notes, parsed);
+  await checkRequestRendering(cwd, findings, notes, parsed, config);
   await checkDuplicateRoutes(cwd, findings, parsed);
   await checkMdxComponents(cwd, findings, notes);
 
   return { scope: "structure", findings, notes, evaluated: true };
 }
 
+async function checkRequestRendering(
+  cwd: string,
+  findings: CheckFinding[],
+  notes: Note[],
+  parsed: ConfigParseResult,
+  config: NimbusConfig | null,
+): Promise<void> {
+  if (
+    !parsed.ok ||
+    !config?.rendering ||
+    parsed.unresolved.includes("rendering") ||
+    parsed.unresolved.includes("...spread")
+  ) {
+    return;
+  }
+
+  const srcDir = path.join(cwd, "src");
+  const parsedCollections = await parseContentCollections(
+    path.join(srcDir, "content.config.ts"),
+  );
+  const rawCollections = parsedCollections?.names ?? null;
+  const parsedIndexedCollections =
+    rawCollections === null ||
+    (parsedCollections?.complete === false && rawCollections.length === 0)
+      ? ["docs"]
+      : filterIndexableCollections(rawCollections);
+  const apiCollections = (config.api ?? []).map((entry) => entry.collection);
+  const candidates = [
+    ...new Set([
+      ...parsedIndexedCollections,
+      ...(config.versions?.others ?? []).map((version) => `docs-${version}`),
+      ...apiCollections,
+    ]),
+  ];
+  const versions = config.versions
+    ? { others: config.versions.others ?? [] }
+    : null;
+  const canonicalCollections = candidates.filter((collection) =>
+    existsSync(canonicalCollectionRouteComponent(srcDir, collection, versions)),
+  );
+  const overrides = config.rendering.collections ?? {};
+  const unresolvedOverrides = Object.keys(overrides).filter(
+    (collection) => !candidates.includes(collection),
+  );
+  if (
+    parsedCollections?.complete === false &&
+    (config.rendering.default === "request" || unresolvedOverrides.length > 0)
+  ) {
+    findings.push({
+      scope: "structure",
+      code: "nimbus/rendering-policy-invalid",
+      severity: "error",
+      file: relFile(parsed.location.file),
+      line: lineOf(parsed.location.source, parsed.location.objectStart),
+      message:
+        "nimbus-docs: rendering policy cannot safely enumerate collections because `src/content.config.ts` contains registrations Nimbus cannot identify statically. Use explicit top-level collection keys before applying a request default or overriding a collection Nimbus cannot statically identify.",
+      fixable: false,
+    });
+    return;
+  }
+
+  let hasRequestRoute: boolean;
+  try {
+    const policy = compileRenderingPolicy(
+      config.rendering,
+      canonicalCollections,
+    );
+    hasRequestRoute = Object.values(policy.collections).includes("request");
+  } catch (err) {
+    findings.push({
+      scope: "structure",
+      code: "nimbus/rendering-policy-invalid",
+      severity: "error",
+      file: relFile(parsed.location.file),
+      line: lineOf(parsed.location.source, parsed.location.objectStart),
+      message: err instanceof Error ? err.message : String(err),
+      fixable: false,
+    });
+    return;
+  }
+  if (!hasRequestRoute) return;
+
+  notes.push({
+    code: "nimbus/request-rendering-build-required",
+    reason:
+      "`nimbus-docs check` cannot verify request-rendered output or adapter compatibility; use a production build as the authoritative gate",
+    requiresBuild: true,
+  });
+}
+
 function checkConfigZod(
   findings: CheckFinding[],
   notes: Note[],
   parsed: ConfigParseResult,
-): void {
-  if (!parsed.ok) return;
+): NimbusConfig | null {
+  if (!parsed.ok) return null;
 
   const file = relFile(parsed.location.file);
   const line = lineOf(parsed.location.source, parsed.location.objectStart);
@@ -69,15 +165,21 @@ function checkConfigZod(
   }
 
   const probe: Record<string, unknown> = { ...parsed.config };
-  if (probe.site === undefined && (hasSpread || parsed.unresolved.includes("site"))) {
+  if (
+    probe.site === undefined &&
+    (hasSpread || parsed.unresolved.includes("site"))
+  ) {
     probe.site = "https://nimbus.placeholder.invalid";
   }
-  if (probe.title === undefined && (hasSpread || parsed.unresolved.includes("title"))) {
+  if (
+    probe.title === undefined &&
+    (hasSpread || parsed.unresolved.includes("title"))
+  ) {
     probe.title = "placeholder";
   }
 
   try {
-    validateNimbusConfig(probe);
+    return validateNimbusConfig(probe);
   } catch (err) {
     findings.push({
       scope: "structure",
@@ -88,6 +190,7 @@ function checkConfigZod(
       message: err instanceof Error ? err.message : String(err),
       fixable: false,
     });
+    return null;
   }
 }
 
@@ -200,7 +303,12 @@ async function checkMdxComponents(
       message: `<${f.tag} /> is not a registered global or imported in this file — MDX renders it as literal text.`,
       fixable: false,
       ...(f.hint
-        ? { fix: { kind: "suggestion", suggestion: `did you mean <${f.hint} />?` } }
+        ? {
+            fix: {
+              kind: "suggestion",
+              suggestion: `did you mean <${f.hint} />?`,
+            },
+          }
         : {}),
     });
   }
@@ -211,5 +319,7 @@ function isVersionsObject(v: unknown): v is { others?: unknown } {
 }
 
 function asStringArray(v: unknown): string[] {
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  return Array.isArray(v)
+    ? v.filter((x): x is string => typeof x === "string")
+    : [];
 }

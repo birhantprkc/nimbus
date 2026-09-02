@@ -352,7 +352,13 @@ function assertProse(html) {
     "partial did not render",
   );
   assert(
-    html.includes('data-heading-slugs="prose-heading,partial-heading"'),
+    html.includes("This content rendered from a nested reusable partial."),
+    "nested partial did not render",
+  );
+  assert(
+    html.includes(
+      'data-heading-slugs="prose-heading,partial-heading,nested-partial-heading"',
+    ),
     "compiled MDX and partial headings did not render",
   );
   assert(
@@ -501,6 +507,16 @@ function build(site, policy) {
   writeRenderingPolicy(site, policy);
   run("pnpm", ["build"], { cwd: site });
   assertDiscoverySurfaces(site);
+  const serverJavaScript = filesUnder(join(site, "dist", "server"))
+    .filter((file) => file.endsWith(".js"))
+    .map((file) => readFileSync(file, "utf8"))
+    .join("\n");
+  const forbiddenSpecifier =
+    /["'](?:satteri(?:\/browser)?|@astrojs\/markdown-satteri|@bruits\/satteri-[^"']+)["']/;
+  assert(
+    !forbiddenSpecifier.test(serverJavaScript),
+    "Worker server output contains a Satteri module specifier",
+  );
 }
 
 function writeRenderingPolicy(site, policy) {
@@ -604,15 +620,16 @@ const packagePath = join(site, "package.json");
 const packageJson = JSON.parse(readFileSync(packagePath, "utf8"));
 packageJson.dependencies["@cloudflare/nimbus-docs"] =
   `file:${join(packRoot, tarballName)}`;
-packageJson.dependencies["@bruits/satteri-wasm32-wasi"] = "0.9.5";
 packageJson.dependencies["@readme/httpsnippet"] = "11.4.0";
 packageJson.dependencies["@scalar/openapi-parser"] = "0.28.12";
 packageJson.dependencies["openapi-sampler"] = "1.7.4";
 writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
 mkdirSync(join(site, "src", "pages", "api"), { recursive: true });
 
-console.log(`${PREFIX} installing and typechecking the generated consumer`);
-run("pnpm", ["install", "--no-frozen-lockfile"], { cwd: site });
+console.log(
+  `${PREFIX} installing the packed consumer with npm and typechecking`,
+);
+run("npm", ["install", "--package-lock=false"], { cwd: site });
 writeRenderingPolicy(site, { docs: "build", api: "build" });
 run("pnpm", ["typecheck"], { cwd: site });
 

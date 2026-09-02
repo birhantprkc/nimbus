@@ -1079,7 +1079,7 @@ export function nimbus(
         ) {
           throw new Error(
             'nimbus-docs: rendering mode "request" currently requires `@astrojs/cloudflare`. ' +
-              `Received adapter=${adapterNameForBuild}. Other production adapters are deferred until BG-1c.7.`,
+              `Received adapter=${adapterNameForBuild}. Use the Cloudflare adapter or set the affected collections to "build".`,
           );
         }
         redirectsForBuild = (astroConfig.redirects ?? {}) as Record<
