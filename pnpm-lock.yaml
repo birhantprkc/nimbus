@@ -7,19 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      eslint-scope:
-        specifier: ^9.1.2
-        version: 9.1.2
-      eslint-visitor-keys:
-        specifier: ^5.0.1
-        version: 5.0.1
-      prettier:
-        specifier: ^3.9.6
-        version: 3.9.6
-      volar-service-prettier:
-        specifier: ^0.0.71
-        version: 0.0.71(@volar/language-service@2.4.28)(prettier@3.9.6)
     devDependencies:
       '@changesets/changelog-github':
         specifier: ^0.7.0
