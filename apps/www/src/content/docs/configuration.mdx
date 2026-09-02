@@ -48,6 +48,42 @@ export default defineConfig({
 | `features`                       | object            | `sidebar` / `tableOfContents` kill switches. See [Layouts](/styling/layouts). |
 | `search`                         | object \| `false` | Search backend. See [Search](/navigation/search).                             |
 | `versions`                       | object            | Versioning manifest — each version is its own content collection.             |
+| `rendering`                      | object            | Build or request rendering policy for canonical content collection routes.    |
+
+### Rendering policy
+
+Nimbus prerenders every content collection by default. A Cloudflare server-output project can instead render selected canonical collection routes on each request:
+
+First run `nimbus-docs add adapter-cloudflare`. It installs the adapter, switches Astro to server output, and creates or updates the server-compatible Wrangler configuration. Then add the rendering policy:
+
+```ts title="astro.config.ts"
+import cloudflare from "@astrojs/cloudflare";
+import { defineConfig } from "astro/config";
+import nimbus, {
+  defineConfig as defineNimbusConfig,
+} from "@cloudflare/nimbus-docs";
+
+const config = defineNimbusConfig({
+  site: "https://docs.example.com",
+  title: "Acme",
+  rendering: {
+    default: "build",
+    collections: {
+      docs: "request",
+    },
+  },
+});
+
+export default defineConfig({
+  output: "server",
+  adapter: cloudflare({ prerenderEnvironment: "node" }),
+  integrations: [nimbus(config)],
+});
+```
+
+`rendering.default` applies to every registered collection with a canonical catch-all route and defaults to `"build"`. `rendering.collections` overrides that mode by collection name, such as `docs`, `docs-v2`, or an API collection.
+
+Request rendering currently requires `output: "server"` with `@astrojs/cloudflare` and a server-compatible `wrangler.jsonc`. Other adapters can serve server-output Nimbus projects, but their canonical content collections must remain build-rendered. `nimbus-docs check` reports request-rendering readiness as unknown because it cannot validate adapter output; a successful production build is the authoritative gate. See [Server adapters](/cli#server-adapters) for setup details.
 
 ## Integration options
 
