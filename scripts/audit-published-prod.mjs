@@ -3,6 +3,7 @@
 import { spawnSync } from "node:child_process";
 
 const BLOCKING_SEVERITIES = new Set(["high", "critical"]);
+const AUDIT_TIMEOUT_MS = 60_000;
 const PUBLISHED_IMPORTERS = new Set([
   "packages/nimbus-docs",
   "packages/create-nimbus-docs",
@@ -10,11 +11,25 @@ const PUBLISHED_IMPORTERS = new Set([
 
 const ALLOWLIST = new Map([]);
 
-const result = spawnSync("pnpm", ["audit", "--prod", "--json"], {
-  encoding: "utf8",
-});
+const result = spawnSync(
+  "pnpm",
+  [
+    "--config.registry=https://registry.npmjs.org/",
+    "--config.@cloudflare:registry=https://registry.npmjs.org/",
+    "audit",
+    "--prod",
+    "--json",
+  ],
+  { encoding: "utf8", timeout: AUDIT_TIMEOUT_MS },
+);
 
 if (result.error) {
+  if (result.error.code === "ETIMEDOUT") {
+    console.error(
+      `pnpm audit timed out after ${AUDIT_TIMEOUT_MS / 1000}s. The npm audit service may be unavailable.`,
+    );
+    process.exit(1);
+  }
   console.error(`Failed to run pnpm audit: ${result.error.message}`);
   process.exit(1);
 }
@@ -32,6 +47,13 @@ try {
   process.exit(1);
 }
 
+if (isPlainObject(report?.error)) {
+  console.error(
+    `pnpm audit failed: ${String(report.error.summary ?? report.error.message ?? "unknown registry error")}`,
+  );
+  process.exit(1);
+}
+
 const advisories = report?.advisories;
 if (!isPlainObject(advisories)) {
   if (isPlainObject(report?.vulnerabilities)) {
@@ -40,7 +62,7 @@ if (!isPlainObject(advisories)) {
     );
   } else {
     console.error(
-      "Unexpected pnpm audit JSON: missing advisories object and vulnerabilities object.",
+      `Unexpected pnpm audit JSON: missing advisories object and vulnerabilities object (keys: ${Object.keys(report ?? {}).join(", ") || "none"}).`,
     );
   }
   process.exit(1);
