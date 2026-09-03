@@ -52,13 +52,28 @@ export default defineConfig({
 
 ### Rendering policy
 
-Nimbus prerenders every content collection by default. Choosing Cloudflare server output during scaffolding sets every canonical content collection route to render on request. For an existing project, run `nimbus-docs add adapter-cloudflare` inside your coding agent; it receives a versioned runbook for adapting the project-owned config safely. From a regular shell, pipe the runbook manually:
+`rendering` controls canonical content collection routes: the catch-all routes Nimbus uses for docs, API references, and other registered collections. It does not change custom files under `src/pages/`.
+
+| Mode | Behavior | Deployment requirement |
+| --- | --- | --- |
+| `"build"` | Prerenders the route during `astro build`. This is the default. | Any static or server deployment. |
+| `"request"` | Renders the route when a visitor requests it. | Astro server output with the Cloudflare adapter. |
+
+Omitting `rendering` is equivalent to `rendering: { default: "build" }`.
+
+#### Enable request rendering
+
+Choose **Server** and **Cloudflare** when creating a new site. For an existing site, run the adapter installer from the project root:
+
+<PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add adapter-cloudflare" />
+
+The installer wires the adapter and server Wrangler configuration without parsing or replacing the project-owned Nimbus rendering policy. Complete request-rendering setup with the coding-agent runbook it prints, or request that runbook directly:
 
 ```sh
-npx @cloudflare/nimbus-docs add adapter-cloudflare --print | claude
+pnpm dlx @cloudflare/nimbus-docs add adapter-cloudflare --print | claude
 ```
 
-The generated policy is:
+The resulting configuration has these three parts:
 
 ```ts title="astro.config.ts"
 import cloudflare from "@astrojs/cloudflare";
@@ -67,7 +82,7 @@ import nimbus, {
   defineConfig as defineNimbusConfig,
 } from "@cloudflare/nimbus-docs";
 
-const config = defineNimbusConfig({
+const nimbusConfig = defineNimbusConfig({
   site: "https://docs.example.com",
   title: "Acme",
   rendering: {
@@ -78,11 +93,17 @@ const config = defineNimbusConfig({
 export default defineConfig({
   output: "server",
   adapter: cloudflare({ prerenderEnvironment: "node" }),
-  integrations: [nimbus(config)],
+  integrations: [nimbus(nimbusConfig)],
 });
 ```
 
-`rendering.default` applies to every registered collection with a canonical catch-all route. Override individual collections when they should remain build-rendered:
+Run `pnpm build` after changing output mode. A successful production build is the authoritative check that the adapter and Wrangler configuration agree.
+
+#### Mix build and request rendering
+
+`rendering.default` applies to every registered collection with a canonical catch-all route. `rendering.collections` overrides that mode by Astro collection name, not by URL or version.
+
+Render most collections on request but keep an archive prerendered:
 
 ```ts
 rendering: {
@@ -93,7 +114,26 @@ rendering: {
 },
 ```
 
-Request rendering currently requires `output: "server"` with `@astrojs/cloudflare` and a server-compatible `wrangler.jsonc`. `nimbus-docs check` reports request-rendering readiness as unknown because it cannot validate adapter output; a successful production build is the authoritative gate. See [Server adapters](/cli#server-adapters) for setup details.
+Or keep the site static except for one collection:
+
+```ts
+rendering: {
+  default: "build",
+  collections: {
+    api: "request",
+  },
+},
+```
+
+Every override must name a registered collection with its own canonical catch-all route. Nimbus fails the build for unknown collection names rather than silently ignoring them.
+
+Request-rendered routes are still added to the sitemap and Pagefind search index during the production build. Nimbus uses the content source to create those build-time discovery artifacts; no extra sitemap or search configuration is required.
+
+<Aside type="note">
+  Request rendering currently requires `output: "server"`, `@astrojs/cloudflare`, and a server-compatible `wrangler.jsonc`. Other adapters support Astro server output, but not Nimbus request-rendering policy yet.
+</Aside>
+
+See [Server adapters](/cli#server-adapters) for installer behavior and safety checks.
 
 ## Integration options
 

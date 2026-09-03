@@ -59,6 +59,10 @@ function makeTemplate(astroConfig = STARTER_CONFIG): string {
     path.join(dir, "pnpm-workspace.yaml"),
     [
       "packages: []",
+      "supportedArchitectures:",
+      "  cpu:",
+      "    - current",
+      "    - wasm32",
       "allowBuilds: # pnpm 11",
       "  esbuild: false",
       "ignoredBuiltDependencies: # pnpm 10",

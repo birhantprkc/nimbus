@@ -28,7 +28,7 @@ Pick a directory name, then choose your preferences:
     Two choices — **full** (core components, demo content, populated theme tokens) or **empty** (the minimum to run, ready for your own content).
   </Step>
   <Step title="Output mode">
-    **Static** prerenders the entire site and deploys anywhere. **Server** renders canonical content collection routes on request through Cloudflare.
+    **Static** prerenders every content collection route and deploys anywhere. **Server** uses Cloudflare to render those routes on request. You can override individual collections later.
   </Step>
   <Step title="Target">
     Static output supports Cloudflare or another static host. Interactive server setup currently offers Cloudflare Workers; explicit `--adapter` flags also support Vercel, Netlify, and Node.

@@ -50,6 +50,10 @@ function makeTemplate(pkgJson = `{ "name": "template", "version": "0.0.0" }`): s
     path.join(dir, "pnpm-workspace.yaml"),
     [
       "packages: []",
+      "supportedArchitectures:",
+      "  cpu:",
+      "    - current",
+      "    - wasm32",
       "allowBuilds: # pnpm 11",
       "  esbuild: false",
       "  sharp: false",

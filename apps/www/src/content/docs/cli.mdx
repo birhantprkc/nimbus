@@ -66,13 +66,32 @@ Use `--print` to force the markdown output, skipping detection.
 
 ### Server adapters
 
-For `adapter-cloudflare`, `adapter-vercel`, `adapter-netlify`, and `adapter-node`, the CLI installs the Astro adapter and rewrites the marked `output` block in `astro.config`. For Cloudflare, it creates a server-compatible `wrangler.jsonc` when none exists or replaces an exact Nimbus static config. Custom JSONC and alternate JSON/TOML configs stay untouched.
+For `adapter-cloudflare`, `adapter-vercel`, `adapter-netlify`, and `adapter-node`, the CLI installs the Astro adapter and rewrites the marked `output` block in `astro.config`. It refuses to replace a different adapter or a non-literal `output` value.
 
 <PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add adapter-cloudflare" />
 
-Project-owned Nimbus configuration is handed to a coding agent rather than parsed by a brittle codemod. Inside a detected coding agent, the command emits the versioned runbook directly. From a regular shell, use `--print` to pipe it manually:
+`adapter-cloudflare` leaves the project-owned Nimbus rendering policy unchanged and hands that configuration to a coding agent instead of parsing arbitrary source. The command creates a server-compatible `wrangler.jsonc` when none exists or replaces an unchanged Nimbus static config; custom JSONC and alternate JSON/TOML configs stay untouched.
+
+After completing the adapter install and rendering-policy handoff, expect:
+
+```ts
+const nimbusConfig = defineNimbusConfig({
+  rendering: { default: "request" },
+  // ...
+});
+
+export default defineConfig({
+  output: "server",
+  adapter: cloudflare({ prerenderEnvironment: "node" }),
+  integrations: [nimbus(nimbusConfig)],
+});
+```
+
+When the command runs inside a detected coding agent, it emits a versioned runbook so the agent can safely adapt project-owned or split configuration. From a regular shell, use `--print` to request that runbook explicitly:
 
 <PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add adapter-cloudflare --print | claude" />
+
+Always run the project’s production build afterward. See [Rendering policy](/configuration#rendering-policy) for per-collection build/request overrides.
 
 The equivalent long form is `nimbus-docs add server-output --adapter <cloudflare|vercel|netlify|node>`.
 

@@ -96,6 +96,30 @@ test("pnpm dependency installs permit a generated workspace root", () => {
   });
 });
 
+test("adapter dependency installs can pin exact resolved versions", () => {
+  assert.deepEqual(addCommand("pnpm", ["example@1.0.0"], { exact: true }), {
+    bin: "pnpm",
+    args: [
+      "add",
+      "--ignore-workspace-root-check",
+      "--save-exact",
+      "example@1.0.0",
+    ],
+  });
+  assert.deepEqual(addCommand("npm", ["example@1.0.0"], { exact: true }), {
+    bin: "npm",
+    args: ["install", "--save-exact", "example@1.0.0"],
+  });
+  assert.deepEqual(addCommand("yarn", ["example@1.0.0"], { exact: true }), {
+    bin: "yarn",
+    args: ["add", "--exact", "example@1.0.0"],
+  });
+  assert.deepEqual(addCommand("bun", ["example@1.0.0"], { exact: true }), {
+    bin: "bun",
+    args: ["add", "--exact", "example@1.0.0"],
+  });
+});
+
 test("getCommand dlx never inserts a stray `--` for any PM", () => {
   for (const mgr of MANAGERS) {
     const cmd = getCommand(mgr, "dlx", CLI_PACKAGE, { args: "list --type ui" })!;
