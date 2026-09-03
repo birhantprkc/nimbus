@@ -1,5 +1,11 @@
 # @cloudflare/create-nimbus-docs
 
+## 0.7.1
+
+### Patch Changes
+
+- [#106](https://github.com/cloudflare/nimbus/pull/106) [`2c08dce`](https://github.com/cloudflare/nimbus/commit/2c08dce58a3799e59b3c408b6e273112e9189556) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Install `@cloudflare/nimbus-docs` as a runtime dependency so the CLI can load its adapter helpers.
+
 ## 0.7.0
 
 ### Minor Changes
