@@ -38,37 +38,23 @@ export async function applyAdapter(dir: string, adapter: AdapterId): Promise<voi
   }
 
   const result = applyAdapterToConfig(readFileSync(configPath, "utf-8"), adapter);
+  if (
+    result.status !== "error" &&
+    adapter === "cloudflare" &&
+    result.requestRendering === "unresolved"
+  ) {
+    throw new ScaffoldError(
+      "The template's Nimbus config is customized, so request rendering cannot be enabled safely.",
+    );
+  }
   if (result.status === "applied") {
-    const source =
-      adapter === "cloudflare"
-        ? enableCloudflareRequestRendering(result.source)
-        : result.source;
-    writeFileSync(configPath, source);
+    writeFileSync(configPath, result.source);
     return;
   }
   // A fresh template is never pre-wired, but treat idempotent success as success.
   if (result.status === "noop") return;
 
   throw new ScaffoldError(`Could not enable the "${adapter}" adapter: ${result.message}`);
-}
-
-export function enableCloudflareRequestRendering(source: string): string {
-  const eol = source.includes("\r\n") ? "\r\n" : "\n";
-  const build =
-    `const nimbusConfig = defineNimbusConfig({${eol}` +
-    `  rendering: { default: "build" },`;
-  const request =
-    `const nimbusConfig = defineNimbusConfig({${eol}` +
-    `  rendering: { default: "request" },`;
-
-  if (source.includes(request)) return source;
-  if (source.split(build).length !== 2) {
-    throw new ScaffoldError(
-      "The template's Nimbus config is customized, so request rendering cannot be enabled deterministically. " +
-        "Scaffold it as static, then run `nimbus-docs add adapter-cloudflare` and follow its agent handoff.",
-    );
-  }
-  return source.replace(build, request);
 }
 
 /**

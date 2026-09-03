@@ -67,7 +67,7 @@ Choose **Server** and **Cloudflare** when creating a new site. For an existing s
 
 <PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add adapter-cloudflare" />
 
-The installer wires the adapter and server Wrangler configuration without parsing or replacing the project-owned Nimbus rendering policy. Complete request-rendering setup with the coding-agent runbook it prints, or request that runbook directly:
+The installer wires the adapter and server Wrangler configuration, then adds `rendering: { default: "request" }` when the active Nimbus config has no rendering policy. Existing policies are preserved. If the config is imported or otherwise cannot be edited safely, the installer prints a coding-agent runbook instead:
 
 ```sh
 pnpm dlx @cloudflare/nimbus-docs add adapter-cloudflare --print | claude

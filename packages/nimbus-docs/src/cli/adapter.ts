@@ -26,6 +26,7 @@ import {
   sanitizeWorkerName,
   type AdapterId,
   type AdapterRecipe,
+  type RequestRenderingEdit,
   type WranglerInputs,
 } from "../_internal/adapters.js";
 import { isRangeSubset, satisfies } from "../_internal/semver-lite.js";
@@ -85,6 +86,7 @@ export type AdapterInstallOutcome =
       depsInstalled: string[];
       warnings: string[];
       wrangler: WranglerWriteResult | null;
+      requestRendering?: RequestRenderingEdit;
     }
   | {
       status: "noop";
@@ -93,6 +95,7 @@ export type AdapterInstallOutcome =
       depsInstalled: string[];
       warnings: string[];
       wrangler: WranglerWriteResult | null;
+      requestRendering?: RequestRenderingEdit;
     }
   | { status: "error"; code: AdapterInstallErrorCode; message: string };
 
@@ -332,6 +335,7 @@ export async function installAdapter(
       depsInstalled: depResult.installed,
       warnings: [...warnings, ...wr.warnings],
       wrangler: wr.result,
+      requestRendering: edit.requestRendering,
     };
   }
 
@@ -359,6 +363,7 @@ export async function installAdapter(
     depsInstalled: depResult.installed,
     warnings: [...warnings, ...wr.warnings],
     wrangler: wr.result,
+    requestRendering: edit.requestRendering,
   };
 }
 

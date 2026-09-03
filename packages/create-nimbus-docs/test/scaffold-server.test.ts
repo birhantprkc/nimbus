@@ -20,7 +20,6 @@ import {
 
 import { scaffold, ScaffoldError } from "../src/scaffold.js";
 import { ADAPTER_IDS } from "../src/prompts.js";
-import { enableCloudflareRequestRendering } from "../src/transformers/adapter.js";
 
 const BASE = {
   content: "starter",
@@ -36,7 +35,6 @@ const STARTER_CONFIG =
   `import { defineConfig } from "astro/config";\n` +
   `import nimbus, { defineConfig as defineNimbusConfig } from "@cloudflare/nimbus-docs";\n` +
   `const nimbusConfig = defineNimbusConfig({\n` +
-  `  rendering: { default: "build" },\n` +
   `  site: "https://example.com",\n` +
   `});\n` +
   `export default defineConfig({\n` +
@@ -113,12 +111,7 @@ for (const adapter of ADAPTER_IDS) {
       );
       const cliEdit = applyAdapterToConfig(STARTER_CONFIG, adapter);
       assert.equal(cliEdit.status, "applied");
-      const expected =
-        cliEdit.status === "applied"
-          ? adapter === "cloudflare"
-            ? enableCloudflareRequestRendering(cliEdit.source)
-            : cliEdit.source
-          : "";
+      const expected = cliEdit.status === "applied" ? cliEdit.source : "";
       assert.equal(scaffolded, expected);
     } finally {
       cleanup(cwd, tmpl);
@@ -173,19 +166,6 @@ test("server + cloudflare defaults canonical collections to request rendering", 
   } finally {
     cleanup(cwd, tmpl);
   }
-});
-
-test("Cloudflare rendering transform is idempotent and template-scoped", () => {
-  const once = enableCloudflareRequestRendering(STARTER_CONFIG);
-  assert.match(once, /rendering: \{ default: "request" \}/);
-  assert.equal(enableCloudflareRequestRendering(once), once);
-  assert.throws(
-    () =>
-      enableCloudflareRequestRendering(
-        STARTER_CONFIG.replace("const nimbusConfig", "const siteConfig"),
-      ),
-    /customized/,
-  );
 });
 
 test("explicit non-Cloudflare adapters leave request rendering disabled", async () => {
@@ -347,6 +327,52 @@ test("server fails closed and rolls back when the config has no output to flip",
       false,
       "the partial directory is rolled back",
     );
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("Cloudflare server scaffolding rolls back when rendering is ambiguous", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate(
+    STARTER_CONFIG.replace(
+      '  site: "https://example.com",',
+      '  ...sharedConfig,\n  site: "https://example.com",',
+    ),
+  );
+  try {
+    await assert.rejects(
+      scaffold(
+        { ...BASE, output: "server", adapter: "cloudflare", dir: "my-docs" },
+        internals(cwd, tmpl),
+      ),
+      /request rendering cannot be enabled safely/,
+    );
+    assert.equal(fs.existsSync(path.join(cwd, "my-docs")), false);
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("prewired Cloudflare scaffolding still rejects ambiguous rendering", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate(
+    STARTER_CONFIG.replace(
+      'import { defineConfig } from "astro/config";',
+      'import { defineConfig } from "astro/config";\nimport cloudflare from "@astrojs/cloudflare";',
+    )
+      .replace('  site: "https://example.com",', '  ...sharedConfig,\n  site: "https://example.com",')
+      .replace('output: "static",', 'output: "server",\n  adapter: cloudflare({ prerenderEnvironment: "node" }),'),
+  );
+  try {
+    await assert.rejects(
+      scaffold(
+        { ...BASE, output: "server", adapter: "cloudflare", dir: "my-docs" },
+        internals(cwd, tmpl),
+      ),
+      /request rendering cannot be enabled safely/,
+    );
+    assert.equal(fs.existsSync(path.join(cwd, "my-docs")), false);
   } finally {
     cleanup(cwd, tmpl);
   }

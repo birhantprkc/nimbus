@@ -70,9 +70,9 @@ For `adapter-cloudflare`, `adapter-vercel`, `adapter-netlify`, and `adapter-node
 
 <PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add adapter-cloudflare" />
 
-`adapter-cloudflare` leaves the project-owned Nimbus rendering policy unchanged and hands that configuration to a coding agent instead of parsing arbitrary source. The command creates a server-compatible `wrangler.jsonc` when none exists or replaces an unchanged Nimbus static config; custom JSONC and alternate JSON/TOML configs stay untouched.
+`adapter-cloudflare` adds request rendering when the Nimbus config has no explicit rendering policy. Existing policies are preserved; imported or ambiguous configurations receive a coding-agent handoff instead of a speculative rewrite. The command creates a server-compatible `wrangler.jsonc` when none exists or replaces an unchanged Nimbus static config; custom JSONC and alternate JSON/TOML configs stay untouched.
 
-After completing the adapter install and rendering-policy handoff, expect:
+After completing the adapter install, expect:
 
 ```ts
 const nimbusConfig = defineNimbusConfig({

@@ -1,3 +1,5 @@
+import ts from "typescript";
+
 /**
  * Adapter recipes + the deterministic `// nimbus:adapter` marker edit — the
  * single source of truth shared by the CLI installer and the scaffolder, so
@@ -118,9 +120,11 @@ const KNOWN_ADAPTER_PACKAGES = new Set(
 );
 
 export type ApplyAdapterResult =
-  | { status: "applied"; source: string }
-  | { status: "noop"; source: string }
+  | { status: "applied"; source: string; requestRendering?: RequestRenderingEdit }
+  | { status: "noop"; source: string; requestRendering?: RequestRenderingEdit }
   | { status: "error"; code: ApplyAdapterErrorCode; message: string };
+
+export type RequestRenderingEdit = "inserted" | "explicit" | "unresolved";
 
 export type ApplyAdapterErrorCode =
   | "cjs-config"
@@ -600,6 +604,237 @@ function adapterExpressionFor(recipe: AdapterRecipe, importName: string): string
   return recipe.adapterExpression.replace(new RegExp(`^${recipe.importName}\\b`), importName);
 }
 
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function enableCloudflareRequestRendering(
+  source: string,
+): { source: string; status: RequestRenderingEdit } {
+  const sourceFile = ts.createSourceFile(
+    "astro.config.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const diagnostics = (
+    sourceFile as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }
+  ).parseDiagnostics;
+  if (diagnostics?.length) return { source, status: "unresolved" };
+
+  const configBindings = new Set<string>();
+  const nimbusBindings = new Set<string>();
+  const astroConfigBindings = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
+      continue;
+    }
+    const clause = statement.importClause;
+    if (!clause || clause.isTypeOnly) continue;
+    if (statement.moduleSpecifier.text === "astro/config") {
+      if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const element of clause.namedBindings.elements) {
+          if (
+            !element.isTypeOnly &&
+            (element.propertyName?.text ?? element.name.text) === "defineConfig"
+          ) {
+            astroConfigBindings.add(element.name.text);
+          }
+        }
+      }
+      continue;
+    }
+    if (statement.moduleSpecifier.text !== "@cloudflare/nimbus-docs") continue;
+    if (clause.name) nimbusBindings.add(clause.name.text);
+    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const element of clause.namedBindings.elements) {
+        if (element.isTypeOnly) continue;
+        if ((element.propertyName?.text ?? element.name.text) === "defineConfig") {
+          configBindings.add(element.name.text);
+        }
+      }
+    }
+  }
+  if (
+    configBindings.size === 0 ||
+    nimbusBindings.size === 0 ||
+    astroConfigBindings.size === 0
+  ) {
+    return { source, status: "unresolved" };
+  }
+
+  const astroConfigs: ts.ObjectLiteralExpression[] = [];
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExportAssignment(statement) || statement.isExportEquals) continue;
+    const expression = unwrapExpression(statement.expression);
+    if (!ts.isCallExpression(expression)) continue;
+    const callee = unwrapExpression(expression.expression);
+    if (!ts.isIdentifier(callee) || !astroConfigBindings.has(callee.text)) continue;
+    if (expression.arguments.length !== 1) return { source, status: "unresolved" };
+    const argument = expression.arguments[0];
+    if (!argument) return { source, status: "unresolved" };
+    const config = unwrapExpression(argument);
+    if (!ts.isObjectLiteralExpression(config)) return { source, status: "unresolved" };
+    astroConfigs.push(config);
+  }
+  if (astroConfigs.length !== 1) return { source, status: "unresolved" };
+
+  const initializers = new Map<
+    string,
+    { expression: ts.Expression; declaration: ts.Identifier } | null
+  >();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    const isConst = (statement.declarationList.flags & ts.NodeFlags.Const) !== 0;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+      const name = declaration.name.text;
+      initializers.set(
+        name,
+        !isConst || initializers.has(name)
+          ? null
+          : { expression: declaration.initializer, declaration: declaration.name },
+      );
+    }
+  }
+
+  interface ResolvedConfig {
+    config: ts.ObjectLiteralExpression;
+    allowedBindings: Map<string, Set<ts.Identifier>>;
+  }
+
+  function resolveConfig(
+    expression: ts.Expression,
+    seen = new Set<string>(),
+  ): ResolvedConfig | null {
+    const unwrapped = unwrapExpression(expression);
+    if (ts.isIdentifier(unwrapped)) {
+      const initializer = initializers.get(unwrapped.text);
+      if (!initializer || seen.has(unwrapped.text)) return null;
+      const nextSeen = new Set(seen).add(unwrapped.text);
+      const resolved = resolveConfig(initializer.expression, nextSeen);
+      if (!resolved) return null;
+      const allowed = resolved.allowedBindings.get(unwrapped.text) ?? new Set<ts.Identifier>();
+      allowed.add(initializer.declaration);
+      allowed.add(unwrapped);
+      resolved.allowedBindings.set(unwrapped.text, allowed);
+      return resolved;
+    }
+    if (!ts.isCallExpression(unwrapped)) return null;
+    const callee = unwrapExpression(unwrapped.expression);
+    if (!ts.isIdentifier(callee) || !configBindings.has(callee.text)) return null;
+    if (unwrapped.arguments.length !== 1) return null;
+    const argument = unwrapped.arguments[0];
+    if (!argument) return null;
+    const config = unwrapExpression(argument);
+    return ts.isObjectLiteralExpression(config)
+      ? { config, allowedBindings: new Map() }
+      : null;
+  }
+
+  const candidates: ResolvedConfig[] = [];
+  let unresolvedNimbusCall = false;
+  function visit(node: ts.Node): void {
+    if (
+      node !== sourceFile &&
+      (ts.isFunctionLike(node) || ts.isBlock(node) || ts.isModuleBlock(node))
+    ) {
+      return;
+    }
+    if (ts.isCallExpression(node)) {
+      const callee = unwrapExpression(node.expression);
+      if (ts.isIdentifier(callee) && nimbusBindings.has(callee.text)) {
+        const argument = node.arguments[0];
+        const resolved = argument ? resolveConfig(argument) : null;
+        if (resolved) candidates.push(resolved);
+        else unresolvedNimbusCall = true;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(astroConfigs[0]!);
+  if (unresolvedNimbusCall || candidates.length !== 1) {
+    return { source, status: "unresolved" };
+  }
+
+  const resolved = candidates[0]!;
+  for (const [name, allowed] of resolved.allowedBindings) {
+    let unexpectedReference = false;
+    function findReferences(node: ts.Node): void {
+      if (unexpectedReference) return;
+      if (ts.isIdentifier(node) && node.text === name && !allowed.has(node)) {
+        unexpectedReference = true;
+        return;
+      }
+      ts.forEachChild(node, findReferences);
+    }
+    findReferences(sourceFile);
+    if (unexpectedReference) return { source, status: "unresolved" };
+  }
+
+  const config = resolved.config;
+  for (let i = config.properties.length - 1; i >= 0; i--) {
+    const property = config.properties[i]!;
+    if (ts.isSpreadAssignment(property)) return { source, status: "unresolved" };
+    const name = property.name;
+    if (!name || ts.isComputedPropertyName(name)) return { source, status: "unresolved" };
+    if (
+      (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) &&
+      name.text === "rendering"
+    ) {
+      return { source, status: "explicit" };
+    }
+  }
+
+  const firstProperty = config.properties[0];
+  if (!firstProperty) return { source, status: "unresolved" };
+  const propertyStart = firstProperty.getStart(sourceFile);
+  const openingBrace = config.getStart(sourceFile);
+  const gap = source.slice(openingBrace + 1, propertyStart);
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+
+  if (gap.includes("\n")) {
+    const lineStart = source.lastIndexOf("\n", propertyStart - 1) + 1;
+    const indent = /^[ \t]*/.exec(source.slice(lineStart, propertyStart))![0];
+    if (/^[ \t]*\r?\n/.test(gap)) {
+      const insertion = openingBrace + 1;
+      return {
+        source:
+          source.slice(0, insertion) +
+          `${eol}${indent}rendering: { default: "request" },` +
+          source.slice(insertion),
+        status: "inserted",
+      };
+    }
+    return {
+      source:
+        source.slice(0, propertyStart) +
+        `rendering: { default: "request" },${eol}${indent}` +
+        source.slice(propertyStart),
+      status: "inserted",
+    };
+  }
+
+  return {
+    source:
+      source.slice(0, propertyStart) +
+      'rendering: { default: "request" }, ' +
+      source.slice(propertyStart),
+    status: "inserted",
+  };
+}
+
 // Whether `name` occurs as an identifier token anywhere in real code (the mask
 // blanks strings/comments). A deliberate over-approximation: rather than
 // enumerate every binding form (default/named/namespace imports, destructuring,
@@ -741,7 +976,15 @@ export function applyAdapterToConfig(
   }
 
   if (isServer && adapterProperty && existingAdapter?.defaultName) {
-    return { status: "noop", source };
+    if (adapterId !== "cloudflare") return { status: "noop", source };
+    const rendering = enableCloudflareRequestRendering(source);
+    return rendering.source === source
+      ? { status: "noop", source, requestRendering: rendering.status }
+      : {
+          status: "applied",
+          source: rendering.source,
+          requestRendering: rendering.status,
+        };
   }
 
   let next = source;
@@ -775,6 +1018,16 @@ export function applyAdapterToConfig(
 
   if (!existingAdapter?.defaultName) {
     next = insertImport(next, `import ${importName} from "${recipe.pkg}";`);
+  }
+
+  if (adapterId === "cloudflare") {
+    const rendering = enableCloudflareRequestRendering(next);
+    next = rendering.source;
+    return {
+      status: "applied",
+      source: next,
+      requestRendering: rendering.status,
+    };
   }
 
   return { status: "applied", source: next };

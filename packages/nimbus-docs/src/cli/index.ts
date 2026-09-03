@@ -543,7 +543,7 @@ async function runAdapterInstall(
       lines.push(`+ Installed ${outcome.depsInstalled.join(", ")}`);
     }
     appendWranglerWriteLine(lines, outcome.wrangler);
-    appendRequestRenderingHandoff(lines, adapter, label);
+    appendRequestRenderingStatus(lines, adapter, label, outcome.requestRendering);
     p.outro(lines.join("\n"));
     return;
   }
@@ -553,18 +553,27 @@ async function runAdapterInstall(
     lines.push(`+ Installed ${outcome.depsInstalled.join(", ")}`);
   }
   appendWranglerWriteLine(lines, outcome.wrangler);
-  appendRequestRenderingHandoff(lines, adapter, label);
+  appendRequestRenderingStatus(lines, adapter, label, outcome.requestRendering);
   lines.push(`Verify with a build, then \`${invocation("check")}\`.`);
   p.outro(lines.join("\n"));
 }
 
-function appendRequestRenderingHandoff(
+function appendRequestRenderingStatus(
   lines: string[],
   adapter: AdapterId,
   label: string,
+  status: "inserted" | "explicit" | "unresolved" | undefined,
 ): void {
   if (adapter !== "cloudflare") {
     lines.push("Rendering behavior follows the policy in your Nimbus config.");
+    return;
+  }
+  if (status === "inserted") {
+    lines.push('+ Enabled request rendering in the active Nimbus config.');
+    return;
+  }
+  if (status === "explicit") {
+    lines.push("Rendering behavior follows your explicit Nimbus policy.");
     return;
   }
   const command = invocation(`add ${label} --print`);

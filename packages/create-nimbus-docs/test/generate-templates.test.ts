@@ -16,7 +16,7 @@ import { test } from "node:test";
 
 import { generateTemplates, variantNames } from "../scripts/copy-template.mjs";
 
-test("every generated variant ships the adapter marker and build default", () => {
+test("every generated variant ships the adapter marker and implicit build default", () => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), "nimbus-gen-"));
   try {
     const dirs = generateTemplates(out);
@@ -30,7 +30,7 @@ test("every generated variant ships the adapter marker and build default", () =>
       );
       assert.doesNotMatch(cfg, /nimbus:rendering/);
       assert.doesNotMatch(cfg, /rendering:\s*\{\s*default:\s*["']request["']/);
-      assert.match(cfg, /rendering:\s*\{\s*default:\s*["']build["']/);
+      assert.doesNotMatch(cfg, /rendering:\s*\{/);
     }
   } finally {
     fs.rmSync(out, { recursive: true, force: true });

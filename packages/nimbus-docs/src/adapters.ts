@@ -5,8 +5,8 @@
  * `@cloudflare/create-nimbus-docs` can run the *exact* server-output opt-in the
  * `nimbus-docs add adapter-*` CLI runs — the config edit + adapter recipe + the
  * Cloudflare server-wrangler emitter — without forking the transform. Fresh
- * Cloudflare scaffolds additionally switch the template-owned rendering
- * default; customized existing configs receive an agent handoff.
+ * Cloudflare scaffolds additionally enable request rendering when the project
+ * has not declared an explicit rendering policy.
  *
  * Curated re-export, never `export *`: the internal-only helpers (config
  * classifiers, idempotency detectors, id list) stay private. No external
@@ -24,6 +24,7 @@ export type {
   AdapterId,
   AdapterRecipe,
   ApplyAdapterResult,
+  RequestRenderingEdit,
   ServerWranglerRecipe,
   WranglerInputs,
 } from "./_internal/adapters.js";
