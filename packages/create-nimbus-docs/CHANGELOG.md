@@ -1,5 +1,37 @@
 # @cloudflare/create-nimbus-docs
 
+## 0.7.0
+
+### Minor Changes
+
+- [#93](https://github.com/cloudflare/nimbus/pull/93) [`43c161a`](https://github.com/cloudflare/nimbus/commit/43c161a993385c9fd121c2732b0fa37a6d74175d) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Add first-party OpenAPI reference support to Nimbus.
+
+  - Configure local or inline OpenAPI specs as routed, version-aware collections with operations, schemas, tags, webhooks, generated samples, and every declared request-body media type.
+  - Install an editable `api-layout` UI that shares Nimbus's docs shell, navigation, breadcrumbs, banners, mobile behavior, and deep-linkable field and code-sample controls. The copied `ApiFieldList` field iterator is explicitly typed so the scaffolded UI type-checks cleanly under a consumer's strict TypeScript.
+  - Publish per-page Markdown, agent indexes, corpus entries, coordinate manifests, and `api.ref:` citations across local and cross-site documentation.
+  - Harden generated-consumer delivery with exact registry dependencies, working pnpm installs from scaffold roots, and base-aware canonical, Markdown, sitemap, and agent URLs through the new public `withBase` helper.
+  - Control how operation pages are addressed, and stay resilient to messy specs. By default, operations that lack a usable `operationId` no longer abort the build — they warn and fall back to a path-derived coordinate, so real-world specs (e.g. Cloudflare's `brand-protection` operations) build; set `api[].requireOperationId: true` on specs you own to keep that fatal, while route-hostile paths and coordinate collisions stay fatal regardless. For readable, path-derived URLs, opt into the `resource-action-v1` route convention: set `api[].routes: { convention: "resource-action-v1" }` (per version in a family) to derive slugs like `charges/list` from an operation's method and path, decoupled from `operationId` so route-hostile identifiers no longer poison URLs. Trim shared bases with `stripPathPrefixes` (e.g. `["/v1"]`), pin individual pages with an `operations` (`operationId` → slug) map, and inspect how each slug resolved (`override` / `derived` / `fallback`) via the new `getApiRouteProvenance` export. Derivation collisions, reserved-route segments, unused overrides, cross-version slug drift, and unknown config keys (e.g. a `stripPrefixes` typo for `stripPathPrefixes`) are reported with pointed messages; the default (no `routes`) keeps the legacy `operationId` slugs unchanged.
+
+- [#103](https://github.com/cloudflare/nimbus/pull/103) [`f372a4e`](https://github.com/cloudflare/nimbus/commit/f372a4eff6efa0e83706a6a9a840531b2ec0796d) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Add a `--adapter <vercel|node|netlify|cloudflare>` scaffold flag for server output.
+
+  Passing `--adapter` selects `output: "server"` and wires the chosen adapter at scaffold time: it flips the generated `astro.config` at the `// nimbus:adapter` marker, appends the adapter's platform build dir to `.gitignore`, and for Cloudflare writes a server `wrangler.jsonc`. Node scaffolds include a production `start` script. `--deploy` is ignored with `--adapter` (server output owns its target). Config discovery follows Astro's own resolution order and supported set (`.mjs`/`.js`/`.ts`/`.mts`), matching the `nimbus-docs add adapter-*` opt-in. Copied templates are rejected if they contain symlinks so transformations cannot escape the project root.
+
+  Static scaffolds now preserve the `// nimbus:adapter` marker so the later `nimbus-docs add adapter-*` opt-in can reliably rewrite generated projects.
+
+  Reject destinations whose existing symlinked parent resolves outside the current directory, quote paths with spaces in next-step commands, and keep generated components compatible with adapter-defined `Astro.locals` types.
+
+- [#104](https://github.com/cloudflare/nimbus/pull/104) [`862df4a`](https://github.com/cloudflare/nimbus/commit/862df4ac2786fbc46e0e40a5517c27f4dc39e8da) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Add Cloudflare request rendering for canonical content collections.
+
+  Nimbus now supports collection-level build and request rendering policies with validated defaults and per-collection overrides. Request-rendered prose and API routes use response-aware page helpers, prepared API models, request-safe partial headings, 404 responses, and build-derived syntax-highlighting assets without shipping source OpenAPI specs to Workers. Cloudflare server scaffolds enable request rendering by default, and generated pnpm configuration installs Satteri's WASI fallback alongside the current architecture.
+
+  Preserve sitemap, Pagefind, Markdown, and agent-index discovery for request-rendered routes. Pin the tested sitemap integration, clean up synthetic Pagefind staging files transactionally, and generate cross-collection Open Graph images in new starters.
+
+### Patch Changes
+
+- [#89](https://github.com/cloudflare/nimbus/pull/89) [`deddca5`](https://github.com/cloudflare/nimbus/commit/deddca54d0fe98f17dee0056e6b7d84159aaa808) Thanks [@sansynx](https://github.com/sansynx)! - Remove the deprecated `baseUrl` option from generated TypeScript configuration so Nimbus sites continue to pass type checks on TypeScript 6 while preserving the `@/` import alias.
+
+- [#99](https://github.com/cloudflare/nimbus/pull/99) [`2965d9f`](https://github.com/cloudflare/nimbus/commit/2965d9ff95bc06a90dee6eaf1e7cc7383fee36e1) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Guard the `PackageManagers` restore script's `textContent` access with optional chaining so the starter passes a strict `astro check` (part of the CJK/type-safety fixes).
+
 ## 0.6.6
 
 ### Patch Changes

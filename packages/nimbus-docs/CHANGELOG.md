@@ -1,5 +1,41 @@
 # @cloudflare/nimbus-docs
 
+## 0.12.0
+
+### Minor Changes
+
+- [#93](https://github.com/cloudflare/nimbus/pull/93) [`43c161a`](https://github.com/cloudflare/nimbus/commit/43c161a993385c9fd121c2732b0fa37a6d74175d) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Add first-party OpenAPI reference support to Nimbus.
+
+  - Configure local or inline OpenAPI specs as routed, version-aware collections with operations, schemas, tags, webhooks, generated samples, and every declared request-body media type.
+  - Install an editable `api-layout` UI that shares Nimbus's docs shell, navigation, breadcrumbs, banners, mobile behavior, and deep-linkable field and code-sample controls. The copied `ApiFieldList` field iterator is explicitly typed so the scaffolded UI type-checks cleanly under a consumer's strict TypeScript.
+  - Publish per-page Markdown, agent indexes, corpus entries, coordinate manifests, and `api.ref:` citations across local and cross-site documentation.
+  - Harden generated-consumer delivery with exact registry dependencies, working pnpm installs from scaffold roots, and base-aware canonical, Markdown, sitemap, and agent URLs through the new public `withBase` helper.
+  - Control how operation pages are addressed, and stay resilient to messy specs. By default, operations that lack a usable `operationId` no longer abort the build — they warn and fall back to a path-derived coordinate, so real-world specs (e.g. Cloudflare's `brand-protection` operations) build; set `api[].requireOperationId: true` on specs you own to keep that fatal, while route-hostile paths and coordinate collisions stay fatal regardless. For readable, path-derived URLs, opt into the `resource-action-v1` route convention: set `api[].routes: { convention: "resource-action-v1" }` (per version in a family) to derive slugs like `charges/list` from an operation's method and path, decoupled from `operationId` so route-hostile identifiers no longer poison URLs. Trim shared bases with `stripPathPrefixes` (e.g. `["/v1"]`), pin individual pages with an `operations` (`operationId` → slug) map, and inspect how each slug resolved (`override` / `derived` / `fallback`) via the new `getApiRouteProvenance` export. Derivation collisions, reserved-route segments, unused overrides, cross-version slug drift, and unknown config keys (e.g. a `stripPrefixes` typo for `stripPathPrefixes`) are reported with pointed messages; the default (no `routes`) keeps the legacy `operationId` slugs unchanged.
+
+- [#104](https://github.com/cloudflare/nimbus/pull/104) [`79d6430`](https://github.com/cloudflare/nimbus/commit/79d6430fd96d0446a27f3c32375fe3f8ddce7c1a) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Add server-output support and the `@cloudflare/nimbus-docs/adapters` export.
+
+  Nimbus can now target on-request (server) output in addition to static. A new `@cloudflare/nimbus-docs/adapters` public export ships the adapter recipes plus the shared `astro.config` and `wrangler.jsonc` emitters, and two new CLI verbs opt an existing site in: `nimbus-docs add server-output --adapter <vercel|node|netlify|cloudflare>` (alias `nimbus-docs add adapter-<id>`). The installer rewrites `astro.config` at the `// nimbus:adapter` marker and, for Cloudflare, creates a server `wrangler.jsonc` or replaces an exact Nimbus static config. Cloudflare installs add request rendering when the active Nimbus config has no explicit rendering policy; explicit or ambiguous policies are preserved and receive an agent-ready handoff. Adapter dependencies are saved at their exact resolved versions so subsequent runs accept the installed declaration. Custom and alternate Wrangler configs are preserved with manual adaptation instructions.
+
+  Withdraw the `gated` config option because it did not hold as a confidentiality boundary. Existing `gated` config now fails with a migration error; to keep a page out of the build, move the page out of a routed content collection.
+
+  Fix env preflight precedence and parsing to match Vite, including empty shell overrides, last-wins `.env*` files, and inline dotenv comments. Adapter dependency validation now resolves pnpm catalog declarations, and compatibility warnings reflect the versions installed by the command.
+
+  Fix `NimbusHead` URLs for sub-path deployments by applying Astro's configured base to sitemap, LLM index, social image, JSON-LD, canonical, and version-alternate URLs. Root deployments and already-based paths are unchanged.
+
+  Keep registry component render counters compatible with adapter-defined `Astro.locals` types, including Cloudflare server output.
+
+- [#104](https://github.com/cloudflare/nimbus/pull/104) [`862df4a`](https://github.com/cloudflare/nimbus/commit/862df4ac2786fbc46e0e40a5517c27f4dc39e8da) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Add Cloudflare request rendering for canonical content collections.
+
+  Nimbus now supports collection-level build and request rendering policies with validated defaults and per-collection overrides. Request-rendered prose and API routes use response-aware page helpers, prepared API models, request-safe partial headings, 404 responses, and build-derived syntax-highlighting assets without shipping source OpenAPI specs to Workers. Cloudflare server scaffolds enable request rendering by default, and generated pnpm configuration installs Satteri's WASI fallback alongside the current architecture.
+
+  Preserve sitemap, Pagefind, Markdown, and agent-index discovery for request-rendered routes. Pin the tested sitemap integration, clean up synthetic Pagefind staging files transactionally, and generate cross-collection Open Graph images in new starters.
+
+### Patch Changes
+
+- [#99](https://github.com/cloudflare/nimbus/pull/99) [`2965d9f`](https://github.com/cloudflare/nimbus/commit/2965d9ff95bc06a90dee6eaf1e7cc7383fee36e1) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - - Honor `noindex: true` on machine discovery surfaces. `noindex` pages now drop out of `/llms.txt`, per-section `llms.txt`, and the `/llms-full.txt` corpus (matching on-site search, which already excluded them) while staying directly addressable and navigable. A single exported `isDiscoverable` predicate defines the contract for custom index/corpus routes.
+  - Pin `@vercel/detect-agent` to `1.2.3`, the last release published with npm provenance. Versions `1.2.4`/`1.2.5` dropped provenance, tripping pnpm's `ERR_PNPM_TRUST_DOWNGRADE` and blocking lockfile updates. Pinning holds at the attested artifact until upstream restores provenance.
+  - Fix navigation for pages under CJK (percent-encoded) paths. Route matching now decodes percent-encoded request paths (`toRouteKey`), so active sidebar state, breadcrumbs, and prev/next resolve correctly instead of falling back to a URL-encoded trail; the breadcrumb URL fallback also decodes segment labels.
+
 ## 0.11.0
 
 ### Minor Changes
