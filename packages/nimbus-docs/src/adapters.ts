@@ -3,10 +3,10 @@
  *
  * Public-but-unstable subpath (`@cloudflare/nimbus-docs/adapters`). It exists so
  * `@cloudflare/create-nimbus-docs` can run the *exact* server-output opt-in the
- * `nimbus-docs add adapter-*` CLI runs — the marker edit + adapter recipe + the
- * Cloudflare server-wrangler emitter — without forking the 700-line transform.
- * A server scaffold is therefore byte-identical (`astro.config.ts`) to
- * `scaffold static → add adapter-<id>`.
+ * `nimbus-docs add adapter-*` CLI runs — the config edit + adapter recipe + the
+ * Cloudflare server-wrangler emitter — without forking the transform. Fresh
+ * Cloudflare scaffolds additionally switch the template-owned rendering
+ * default; customized existing configs receive an agent handoff.
  *
  * Curated re-export, never `export *`: the internal-only helpers (config
  * classifiers, idempotency detectors, id list) stay private. No external

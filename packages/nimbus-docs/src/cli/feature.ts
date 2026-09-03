@@ -19,6 +19,14 @@ export interface FeatureInstallOptions {
   print: boolean;
 }
 
+export async function shouldUseAgentHandoff(force: boolean): Promise<boolean> {
+  if (force) return true;
+  const detected = await determineAgent().catch(() => ({
+    isAgent: false as const,
+  }));
+  return detected.isAgent === true;
+}
+
 export async function installFeature(
   slug: string,
   options: FeatureInstallOptions,
@@ -27,10 +35,7 @@ export async function installFeature(
 
   // Predicate: explicit --print, or detection says we're running inside
   // a known agent (which captures our stdout).
-  const detected = await determineAgent().catch(() => ({
-    isAgent: false as const,
-  }));
-  const isAgentMode = options.print || detected.isAgent === true;
+  const isAgentMode = await shouldUseAgentHandoff(options.print);
 
   if (isAgentMode) {
     process.stdout.write(markdown);

@@ -38,6 +38,7 @@ test("flips output and wires each adapter at the marker", () => {
       res.source.includes(`adapter: ${recipe.adapterExpression},`),
       `${id} adds adapter field`,
     );
+    assert.doesNotMatch(res.source, /default:\s*"request"/);
     // The adapter field lands directly after the output line.
     assert.match(
       res.source,

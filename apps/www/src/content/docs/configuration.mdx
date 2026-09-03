@@ -52,9 +52,13 @@ export default defineConfig({
 
 ### Rendering policy
 
-Nimbus prerenders every content collection by default. A Cloudflare server-output project can instead render selected canonical collection routes on each request:
+Nimbus prerenders every content collection by default. Choosing Cloudflare server output during scaffolding sets every canonical content collection route to render on request. For an existing project, run `nimbus-docs add adapter-cloudflare` inside your coding agent; it receives a versioned runbook for adapting the project-owned config safely. From a regular shell, pipe the runbook manually:
 
-First run `nimbus-docs add adapter-cloudflare`. It installs the adapter, switches Astro to server output, and creates or updates the server-compatible Wrangler configuration. Then add the rendering policy:
+```sh
+npx @cloudflare/nimbus-docs add adapter-cloudflare --print | claude
+```
+
+The generated policy is:
 
 ```ts title="astro.config.ts"
 import cloudflare from "@astrojs/cloudflare";
@@ -67,10 +71,7 @@ const config = defineNimbusConfig({
   site: "https://docs.example.com",
   title: "Acme",
   rendering: {
-    default: "build",
-    collections: {
-      docs: "request",
-    },
+    default: "request",
   },
 });
 
@@ -81,9 +82,18 @@ export default defineConfig({
 });
 ```
 
-`rendering.default` applies to every registered collection with a canonical catch-all route and defaults to `"build"`. `rendering.collections` overrides that mode by collection name, such as `docs`, `docs-v2`, or an API collection.
+`rendering.default` applies to every registered collection with a canonical catch-all route. Override individual collections when they should remain build-rendered:
 
-Request rendering currently requires `output: "server"` with `@astrojs/cloudflare` and a server-compatible `wrangler.jsonc`. Other adapters can serve server-output Nimbus projects, but their canonical content collections must remain build-rendered. `nimbus-docs check` reports request-rendering readiness as unknown because it cannot validate adapter output; a successful production build is the authoritative gate. See [Server adapters](/cli#server-adapters) for setup details.
+```ts
+rendering: {
+  default: "request",
+  collections: {
+    archived: "build",
+  },
+},
+```
+
+Request rendering currently requires `output: "server"` with `@astrojs/cloudflare` and a server-compatible `wrangler.jsonc`. `nimbus-docs check` reports request-rendering readiness as unknown because it cannot validate adapter output; a successful production build is the authoritative gate. See [Server adapters](/cli#server-adapters) for setup details.
 
 ## Integration options
 

@@ -99,10 +99,7 @@ import {
   NIMBUS_DEFAULT_SHIKI_THEMES,
   shouldClassShikiTokens,
 } from "./_internal/code-style-registry.js";
-import type {
-  SitemapItem,
-  SitemapSerialize,
-} from "./_internal/sitemap-types.js";
+import type { SitemapSerialize } from "./_internal/sitemap-types.js";
 import { scanVersionFrontmatter } from "./_internal/scan-version-frontmatter.js";
 import {
   buildVersionAlternates,
@@ -337,7 +334,7 @@ export function nimbus(
   let requestRenderingConfigured = false;
   let requestRenderingCollections = new Set<string>();
   let requestRoutePatterns = new Set<string>();
-  let sitemapRequestPages: string[] = [];
+  let sitemapCustomPages: string[] = [];
   let sitemapExcludedPaths = new Set<string>();
   let sitemapTrailingSlash: "always" | "never" | "ignore" = "ignore";
   let building = false;
@@ -406,7 +403,7 @@ export function nimbus(
         }
 
         const integrationsToAdd: AstroIntegration[] = [];
-        sitemapRequestPages = [];
+        sitemapCustomPages = [];
         sitemapExcludedPaths = new Set();
         sitemapTrailingSlash = astroConfig.trailingSlash;
 
@@ -791,7 +788,9 @@ export function nimbus(
             config,
             astroConfig.base,
           );
-          const customPages = [...(sitemapOpts?.customPages ?? [])];
+          for (const page of sitemapOpts?.customPages ?? []) {
+            sitemapCustomPages.push(page);
+          }
           const hiddenFilter = makeHiddenSitemapFilter(
             config,
             astroConfig.base,
@@ -809,7 +808,7 @@ export function nimbus(
               >["serialize"],
             }),
             ...((sitemapOpts?.customPages || requestRenderingConfigured) && {
-              customPages,
+              customPages: sitemapCustomPages,
             }),
             ...((hiddenPrefixes.length > 0 || requestRenderingConfigured) && {
               filter: (url: string) =>
@@ -825,20 +824,6 @@ export function nimbus(
                 ),
             }),
           });
-          if (requestRenderingConfigured) {
-            const buildDone = sitemapIntegration.hooks["astro:build:done"];
-            if (!buildDone) {
-              throw new Error("@astrojs/sitemap is missing astro:build:done");
-            }
-            sitemapIntegration.hooks["astro:build:done"] = async (params) => {
-              await buildDone(params);
-              await appendRequestSitemapPages(
-                params.dir,
-                sitemapRequestPages,
-                sitemapOpts?.serialize,
-              );
-            };
-          }
           integrationsToAdd.push(sitemapIntegration);
         }
 
@@ -1238,12 +1223,12 @@ export function nimbus(
               astroBaseForBuild,
               requestRenderingCollections,
             )
-          : { entries: [], path: null };
-        const requestRoutes = inventory.entries
+          : [];
+        const requestRoutes = inventory
           .filter((entry) => entry.request)
           .map((entry) => canonicalizePathname(entry.url))
           .filter((pathname) => !prerenderedRoutes.has(pathname));
-        for (const entry of inventory.entries) {
+        for (const entry of inventory) {
           const pathname = canonicalizePathname(
             safeDecode(withBase(entry.url, astroBaseForBuild)),
           );
@@ -1254,7 +1239,7 @@ export function nimbus(
               sitemapTrailingSlash === "never"
                 ? basedPath
                 : `${basedPath.replace(/\/$/, "")}/`;
-            sitemapRequestPages.push(new URL(sitemapPath, config.site).href);
+            sitemapCustomPages.push(new URL(sitemapPath, config.site).href);
           }
         }
         // Materialize the site's route truth from Astro's emitted `pages`
@@ -1328,13 +1313,11 @@ export function nimbus(
         if (config.search !== false && config.search?.provider !== "custom") {
           await runPagefind(
             distDir,
-            inventory.entries.filter(
+            inventory.filter(
               (entry) => entry.request && entry.searchable,
             ),
           );
         }
-
-        if (inventory.path) fs.rmSync(inventory.path, { force: true });
       },
     },
   };
@@ -1439,70 +1422,143 @@ function isRequestRouteInventoryPath(pathname: string, base: string): boolean {
   );
 }
 
-function readRequestRouteInventory(
+export function readRequestRouteInventory(
   distDir: string,
   base: string,
   requestCollections: ReadonlySet<string>,
-): { entries: RequestRouteInventoryEntry[]; path: string | null } {
+): RequestRouteInventoryEntry[] {
   const relativeInventoryPath = REQUEST_ROUTE_INVENTORY_PATTERN.slice(1);
   const basePath = base.replace(/^\/+|\/+$/g, "");
+  const distRoot = path.resolve(distDir);
   const candidates = [
-    path.join(distDir, relativeInventoryPath),
-    ...(basePath ? [path.join(distDir, basePath, relativeInventoryPath)] : []),
-  ];
-  const inventoryPath = candidates.find((candidate) =>
-    fs.existsSync(candidate),
-  );
+    path.resolve(distRoot, relativeInventoryPath),
+    ...(basePath ? [path.resolve(distRoot, basePath, relativeInventoryPath)] : []),
+  ].map((candidate) => assertSafeInventoryPath(distRoot, candidate));
+  const inventoryPath = candidates.find((candidate) => {
+    assertSafeInventoryPath(distRoot, candidate);
+    try {
+      const stats = fs.lstatSync(candidate);
+      if (!stats.isFile() || stats.isSymbolicLink()) {
+        throw new Error(
+          `nimbus-docs: request route inventory is not a regular file: ${candidate}`,
+        );
+      }
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw err;
+    }
+  });
   if (!inventoryPath) {
     throw new Error(
       "nimbus-docs: request route inventory was not emitted; cannot materialize exact route truth.",
     );
   }
 
-  let inventory: unknown;
+  let primaryError: unknown;
   try {
-    inventory = JSON.parse(fs.readFileSync(inventoryPath, "utf8"));
-  } catch (err) {
-    throw new Error(
-      `nimbus-docs: request route inventory is invalid: ${(err as Error).message}`,
-    );
-  }
-  if (!Array.isArray(inventory)) {
-    throw new Error("nimbus-docs: request route inventory must be an array.");
-  }
-
-  const entries: RequestRouteInventoryEntry[] = [];
-  for (const entry of inventory) {
-    if (
-      typeof entry !== "object" ||
-      entry === null ||
-      typeof (entry as { collection?: unknown }).collection !== "string" ||
-      typeof (entry as { url?: unknown }).url !== "string"
-    ) {
+    let inventory: unknown;
+    try {
+      inventory = JSON.parse(fs.readFileSync(inventoryPath, "utf8"));
+    } catch (err) {
       throw new Error(
-        "nimbus-docs: request route inventory contains an invalid entry.",
+        `nimbus-docs: request route inventory is invalid: ${(err as Error).message}`,
       );
     }
-    const value = entry as Partial<RequestRouteInventoryEntry> & {
-      collection: string;
-      url: string;
-    };
-    entries.push({
-      collection: value.collection,
-      url: value.url,
-      request: value.request ?? requestCollections.has(value.collection),
-      discoverable: value.discoverable ?? true,
-      searchable: value.searchable ?? false,
-      title: value.title ?? value.url,
-      language: value.language ?? "en",
-      ...(value.description ? { description: value.description } : {}),
-      ...(value.content ? { content: value.content } : {}),
-      ...(value.version ? { version: value.version } : {}),
-      ...(value.deprecated ? { deprecated: true } : {}),
-    });
+    if (!Array.isArray(inventory)) {
+      throw new Error("nimbus-docs: request route inventory must be an array.");
+    }
+
+    const entries: RequestRouteInventoryEntry[] = [];
+    for (const entry of inventory) {
+      if (
+        typeof entry !== "object" ||
+        entry === null ||
+        typeof (entry as { collection?: unknown }).collection !== "string" ||
+        typeof (entry as { url?: unknown }).url !== "string"
+      ) {
+        throw new Error(
+          "nimbus-docs: request route inventory contains an invalid entry.",
+        );
+      }
+      const value = entry as Partial<RequestRouteInventoryEntry> & {
+        collection: string;
+        url: string;
+      };
+      entries.push({
+        collection: value.collection,
+        url: value.url,
+        request: value.request ?? requestCollections.has(value.collection),
+        discoverable: value.discoverable ?? true,
+        searchable: value.searchable ?? false,
+        title: value.title ?? value.url,
+        language: value.language ?? "en",
+        ...(value.description ? { description: value.description } : {}),
+        ...(value.content ? { content: value.content } : {}),
+        ...(value.version ? { version: value.version } : {}),
+        ...(value.deprecated ? { deprecated: true } : {}),
+      });
+    }
+
+    return entries;
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    const cleanupErrors: Error[] = [];
+    for (const candidate of candidates) {
+      try {
+        assertSafeInventoryPath(distRoot, candidate);
+        fs.rmSync(candidate, { force: true });
+      } catch (err) {
+        cleanupErrors.push(err as Error);
+      }
+    }
+    if (primaryError === undefined && cleanupErrors.length > 0) {
+      throw new AggregateError(
+        cleanupErrors,
+        "nimbus-docs: failed to remove request route inventory files.",
+      );
+    }
+    if (
+      primaryError instanceof Error &&
+      primaryError.cause === undefined &&
+      cleanupErrors.length > 0
+    ) {
+      primaryError.cause = new AggregateError(cleanupErrors);
+    }
+  }
+}
+
+function assertSafeInventoryPath(distRoot: string, candidate: string): string {
+  const relative = path.relative(distRoot, candidate);
+  if (
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error(
+      `nimbus-docs: request route inventory path escapes the build directory: ${candidate}`,
+    );
   }
 
-  return { entries, path: inventoryPath };
+  for (
+    let parent = path.dirname(candidate);
+    parent !== distRoot;
+    parent = path.dirname(parent)
+  ) {
+    try {
+      const stats = fs.lstatSync(parent);
+      if (!stats.isDirectory() || stats.isSymbolicLink()) {
+        throw new Error(
+          `nimbus-docs: request route inventory parent is not a real directory: ${parent}`,
+        );
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+  }
+  return candidate;
 }
 
 /** Absolute paths of every local spec file backing `config.api`. */
@@ -1644,102 +1700,193 @@ async function emitPlatformRedirects({
   }
 }
 
-export async function appendRequestSitemapPages(
-  dir: URL,
-  pages: readonly string[],
-  serialize?: SitemapSerialize,
-): Promise<void> {
-  const sitemapFiles = await collectSitemapFiles(fileURLToPath(dir));
-  const target = sitemapFiles.find(
-    (file) => path.basename(file) !== "sitemap-index.xml",
-  );
-  if (!target) return;
-  let xml = await fs.promises.readFile(target, "utf8");
-  const additions: SitemapItem[] = [];
-  for (const url of new Set(pages)) {
-    if (xml.includes(`<loc>${escapeXml(url)}</loc>`)) continue;
-    const item = serialize ? await serialize({ url }) : { url };
-    if (item) additions.push(item);
-  }
-  if (additions.length === 0) return;
-  if (
-    additions.some((item) => item.links?.length) &&
-    !xml.includes("xmlns:xhtml=")
-  ) {
-    xml = xml.replace(
-      "<urlset ",
-      '<urlset xmlns:xhtml="http://www.w3.org/1999/xhtml" ',
-    );
-  }
-  xml = xml.replace(
-    "</urlset>",
-    `${additions.map(sitemapItemXml).join("")}\n</urlset>`,
-  );
-  await fs.promises.writeFile(target, xml, "utf8");
+type PagefindExecution = {
+  error: Error | null;
+  stdout: string;
+  stderr: string;
+};
+
+type PagefindExecutor = (
+  bin: string,
+  args: readonly string[],
+) => Promise<PagefindExecution>;
+
+function executePagefind(
+  bin: string,
+  args: readonly string[],
+): Promise<PagefindExecution> {
+  return new Promise((resolve) => {
+    try {
+      execFile(bin, [...args], (error, stdout, stderr) => {
+        resolve({ error, stdout, stderr });
+      });
+    } catch (err) {
+      resolve({ error: err as Error, stdout: "", stderr: "" });
+    }
+  });
 }
 
-async function collectSitemapFiles(directory: string): Promise<string[]> {
-  const files: string[] = [];
-  for (const entry of await fs.promises.readdir(directory, {
-    withFileTypes: true,
-  })) {
-    const child = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await collectSitemapFiles(child)));
-    else if (/^sitemap.*\.xml$/.test(entry.name)) files.push(child);
-  }
-  return files;
-}
-
-function sitemapItemXml(item: SitemapItem): string {
-  return [
-    "<url>",
-    `<loc>${escapeXml(item.url)}</loc>`,
-    item.lastmod ? `<lastmod>${escapeXml(item.lastmod)}</lastmod>` : "",
-    item.changefreq ? `<changefreq>${item.changefreq}</changefreq>` : "",
-    item.priority !== undefined ? `<priority>${item.priority}</priority>` : "",
-    ...(item.links ?? []).map(
-      (link) =>
-        `<xhtml:link rel="alternate" hreflang="${escapeXml(link.lang)}" href="${escapeXml(link.url)}" />`,
-    ),
-    "</url>",
-  ].join("");
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-function runPagefind(
+export async function runPagefind(
   siteDir: string,
   requestEntries: readonly RequestRouteInventoryEntry[],
+  execute: PagefindExecutor = executePagefind,
 ): Promise<void> {
-  const syntheticFiles: string[] = [];
-  for (const entry of requestEntries) {
-    const route = entry.url.replace(/^\/+|\/+$/g, "");
-    const file = path.join(siteDir, route, "index.html");
-    if (fs.existsSync(file)) continue;
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, pagefindDocument(entry), "utf8");
-    syntheticFiles.push(file);
-  }
-
+  const ownedFiles: Array<{
+    path: string;
+    dev: bigint | null;
+    ino: bigint | null;
+  }> = [];
+  const ownedDirectories: Array<{ path: string; dev: bigint; ino: bigint }> =
+    [];
   const bin = process.platform === "win32" ? "pagefind.cmd" : "pagefind";
-  return new Promise((resolve) => {
-    execFile(bin, ["--site", siteDir], (error, stdout, stderr) => {
-      for (const file of syntheticFiles) fs.rmSync(file, { force: true });
-      if (stdout) process.stdout.write(stdout);
-      if (stderr) process.stderr.write(stderr);
-      if (error) {
-        console.warn(
-          `[nimbus-docs] Pagefind did not run. Install pagefind as a devDependency or set search: false in your Nimbus config.\n${error.message}`,
+  let primaryError: unknown;
+
+  try {
+    for (const entry of requestEntries) {
+      const route = entry.url.replace(/^\/+|\/+$/g, "");
+      const file = path.join(siteDir, route, "index.html");
+      const relativeDirectory = path.relative(siteDir, path.dirname(file));
+      if (
+        relativeDirectory === ".." ||
+        relativeDirectory.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativeDirectory)
+      ) {
+        throw new Error(
+          `nimbus-docs: refusing to stage Pagefind document outside the site directory: ${entry.url}`,
         );
       }
-      resolve();
-    });
-  });
+
+      let currentDirectory = siteDir;
+      for (const segment of relativeDirectory.split(path.sep).filter(Boolean)) {
+        currentDirectory = path.join(currentDirectory, segment);
+        try {
+          fs.mkdirSync(currentDirectory);
+          const stats = fs.lstatSync(currentDirectory, { bigint: true });
+          ownedDirectories.push({
+            path: currentDirectory,
+            dev: stats.dev,
+            ino: stats.ino,
+          });
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+          const stats = fs.lstatSync(currentDirectory);
+          if (!stats.isDirectory() || stats.isSymbolicLink()) {
+            throw new Error(
+              `nimbus-docs: Pagefind staging path is not a real directory: ${currentDirectory}`,
+            );
+          }
+        }
+      }
+
+      let descriptor: number;
+      try {
+        descriptor = fs.openSync(file, "wx");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") continue;
+        throw err;
+      }
+      const ownedFile: (typeof ownedFiles)[number] = {
+        path: file,
+        dev: null,
+        ino: null,
+      };
+      ownedFiles.push(ownedFile);
+      let writeError: unknown;
+      try {
+        const stats = fs.fstatSync(descriptor, { bigint: true });
+        ownedFile.dev = stats.dev;
+        ownedFile.ino = stats.ino;
+        fs.writeFileSync(descriptor, pagefindDocument(entry), "utf8");
+      } catch (err) {
+        writeError = err;
+      }
+      try {
+        fs.closeSync(descriptor);
+      } catch (err) {
+        if (writeError === undefined) writeError = err;
+      }
+      if (writeError !== undefined) throw writeError;
+    }
+
+    const { error, stdout, stderr } = await execute(bin, ["--site", siteDir]);
+    if (stdout) process.stdout.write(stdout);
+    if (stderr) process.stderr.write(stderr);
+    if (error) {
+      console.warn(
+        `[nimbus-docs] Pagefind did not run. Install pagefind as a devDependency or set search: false in your Nimbus config.\n${error.message}`,
+      );
+    }
+  } catch (err) {
+    primaryError = err;
+  }
+
+  const cleanupErrors: Error[] = [];
+  for (const file of ownedFiles) {
+    if (file.dev === null) continue;
+    try {
+      const stats = fs.lstatSync(file.path, { bigint: true });
+      if (stats.dev === file.dev && stats.ino === file.ino) {
+        fs.rmSync(file.path, { force: true });
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        cleanupErrors.push(err as Error);
+      }
+    }
+  }
+  for (const file of ownedFiles) {
+    try {
+      const stats = fs.lstatSync(file.path, { bigint: true });
+      if (file.dev === null) {
+        cleanupErrors.push(
+          new Error(
+            `nimbus-docs: synthetic Pagefind file identity is unavailable: ${file.path}`,
+          ),
+        );
+        continue;
+      }
+      if (
+        (stats.dev !== file.dev || stats.ino !== file.ino)
+      ) {
+        continue;
+      }
+      cleanupErrors.push(
+        new Error(`nimbus-docs: synthetic Pagefind file remains: ${file.path}`),
+      );
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        cleanupErrors.push(err as Error);
+      }
+    }
+  }
+  for (const directory of ownedDirectories.reverse()) {
+    try {
+      const stats = fs.lstatSync(directory.path, { bigint: true });
+      if (stats.dev === directory.dev && stats.ino === directory.ino) {
+        fs.rmdirSync(directory.path);
+      }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT" && code !== "ENOTEMPTY" && code !== "EEXIST") {
+        cleanupErrors.push(err as Error);
+      }
+    }
+  }
+
+  if (primaryError !== undefined) {
+    if (
+      primaryError instanceof Error &&
+      primaryError.cause === undefined &&
+      cleanupErrors.length > 0
+    ) {
+      primaryError.cause = new AggregateError(cleanupErrors);
+    }
+    throw primaryError;
+  }
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(
+      cleanupErrors,
+      "nimbus-docs: failed to clean up synthetic Pagefind files.",
+    );
+  }
 }

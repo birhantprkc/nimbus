@@ -10,6 +10,11 @@ export type { AdapterId };
 /** The known adapter ids, derived from the framework's recipe table. */
 export const ADAPTER_IDS = Object.keys(ADAPTER_RECIPES) as AdapterId[];
 
+// @TODO: Expose other SSR adapters after Nimbus supports request rendering on them.
+export const INTERACTIVE_ADAPTER_OPTIONS = [
+  { value: "cloudflare", label: "Cloudflare" },
+] satisfies Array<{ value: AdapterId; label: string }>;
+
 export interface PromptOptions {
   dir?: string;
   /** Static-lane deploy target. Ignored once an adapter selects the server lane. */
@@ -174,7 +179,7 @@ export async function getPromptResponses(opts: PromptOptions): Promise<PromptRes
     const adapter = orExit(
       await p.select({
         message: "Which adapter?",
-        options: ADAPTER_IDS.map((id) => ({ value: id, label: id })),
+        options: INTERACTIVE_ADAPTER_OPTIONS,
         initialValue: "cloudflare" as AdapterId,
       }),
     ) as AdapterId;

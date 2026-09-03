@@ -66,9 +66,13 @@ Use `--print` to force the markdown output, skipping detection.
 
 ### Server adapters
 
-For `adapter-cloudflare`, `adapter-vercel`, `adapter-netlify`, and `adapter-node`, the CLI installs the Astro adapter and rewrites the marked `output` block in `astro.config`. For Cloudflare, it creates a server-compatible `wrangler.jsonc` when none exists or replaces an exact Nimbus static config. Custom JSONC and alternate JSON/TOML configs stay untouched, with the required server settings printed for manual adaptation.
+For `adapter-cloudflare`, `adapter-vercel`, `adapter-netlify`, and `adapter-node`, the CLI installs the Astro adapter and rewrites the marked `output` block in `astro.config`. For Cloudflare, it creates a server-compatible `wrangler.jsonc` when none exists or replaces an exact Nimbus static config. Custom JSONC and alternate JSON/TOML configs stay untouched.
 
 <PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add adapter-cloudflare" />
+
+Project-owned Nimbus configuration is handed to a coding agent rather than parsed by a brittle codemod. Inside a detected coding agent, the command emits the versioned runbook directly. From a regular shell, use `--print` to pipe it manually:
+
+<PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add adapter-cloudflare --print | claude" />
 
 The equivalent long form is `nimbus-docs add server-output --adapter <cloudflare|vercel|netlify|node>`.
 

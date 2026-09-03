@@ -2,10 +2,9 @@
  * Tests for the server-output scaffold lane (`output: "server"` + an adapter).
  *
  * The load-bearing guarantee: a server scaffold's `astro.config` is
- * byte-identical to `scaffold static → nimbus-docs add adapter-<id>`, because
- * both run the *same* framework marker edit (`applyAdapterToConfig`). The
- * remaining tests cover the per-adapter deploy artifacts (Cloudflare wrangler,
- * dependency placement, .gitignore, nimbus.json provenance).
+ * uses the same framework marker edit as `nimbus-docs add adapter-<id>`.
+ * Cloudflare additionally flips the explicit rendering default in the
+ * Nimbus-owned template. The remaining tests cover per-adapter artifacts.
  */
 
 import assert from "node:assert/strict";
@@ -21,6 +20,7 @@ import {
 
 import { scaffold, ScaffoldError } from "../src/scaffold.js";
 import { ADAPTER_IDS } from "../src/prompts.js";
+import { enableCloudflareRequestRendering } from "../src/transformers/adapter.js";
 
 const BASE = {
   content: "starter",
@@ -34,9 +34,15 @@ const BASE = {
 // lane, but the server marker edit needs a target to rewrite.)
 const STARTER_CONFIG =
   `import { defineConfig } from "astro/config";\n` +
+  `import nimbus, { defineConfig as defineNimbusConfig } from "@cloudflare/nimbus-docs";\n` +
+  `const nimbusConfig = defineNimbusConfig({\n` +
+  `  rendering: { default: "build" },\n` +
+  `  site: "https://example.com",\n` +
+  `});\n` +
   `export default defineConfig({\n` +
   `  // nimbus:adapter\n` +
   `  output: "static",\n` +
+  `  integrations: [nimbus(nimbusConfig)],\n` +
   `});\n`;
 
 function makeTemplate(astroConfig = STARTER_CONFIG): string {
@@ -103,11 +109,13 @@ for (const adapter of ADAPTER_IDS) {
       );
       const cliEdit = applyAdapterToConfig(STARTER_CONFIG, adapter);
       assert.equal(cliEdit.status, "applied");
-      assert.equal(
-        scaffolded,
-        cliEdit.status === "applied" ? cliEdit.source : "",
-        `server scaffold must match \`add adapter-${adapter}\` exactly`,
-      );
+      const expected =
+        cliEdit.status === "applied"
+          ? adapter === "cloudflare"
+            ? enableCloudflareRequestRendering(cliEdit.source)
+            : cliEdit.source
+          : "";
+      assert.equal(scaffolded, expected);
     } finally {
       cleanup(cwd, tmpl);
     }
@@ -145,6 +153,52 @@ for (const adapter of ADAPTER_IDS) {
     }
   });
 }
+
+test("server + cloudflare defaults canonical collections to request rendering", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  try {
+    await scaffold(
+      { ...BASE, output: "server", adapter: "cloudflare", dir: "my-docs" },
+      internals(cwd, tmpl),
+    );
+
+    const config = fs.readFileSync(path.join(cwd, "my-docs", "astro.config.ts"), "utf8");
+    assert.match(config, /rendering:\s*\{\s*default:\s*"request",?\s*\}/);
+    assert.equal((config.match(/default:\s*"request"/g) ?? []).length, 1);
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("Cloudflare rendering transform is idempotent and template-scoped", () => {
+  const once = enableCloudflareRequestRendering(STARTER_CONFIG);
+  assert.match(once, /rendering: \{ default: "request" \}/);
+  assert.equal(enableCloudflareRequestRendering(once), once);
+  assert.throws(
+    () =>
+      enableCloudflareRequestRendering(
+        STARTER_CONFIG.replace("const nimbusConfig", "const siteConfig"),
+      ),
+    /customized/,
+  );
+});
+
+test("explicit non-Cloudflare adapters leave request rendering disabled", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  try {
+    await scaffold(
+      { ...BASE, output: "server", adapter: "vercel", dir: "my-docs" },
+      internals(cwd, tmpl),
+    );
+
+    const config = fs.readFileSync(path.join(cwd, "my-docs", "astro.config.ts"), "utf8");
+    assert.doesNotMatch(config, /default:\s*["']request["']/);
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
 
 test("server + cloudflare writes a server wrangler.jsonc (nodejs_compat, no static assets.directory)", async () => {
   const cwd = makeCwd();

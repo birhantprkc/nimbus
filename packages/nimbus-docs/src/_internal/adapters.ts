@@ -1,8 +1,8 @@
 /**
  * Adapter recipes + the deterministic `// nimbus:adapter` marker edit — the
  * single source of truth shared by the CLI installer and the scaffolder, so
- * the two opt-in paths can't drift. A marker edit, not a codemod. Every recipe
- * is validated by a real `astro build` under `output: "server"`.
+ * the two opt-in paths can't drift. Every recipe is validated by a real
+ * `astro build` under `output: "server"`.
  */
 
 // Astro's own config resolution order (astro/dist/core/config/config.js →
@@ -745,6 +745,7 @@ export function applyAdapterToConfig(
   }
 
   let next = source;
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
   if (isStatic) {
     next = next.slice(0, valueStart) + '"server"' + next.slice(valueEnd);
   }
@@ -768,7 +769,7 @@ export function applyAdapterToConfig(
     const indentMatch = /^[ \t]*/.exec(next.slice(outputLineStart))![0];
     next =
       next.slice(0, commaEnd) +
-      `\n${indentMatch}adapter: ${adapterExpression},` +
+      `${eol}${indentMatch}adapter: ${adapterExpression},` +
       next.slice(commaEnd);
   }
 
@@ -898,17 +899,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * `includes` would match a commented-out copy and skip a needed insert.
  */
 function insertImport(source: string, importStatement: string): string {
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
   const ranges = findImportRanges(mask(source, true));
   if (ranges.length === 0) {
     if (source.startsWith("#!")) {
       const hashbangEnd = source.indexOf("\n");
       if (hashbangEnd !== -1) {
         const insertion = hashbangEnd + 1;
-        return source.slice(0, insertion) + importStatement + "\n" + source.slice(insertion);
+        return source.slice(0, insertion) + importStatement + eol + source.slice(insertion);
       }
     }
-    return `${importStatement}\n${source}`;
+    return `${importStatement}${eol}${source}`;
   }
   const lastEnd = ranges[ranges.length - 1]![1];
-  return source.slice(0, lastEnd) + importStatement + "\n" + source.slice(lastEnd);
+  return source.slice(0, lastEnd) + importStatement + eol + source.slice(lastEnd);
 }

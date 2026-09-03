@@ -25,10 +25,15 @@ Opt an existing static scaffold into server output with an Astro adapter:
 
 ```sh
 pnpm exec nimbus-docs add adapter-cloudflare
-# adapter-vercel, adapter-netlify, or adapter-node
 ```
 
-The adapter enables on-demand routes; public docs pages remain prerendered.
+Fresh Cloudflare server scaffolds enable request rendering automatically. For an existing project, run the command inside a coding agent to hand off the full setup automatically. From a regular shell, pipe the runbook manually:
+
+```sh
+pnpm exec nimbus-docs add adapter-cloudflare --print | claude
+```
+
+Static output remains deployable to any static host.
 
 ## Interactive diagrams
 

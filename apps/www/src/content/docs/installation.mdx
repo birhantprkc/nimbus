@@ -28,10 +28,10 @@ Pick a directory name, then choose your preferences:
     Two choices — **full** (core components, demo content, populated theme tokens) or **empty** (the minimum to run, ready for your own content).
   </Step>
   <Step title="Output mode">
-    **Static** prerenders the entire site and deploys anywhere. **Server** keeps docs pages prerendered while adding an adapter so optional on-demand routes can run.
+    **Static** prerenders the entire site and deploys anywhere. **Server** renders canonical content collection routes on request through Cloudflare.
   </Step>
   <Step title="Target">
-    Static output supports Cloudflare or another static host. Server output supports Cloudflare, Vercel, Netlify, or Node through their Astro adapters.
+    Static output supports Cloudflare or another static host. Interactive server setup currently offers Cloudflare Workers; explicit `--adapter` flags also support Vercel, Netlify, and Node.
   </Step>
   <Step title="Install dependencies">
     The scaffolder runs your package manager automatically. Skip if you want to edit `package.json` first.
@@ -67,7 +67,7 @@ Then open the printed URL.
 
 <PackageManagers pkg="build" type="run" />
 
-Static scaffolds emit `dist/` for any static host. Server scaffolds use the adapter selected during setup; follow that platform's deployment flow. Cloudflare scaffolds include the appropriate `wrangler.jsonc` and a `deploy` script. Node scaffolds include a `start` script that runs the built standalone server.
+Static scaffolds emit `dist/` for any static host. Cloudflare server scaffolds request-render canonical content collection routes and include the appropriate `wrangler.jsonc` and a `deploy` script.
 
 <Aside type="tip">
   After scaffolding, run `nimbus-docs add <slug>` to install components from the registry. See [Adding components](/adding-components) for the workflow.

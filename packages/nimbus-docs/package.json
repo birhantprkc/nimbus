@@ -127,7 +127,7 @@
 	"dependencies": {
 		"@astrojs/markdown-satteri": "^0.3.4",
 		"@astrojs/mdx": "~7.0.3",
-		"@astrojs/sitemap": "^3.7.2",
+		"@astrojs/sitemap": "3.7.2",
 		"@clack/prompts": "^0.9.1",
 		"@iconify/tools": "^5.0.12",
 		"@iconify/types": "^2.0.0",
@@ -157,8 +157,8 @@
 		"shiki": "^4.4.1",
 		"tailwind-merge": "^3.5.0",
 		"unified": "^11.0.5",
-		"vite": "^8.0.0",
 		"vfile": "^6.0.3",
+		"vite": "^8.0.0",
 		"yaml": "^2.7.1"
 	},
 	"devDependencies": {

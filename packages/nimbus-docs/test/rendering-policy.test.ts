@@ -1,12 +1,24 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { test, type TestContext } from "node:test";
+import sitemap from "@astrojs/sitemap";
 
 import nimbus from "../src/index.js";
-import { appendRequestSitemapPages } from "../src/integration.js";
+import {
+  readRequestRouteInventory,
+  type NimbusIntegrationOptions,
+} from "../src/integration.js";
 import {
   canonicalCollectionRouteComponent,
   compileRenderingPolicy,
@@ -45,33 +57,113 @@ test("request inventory preserves prose ids and only collapses the API root", ()
   assert.equal(requestInventoryVersionStatusKey("api", true, "v1"), "api@v1");
 });
 
-test("request sitemap finalizer preserves namespaces and serialized fields", async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), "nimbus-request-sitemap-"));
+test("request inventory reader removes root and base-prefixed candidates", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "nimbus-request-inventory-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const sitemap = path.join(root, "sitemap-0.xml");
+  const rootInventory = path.join(
+    root,
+    "_nimbus/request-route-inventory.json",
+  );
+  const basedInventory = path.join(
+    root,
+    "docs/_nimbus/request-route-inventory.json",
+  );
+  await mkdir(path.dirname(rootInventory), { recursive: true });
+  await mkdir(path.dirname(basedInventory), { recursive: true });
   await writeFile(
-    sitemap,
-    '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml"><url><loc>https://example.test/</loc></url></urlset>',
+    rootInventory,
+    JSON.stringify([{ collection: "docs", url: "/guide/" }]),
     "utf8",
   );
+  await writeFile(basedInventory, "stale", "utf8");
 
-  await appendRequestSitemapPages(
-    pathToFileURL(`${root}${path.sep}`),
-    ["https://example.test/runtime/", "https://example.test/runtime/"],
-    ({ url }) => ({
-      url,
-      changefreq: "daily",
-      priority: 0.7,
-      links: [{ lang: "fr", url: "https://example.test/fr/runtime/?a=1&b=2" }],
-    }),
+  assert.deepEqual(
+    readRequestRouteInventory(root, "/docs/", new Set(["docs"])),
+    [
+      {
+        collection: "docs",
+        url: "/guide/",
+        request: true,
+        discoverable: true,
+        searchable: false,
+        title: "/guide/",
+        language: "en",
+      },
+    ],
   );
+  await assert.rejects(readFile(rootInventory, "utf8"));
+  await assert.rejects(readFile(basedInventory, "utf8"));
 
-  const xml = await readFile(sitemap, "utf8");
-  assert.equal(xml.match(/xmlns:xhtml=/g)?.length, 1);
-  assert.equal(xml.match(/<loc>https:\/\/example\.test\/runtime\/<\/loc>/g)?.length, 1);
-  assert.match(xml, /<changefreq>daily<\/changefreq>/);
-  assert.match(xml, /<priority>0\.7<\/priority>/);
-  assert.match(xml, /href="https:\/\/example\.test\/fr\/runtime\/\?a=1&amp;b=2"/);
+  await writeFile(
+    basedInventory,
+    JSON.stringify([{ collection: "docs", url: "/fallback/" }]),
+    "utf8",
+  );
+  assert.equal(
+    readRequestRouteInventory(root, "/docs/", new Set(["docs"]))[0]?.url,
+    "/fallback/",
+  );
+  await assert.rejects(readFile(basedInventory, "utf8"));
+});
+
+test("request inventory reader removes malformed and invalid-shape files", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "nimbus-request-inventory-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const inventory = path.join(root, "_nimbus/request-route-inventory.json");
+  await mkdir(path.dirname(inventory), { recursive: true });
+
+  await writeFile(inventory, "{", "utf8");
+  assert.throws(
+    () => readRequestRouteInventory(root, "/", new Set()),
+    /request route inventory is invalid/,
+  );
+  await assert.rejects(readFile(inventory, "utf8"));
+
+  await writeFile(inventory, JSON.stringify([{}]), "utf8");
+  assert.throws(
+    () => readRequestRouteInventory(root, "/", new Set()),
+    /contains an invalid entry/,
+  );
+  await assert.rejects(readFile(inventory, "utf8"));
+});
+
+test("request inventory rejects traversal and symlinked parents", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "nimbus-request-inventory-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const dist = path.join(root, "dist");
+  const outside = path.join(root, "victim");
+  const externalInventory = path.join(
+    outside,
+    "_nimbus/request-route-inventory.json",
+  );
+  await mkdir(path.dirname(externalInventory), { recursive: true });
+  await writeFile(externalInventory, "external", "utf8");
+
+  assert.throws(
+    () => readRequestRouteInventory(dist, "/../victim/", new Set()),
+    /escapes the build directory/,
+  );
+  assert.equal(await readFile(externalInventory, "utf8"), "external");
+
+  await mkdir(dist, { recursive: true });
+  try {
+    await symlink(
+      outside,
+      path.join(dist, "docs"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EPERM") {
+      t.skip("directory links require elevated privileges");
+      return;
+    }
+    throw err;
+  }
+  assert.throws(
+    () => readRequestRouteInventory(dist, "/docs/", new Set()),
+    /parent is not a real directory/,
+  );
+  assert.equal(await readFile(externalInventory, "utf8"), "external");
 });
 
 test("rendering config is optional and validates only build/request modes", () => {
@@ -166,6 +258,7 @@ async function setupIntegration(
   command: "dev" | "build" = "dev",
   contentConfig = 'export const collections = { docs: {}, blog: {}, "docs-v1": {} };\n',
   api?: NimbusConfig["api"],
+  integrationOptions: Partial<NimbusIntegrationOptions> = {},
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "nimbus-rendering-policy-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -197,6 +290,7 @@ async function setupIntegration(
       admonitions: false,
       sitemap: false,
       markdown: { processor: {} as never },
+      ...integrationOptions,
     },
   );
   const setup = integration.hooks["astro:config:setup"];
@@ -251,6 +345,224 @@ async function setupIntegration(
     buildDone: buildDone!,
   };
 }
+
+const buildLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+  fork() {
+    return this;
+  },
+};
+
+async function generateRequestSitemap(
+  t: TestContext,
+  entries: readonly Record<string, unknown>[],
+  pages: readonly { pathname: string }[],
+  sitemapOptions: NonNullable<NimbusIntegrationOptions["sitemap"]> = {},
+) {
+  const integration = await setupIntegration(
+    t,
+    { collections: { docs: "request" } },
+    "build",
+    undefined,
+    undefined,
+    { sitemap: sitemapOptions },
+  );
+  await integration.routeSetup({
+    route: { component: "src/pages/[...slug].astro", prerender: true },
+  } as never);
+  integration.configDone({
+    injectTypes: () => new URL("file:///noop"),
+    config: { output: "server", adapter: { name: "cloudflare" } },
+    buildOutput: "server",
+  } as never);
+  const routes = [
+    {
+      pattern: "/[...slug]",
+      entrypoint: "src/pages/[...slug].astro",
+      type: "page",
+      isPrerendered: false,
+      origin: "project",
+    },
+  ];
+  integration.routesResolved({ routes } as never);
+
+  const sitemapIntegration = integration.configUpdates
+    .flatMap(
+      (update) =>
+        (update.integrations as Array<{
+          name: string;
+          hooks: Record<string, (...args: never[]) => unknown>;
+        }> | undefined) ?? [],
+    )
+    .find((candidate) => candidate.name === "@astrojs/sitemap");
+  assert.ok(sitemapIntegration);
+  await sitemapIntegration.hooks["astro:config:done"]?.({
+    config: {
+      site: "https://example.test",
+      base: "/",
+      trailingSlash: "ignore",
+      build: { format: "directory" },
+    },
+  } as never);
+  await sitemapIntegration.hooks["astro:routes:resolved"]?.({
+    routes: [],
+  } as never);
+
+  const dist = path.join(integration.root, "dist");
+  await mkdir(path.join(dist, "_nimbus"), { recursive: true });
+  await writeFile(
+    path.join(dist, "_nimbus/request-route-inventory.json"),
+    JSON.stringify(entries),
+    "utf8",
+  );
+  const emittedPages = [
+    ...pages,
+    { pathname: "/_nimbus/request-route-inventory.json" },
+  ];
+  await integration.buildDone({
+    dir: pathToFileURL(`${dist}${path.sep}`),
+    pages: emittedPages,
+    logger: buildLogger,
+  } as never);
+  await sitemapIntegration.hooks["astro:build:done"]?.({
+    dir: pathToFileURL(`${dist}${path.sep}`),
+    pages: emittedPages,
+    logger: buildLogger,
+  } as never);
+  return readFile(path.join(dist, "sitemap-0.xml"), "utf8");
+}
+
+test("request-only sitemap uses upstream filtering, serialization, and deduplication", async (t) => {
+  const serialized: string[] = [];
+  const xml = await generateRequestSitemap(
+    t,
+    [
+      { collection: "docs", url: "/runtime/", discoverable: true },
+      { collection: "docs", url: "/runtime/", discoverable: true },
+      { collection: "docs", url: "/private/", discoverable: false },
+    ],
+    [],
+    {
+      serialize: ({ url }) => {
+        serialized.push(url);
+        return { url, changefreq: "daily", priority: 0.7 };
+      },
+    },
+  );
+
+  assert.deepEqual(serialized, ["https://example.test/runtime/"]);
+  assert.equal(
+    xml.match(/<loc>https:\/\/example\.test\/runtime\/<\/loc>/g)?.length,
+    1,
+  );
+  assert.doesNotMatch(xml, /private|request-route-inventory/);
+  assert.match(xml, /<changefreq>daily<\/changefreq>/);
+  assert.match(xml, /<priority>0\.7<\/priority>/);
+});
+
+test("mixed sitemap includes prerendered and request-rendered pages", async (t) => {
+  const xml = await generateRequestSitemap(
+    t,
+    [{ collection: "docs", url: "/runtime/" }],
+    [{ pathname: "/built/" }],
+  );
+
+  assert.match(xml, /<loc>https:\/\/example\.test\/built\/<\/loc>/);
+  assert.match(xml, /<loc>https:\/\/example\.test\/runtime\/<\/loc>/);
+});
+
+test("sitemap accepts custom page inventories above the argument limit", async (t) => {
+  const customPages = Array.from(
+    { length: 130_000 },
+    (_, index) => `https://example.test/custom-${index}/`,
+  );
+
+  await assert.doesNotReject(() =>
+    setupIntegration(t, undefined, "dev", undefined, undefined, {
+      sitemap: { customPages },
+    }),
+  );
+});
+
+test("upstream sitemap chunks request pages read from a mutable customPages array", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "nimbus-sitemap-chunks-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const customPages: string[] = [];
+  const integration = sitemap({ customPages, entryLimit: 2 });
+  await integration.hooks["astro:config:done"]?.({
+    config: {
+      site: "https://example.test",
+      base: "/",
+      trailingSlash: "ignore",
+      build: { format: "directory" },
+    },
+  } as never);
+  await integration.hooks["astro:routes:resolved"]?.({ routes: [] } as never);
+
+  customPages.push(
+    "https://example.test/runtime-1/",
+    "https://example.test/runtime-2/",
+    "https://example.test/runtime-2/",
+    "https://example.test/runtime-3/",
+    "https://example.test/runtime-4/",
+  );
+  await integration.hooks["astro:build:done"]?.({
+    dir: pathToFileURL(`${root}${path.sep}`),
+    pages: [{ pathname: "/built/" }],
+    logger: buildLogger,
+  } as never);
+
+  const files = (await readdir(root))
+    .filter((file) => /^sitemap-\d+\.xml$/.test(file))
+    .sort();
+  assert.equal(files.length, 3);
+  const chunks = await Promise.all(
+    files.map((file) => readFile(path.join(root, file), "utf8")),
+  );
+  assert.equal(
+    chunks.reduce(
+      (count, xml) => count + (xml.match(/<url>/g)?.length ?? 0),
+      0,
+    ),
+    5,
+  );
+  assert.ok(chunks.every((xml) => (xml.match(/<url>/g)?.length ?? 0) <= 2));
+  assert.match(await readFile(path.join(root, "sitemap-index.xml"), "utf8"), /sitemap-2\.xml/);
+});
+
+test("request inventory is removed before downstream build failures", async (t) => {
+  const integration = await setupIntegration(
+    t,
+    { collections: { docs: "request" } },
+    "build",
+  );
+  integration.configDone({
+    injectTypes: () => new URL("file:///noop"),
+    config: { output: "server", adapter: { name: "cloudflare" } },
+    buildOutput: "server",
+  } as never);
+  integration.routesResolved({ routes: [] } as never);
+  const dist = path.join(integration.root, "dist");
+  const inventory = path.join(dist, "_nimbus/request-route-inventory.json");
+  await mkdir(path.dirname(inventory), { recursive: true });
+  await writeFile(
+    inventory,
+    JSON.stringify([{ collection: "docs", url: "/guide/" }]),
+    "utf8",
+  );
+
+  await assert.rejects(
+    integration.buildDone({
+      dir: pathToFileURL(`${dist}${path.sep}`),
+      pages: [{ pathname: "/_nimbus/request-route-inventory.json" }],
+      logger: buildLogger,
+    } as never),
+  );
+  await assert.rejects(readFile(inventory, "utf8"));
+});
 
 test("route policy independently selects canonical collection catch-alls", async (t) => {
   const { routeSetup } = await setupIntegration(t, {

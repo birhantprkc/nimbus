@@ -116,6 +116,10 @@ const expectedOutput = LANE === "static" ? "static" : "server";
 if (!new RegExp(`output:\\s*["']${expectedOutput}["']`).test(astroConfig)) {
   fail(`astro.config.ts does not select output: "${expectedOutput}"`);
 }
+const requestRendering = /rendering:\s*\{\s*default:\s*["']request["'],?\s*\}/.test(astroConfig);
+if (requestRendering !== (LANE === "cloudflare")) {
+  fail(`${LANE} scaffold has an unexpected request-rendering default`);
+}
 ok(`scaffolded the ${LANE} lane via --template-dir`);
 
 // 4. Point nimbus-docs at the packed workspace bits, install + build.
