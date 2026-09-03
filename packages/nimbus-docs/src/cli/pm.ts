@@ -114,24 +114,39 @@ export function quoteForDisplay(token: string): string {
 export function addCommand(
   pm: PackageManager,
   deps: string[],
+  options: { exact?: boolean } = {},
 ): { bin: string; args: string[] } {
   if (deps.length === 0) {
     throw new Error("addCommand called with empty deps");
   }
   switch (pm) {
     case "npm":
-      return { bin: "npm", args: ["install", ...deps] };
+      return {
+        bin: "npm",
+        args: ["install", ...(options.exact ? ["--save-exact"] : []), ...deps],
+      };
     case "pnpm":
       // Generated Nimbus sites carry pnpm-workspace.yaml for the build-script
       // allowlist, so pnpm treats the site as a workspace root and otherwise
       // refuses the add. This flag still targets cwd in nested monorepos.
       return {
         bin: "pnpm",
-        args: ["add", "--ignore-workspace-root-check", ...deps],
+        args: [
+          "add",
+          "--ignore-workspace-root-check",
+          ...(options.exact ? ["--save-exact"] : []),
+          ...deps,
+        ],
       };
     case "yarn":
-      return { bin: "yarn", args: ["add", ...deps] };
+      return {
+        bin: "yarn",
+        args: ["add", ...(options.exact ? ["--exact"] : []), ...deps],
+      };
     case "bun":
-      return { bin: "bun", args: ["add", ...deps] };
+      return {
+        bin: "bun",
+        args: ["add", ...(options.exact ? ["--exact"] : []), ...deps],
+      };
   }
 }

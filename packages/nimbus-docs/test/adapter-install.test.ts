@@ -38,6 +38,11 @@ test("flips output and wires each adapter at the marker", () => {
       res.source.includes(`adapter: ${recipe.adapterExpression},`),
       `${id} adds adapter field`,
     );
+    if (id === "cloudflare") {
+      assert.match(res.source, /rendering:\s*\{\s*default:\s*"request"/);
+    } else {
+      assert.doesNotMatch(res.source, /default:\s*"request"/);
+    }
     // The adapter field lands directly after the output line.
     assert.match(
       res.source,
@@ -53,6 +58,228 @@ test("cloudflare recipe uses node prerender env and pins <14.2.0", () => {
   const cf = ADAPTER_RECIPES.cloudflare;
   assert.match(cf.adapterExpression, /prerenderEnvironment:\s*"node"/);
   assert.match(cf.installSpec, /<\s*14\.2\.0/);
+});
+
+test("cloudflare inserts request rendering in a semicolonless Nimbus config", () => {
+  const cfg = `import { defineConfig } from "astro/config"
+import cloudflare from "@astrojs/cloudflare"
+import nimbus, { defineConfig as defineNimbusConfig } from "@cloudflare/nimbus-docs"
+
+const nimbusConfig = defineNimbusConfig({
+  site: "https://example.com",
+  title: "Nimbus",
+})
+
+export default defineConfig({
+  // nimbus:adapter
+  output: "server",
+  adapter: cloudflare({ prerenderEnvironment: "node" }),
+  integrations: [nimbus(nimbusConfig)],
+})
+`;
+  const result = applyAdapterToConfig(cfg, "cloudflare");
+  assert.equal(result.status, "applied");
+  if (result.status !== "applied") return;
+  assert.match(result.source, /rendering: \{ default: "request" \},/);
+  assert.doesNotMatch(result.source, /rendering:.*;/);
+});
+
+test("cloudflare inserts request rendering around nested spreads", () => {
+  const cfg = `import { defineConfig } from "astro/config";
+import cloudflare from "@astrojs/cloudflare";
+import nimbus, { defineConfig as defineNimbusConfig } from "@cloudflare/nimbus-docs";
+
+const versions: string[] = [];
+const collectVersions = (...values: string[]) => values;
+const nimbusConfig = defineNimbusConfig({
+  site: "https://example.com",
+  title: "Nimbus",
+  versions: {
+    current: "v1",
+    others: [...versions, ...collectVersions(...versions)],
+  },
+});
+
+export default defineConfig({
+  // nimbus:adapter
+  output: "server",
+  adapter: cloudflare({ prerenderEnvironment: "node" }),
+  integrations: [nimbus(nimbusConfig)],
+});
+`;
+  const result = applyAdapterToConfig(cfg, "cloudflare");
+  assert.equal(result.status, "applied");
+  if (result.status !== "applied") return;
+  assert.match(result.source, /rendering: \{ default: "request" \},/);
+  assert.match(result.source, /others: \[\.\.\.versions, \.\.\.collectVersions\(\.\.\.versions\)\]/);
+});
+
+test("cloudflare preserves every explicit rendering policy", () => {
+  for (const rendering of [
+    'rendering: { default: "build" },',
+    'rendering: { default: "build", collections: { docs: "request" } },',
+  ]) {
+    const cfg = STARTER_CONFIG.replace(
+      '  site: "https://example.com",',
+      `  ${rendering}\n  site: "https://example.com",`,
+    );
+    const result = applyAdapterToConfig(cfg, "cloudflare");
+    assert.equal(result.status, "applied");
+    if (result.status !== "applied") continue;
+    assert.equal((result.source.match(/rendering:/g) ?? []).length, 1);
+    assert.ok(result.source.includes(rendering));
+    assert.doesNotMatch(result.source, /default:\s*"request"/);
+  }
+});
+
+test("cloudflare request rendering insertion is idempotent", () => {
+  const once = applyAdapterToConfig(STARTER_CONFIG, "cloudflare");
+  assert.equal(once.status, "applied");
+  if (once.status !== "applied") return;
+  const twice = applyAdapterToConfig(once.source, "cloudflare");
+  assert.equal(twice.status, "noop");
+  if (twice.status !== "noop") return;
+  assert.equal(twice.source, once.source);
+  assert.equal((once.source.match(/rendering:/g) ?? []).length, 1);
+});
+
+test("cloudflare edits the Nimbus config used by the integration, not a decoy", () => {
+  const cfg = STARTER_CONFIG.replace(
+    "const nimbusConfig = defineNimbusConfig({",
+    `const decoy = defineNimbusConfig({ title: "Unused", site: "https://unused.example.com" });
+
+const nimbusConfig = defineNimbusConfig({`,
+  );
+  const result = applyAdapterToConfig(cfg, "cloudflare");
+  assert.equal(result.status, "applied");
+  if (result.status !== "applied") return;
+  assert.doesNotMatch(
+    result.source,
+    /const decoy = defineNimbusConfig\(\{ rendering:/,
+  );
+  assert.match(
+    result.source,
+    /const nimbusConfig = defineNimbusConfig\(\{\n  rendering:/,
+  );
+});
+
+test("cloudflare supports an inline Nimbus config and leading comments", () => {
+  const cfg = `import { defineConfig } from "astro/config"
+import cloudflare from "@astrojs/cloudflare"
+import nimbus, { defineConfig as defineNimbusConfig } from "@cloudflare/nimbus-docs"
+
+export default defineConfig({
+  // nimbus:adapter
+  output: "server",
+  adapter: cloudflare({ prerenderEnvironment: "node" }),
+  integrations: [
+    nimbus(defineNimbusConfig({ // Preserve this comment
+      site: "https://example.com",
+      title: "Nimbus",
+      versions: { others: [...versions] },
+    })),
+  ],
+})
+`;
+  const result = applyAdapterToConfig(cfg, "cloudflare");
+  assert.equal(result.status, "applied");
+  if (result.status !== "applied") return;
+  assert.match(result.source, /\{ \/\/ Preserve this comment\n      rendering:/);
+});
+
+test("cloudflare leaves spread-provided rendering unresolved", () => {
+  const cfg = STARTER_CONFIG.replace(
+    '  site: "https://example.com",',
+    '  ...sharedConfig,\n  site: "https://example.com",',
+  );
+  const result = applyAdapterToConfig(cfg, "cloudflare");
+  assert.equal(result.status, "applied");
+  if (result.status !== "applied") return;
+  assert.equal(result.requestRendering, "unresolved");
+  assert.doesNotMatch(result.source, /default:\s*"request"/);
+});
+
+test("cloudflare evaluates spread overrides in object execution order", () => {
+  const finalExplicit = STARTER_CONFIG.replace(
+    '  site: "https://example.com",',
+    '  ...sharedConfig,\n  rendering: { default: "build" },\n  site: "https://example.com",',
+  );
+  const preserved = applyAdapterToConfig(finalExplicit, "cloudflare");
+  assert.equal(preserved.status, "applied");
+  if (preserved.status === "applied") {
+    assert.equal(preserved.requestRendering, "explicit");
+    assert.doesNotMatch(preserved.source, /default:\s*"request"/);
+  }
+
+  const finalSpread = STARTER_CONFIG.replace(
+    '  site: "https://example.com",',
+    '  rendering: { default: "build" },\n  ...sharedConfig,\n  site: "https://example.com",',
+  );
+  const unresolved = applyAdapterToConfig(finalSpread, "cloudflare");
+  assert.equal(unresolved.status, "applied");
+  if (unresolved.status === "applied") {
+    assert.equal(unresolved.requestRendering, "unresolved");
+    assert.doesNotMatch(unresolved.source, /default:\s*"request"/);
+  }
+});
+
+test("cloudflare leaves mutable or additionally referenced config bindings unresolved", () => {
+  for (const cfg of [
+    STARTER_CONFIG.replace("const nimbusConfig", "let nimbusConfig"),
+    STARTER_CONFIG.replace(
+      "export default defineConfig({",
+      "nimbusConfig.title = title;\n\nexport default defineConfig({",
+    ),
+  ]) {
+    const result = applyAdapterToConfig(cfg, "cloudflare");
+    assert.equal(result.status, "applied");
+    if (result.status !== "applied") continue;
+    assert.equal(result.requestRendering, "unresolved");
+    assert.doesNotMatch(result.source, /default:\s*"request"/);
+  }
+});
+
+test("cloudflare ignores block-scoped shadows of the Nimbus integration", () => {
+  const cfg = STARTER_CONFIG.replace(
+    "const nimbusConfig = defineNimbusConfig({",
+    "const decoyConfig = defineNimbusConfig({",
+  )
+    .replace(
+      "export default defineConfig({",
+      `{
+  const nimbus = (config: unknown) => config;
+  nimbus(decoyConfig);
+}
+
+export default defineConfig({`,
+    )
+    .replace("integrations: [icon(), nimbus(nimbusConfig)]", "integrations: [icon()]");
+  const result = applyAdapterToConfig(cfg, "cloudflare");
+  assert.equal(result.status, "applied");
+  if (result.status !== "applied") return;
+  assert.equal(result.requestRendering, "unresolved");
+  assert.doesNotMatch(result.source, /default:\s*"request"/);
+});
+
+test("cloudflare ignores loop-scoped shadows outside the Astro config", () => {
+  const cfg = STARTER_CONFIG.replace(
+    "const nimbusConfig = defineNimbusConfig({",
+    "const decoyConfig = defineNimbusConfig({",
+  )
+    .replace(
+      "export default defineConfig({",
+      `for (const nimbus of integrations) {
+  nimbus(decoyConfig);
+}
+
+export default defineConfig({`,
+    )
+    .replace("integrations: [icon(), nimbus(nimbusConfig)]", "integrations: [icon()]");
+  const result = applyAdapterToConfig(cfg, "cloudflare");
+  assert.equal(result.status, "applied");
+  if (result.status !== "applied") return;
+  assert.equal(result.requestRendering, "unresolved");
+  assert.doesNotMatch(result.source, /default:\s*"request"/);
 });
 
 test("netlify relies on the adapter's own blobs dependency", () => {

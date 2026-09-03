@@ -10,7 +10,7 @@ Nimbus builds a typed sidebar tree from your content. Start with the filesystem,
 
 ## Generate from the filesystem
 
-With no `items`, the rail mirrors `src/content/docs/`: files become links, directories become groups, and a directory's `index.mdx` becomes the group's landing page. Child order is alphabetical unless frontmatter sets `sidebar.order`.
+The sidebar is generated from `src/content/docs/` by default. Set `sidebar.items` in `astro.config.ts` only when you need to override that structure. Use `sidebar.order` in a page's frontmatter, such as `src/content/docs/get-started.mdx`, to control ordering; otherwise entries are alphabetical.
 
 ```yaml title="src/content/docs/get-started.mdx"
 ---
@@ -28,7 +28,7 @@ Frontmatter can also hide entries, customize directory groups, redirect links, o
 
 ## Define the structure
 
-Use `sidebar.items` when the filesystem should not define the entire rail. Config items can be nested and can mix manual links with generated content:
+In `astro.config.ts`, use `sidebar.items` when the filesystem should not define the entire rail. Config items can be nested and can mix manual links with generated content:
 
 ```ts title="astro.config.ts"
 sidebar: {
@@ -102,7 +102,7 @@ const sections = await getSidebarSections(currentSlug, {
 
 ## Control group landing pages
 
-A directory `index.mdx` is its group's landing page. Configure how those landings appear across the site:
+A directory `index.mdx` is its group's landing page. Configure how those landings appear across the site in `astro.config.ts`:
 
 ```ts title="astro.config.ts"
 sidebar: {
@@ -191,4 +191,4 @@ Use frontmatter for local changes:
 | `sidebar.hideChildren` or `hideChildren` | Collapses the directory to its landing link. |
 | `external_link` | Rewrites the sidebar destination to another internal path or an external URL. |
 
-Set `features.sidebar: false` in Nimbus config to disable the rail site-wide. See [Frontmatter](/writing/frontmatter) for complete field shapes and badge variants.
+Set `features.sidebar: false` in `astro.config.ts` to disable the rail site-wide. See [Frontmatter](/writing/frontmatter) for complete field shapes and badge variants.

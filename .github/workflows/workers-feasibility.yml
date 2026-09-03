@@ -1,0 +1,78 @@
+name: Workers rendering acceptance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        name: Detect Workers rendering changes
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          relevant=false
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+            relevant=true
+          else
+            changed_files="$RUNNER_TEMP/workers-rendering-changed-files.txt"
+            git diff --name-only "$BASE_SHA" "$GITHUB_SHA" > "$changed_files"
+            while IFS= read -r file; do
+              case "$file" in
+                packages/nimbus-docs/*|packages/nimbus-docs/**|packages/nimbus-starter-source/*|packages/nimbus-starter-source/**|packages/create-nimbus-docs/*|packages/create-nimbus-docs/**|apps/www/registry/features/*|apps/www/registry/features/**|scripts/workers-feasibility-check.mjs|scripts/fixtures/workers-feasibility/*|scripts/fixtures/workers-feasibility/**|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|.npmrc|tsconfig.base.json|.github/workflows/workers-feasibility.yml)
+                  relevant=true
+                  break
+                  ;;
+              esac
+            done < "$changed_files"
+          fi
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+
+  acceptance:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm workers-feasibility:check
+
+  required:
+    name: Workers rendering required
+    needs: [changes, acceptance]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require acceptance when relevant
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RELEVANT: ${{ needs.changes.outputs.relevant }}
+          RESULT: ${{ needs.acceptance.result }}
+        run: |
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            exit 1
+          fi
+          if [[ "$RELEVANT" != "true" && "$RELEVANT" != "false" ]]; then
+            exit 1
+          fi
+          if [[ "$RELEVANT" == "true" && "$RESULT" != "success" ]]; then
+            exit 1
+          fi

@@ -190,6 +190,7 @@ components:
           type: string
         amount:
           type: integer
+          description: Amount to collect in cents.
         source:
           $ref: "#/components/schemas/Card"
     Card:

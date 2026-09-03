@@ -1,7 +1,6 @@
 ---
 import ApiUnionExplorer from "./ApiUnionExplorer.astro";
 import { typeTokens, constraintPairs, isExpandable, hasChildPreview } from "./type-display";
-import { renderMarkdown } from "@cloudflare/nimbus-docs/markdown";
 import type { ApiFieldView } from "@cloudflare/nimbus-docs/api";
 import "./field-list.css";
 
@@ -59,8 +58,8 @@ const linkSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
         {field.required && <span class="fl-required">required</span>}
       </div>
 
-      {field.description && (
-        <div class="fl-desc" set:html={renderMarkdown(field.description)} />
+      {field.descriptionHtml && (
+        <div class="fl-desc" set:html={field.descriptionHtml} />
       )}
 
       {constraints.length > 0 && (

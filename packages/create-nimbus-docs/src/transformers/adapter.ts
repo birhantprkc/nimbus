@@ -38,6 +38,15 @@ export async function applyAdapter(dir: string, adapter: AdapterId): Promise<voi
   }
 
   const result = applyAdapterToConfig(readFileSync(configPath, "utf-8"), adapter);
+  if (
+    result.status !== "error" &&
+    adapter === "cloudflare" &&
+    result.requestRendering === "unresolved"
+  ) {
+    throw new ScaffoldError(
+      "The template's Nimbus config is customized, so request rendering cannot be enabled safely.",
+    );
+  }
   if (result.status === "applied") {
     writeFileSync(configPath, result.source);
     return;

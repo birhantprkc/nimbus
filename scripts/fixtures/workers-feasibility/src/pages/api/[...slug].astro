@@ -1,0 +1,30 @@
+---
+import { getApiRoute, getApiStaticPaths } from "@cloudflare/nimbus-docs/runtime";
+import Header from "@/components/Header.astro";
+import { ApiLayout } from "@/components/ui/api-layout";
+import BaseLayout from "@/layouts/BaseLayout.astro";
+
+export const prerender = true;
+export const getStaticPaths = getApiStaticPaths("api");
+
+const result = await getApiRoute(Astro);
+if (result instanceof Response) return result;
+const { page, nav, coordinate } = result;
+const requestProbe = Astro.request.headers.get("x-nimbus-probe") ?? "";
+---
+
+<BaseLayout
+  title={`${page.title} · API`}
+  description={page.description}
+  markdownUrl={page.markdownHref}
+  collection="api"
+  coordinate={coordinate}
+>
+  <Header showSidebar collection="api" />
+  <span
+    hidden
+    data-feasibility-api-kind={page.kind}
+    data-request-probe={requestProbe}
+  ></span>
+  <ApiLayout page={page} nav={nav} collection="api" coordinate={coordinate} />
+</BaseLayout>

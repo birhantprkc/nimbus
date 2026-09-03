@@ -13,6 +13,7 @@ import { afterEach, beforeEach, test } from "node:test";
 
 import {
   __resetLastUpdatedForTests,
+  buildLastUpdatedIndex,
   getLastUpdatedFromGit,
   getLastUpdatedStats,
   parseGitLog,
@@ -134,6 +135,14 @@ test("e2e: single bulk spawn serves many lookups (all hits, no misses)", async (
   const b = await getLastUpdatedFromGit("src/content/docs/guide/page.mdx");
   assert.ok(a instanceof Date && b instanceof Date);
   assert.equal(getLastUpdatedStats().missCount, 0);
+});
+
+test("e2e: prepared index uses an explicit project root", async () => {
+  const index = await buildLastUpdatedIndex(repo);
+  assert.equal(
+    index["src/content/docs/guide/page.mdx"],
+    "2023-01-02T03:04:05.000Z",
+  );
 });
 
 test("e2e: untracked file → undefined, miss counted, no throw", async () => {

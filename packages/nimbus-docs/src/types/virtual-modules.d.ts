@@ -18,8 +18,17 @@
 declare module "virtual:nimbus/config" {
   export const config: import("../types.js").NimbusConfig;
   export const indexedCollections: readonly string[];
+  export const requestRenderingCollections: readonly string[];
   export const versionAlternates: import("../_internal/version-alternates.js").VersionAlternatesTable;
   export const apiCollections: readonly string[];
+  export const headDefaults: {
+    favicon: { file: string; type: string };
+    socialImage: string;
+  };
+}
+
+declare module "virtual:nimbus/api-build-config" {
+  export const api: import("../types.js").ApiSpec[];
   export const root: string;
 }
 

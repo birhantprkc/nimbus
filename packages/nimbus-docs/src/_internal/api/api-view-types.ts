@@ -76,6 +76,7 @@ export interface ApiFieldView {
   enum?: JsonValue[];
   example?: JsonValue;
   description?: string;
+  descriptionHtml?: string;
   anchor: string;
   children: ApiFieldView[];
   childCount: number;
@@ -99,6 +100,7 @@ export interface ApiPageBase {
   tokenCount?: number;
   title: string;
   description?: string;
+  descriptionHtml?: string;
   deprecated?: boolean;
   deprecation?: { successor?: ApiRef; migrationHref?: string };
   breadcrumbs: ApiBreadcrumb[];
@@ -129,6 +131,7 @@ export interface ApiResponseView {
   status: string;
   statusClass?: "info" | "success" | "redirect" | "client-error" | "server-error";
   description?: string;
+  descriptionHtml?: string;
   anchor: string;
   headers?: ApiFieldView[];
   fields: ApiFieldView[];

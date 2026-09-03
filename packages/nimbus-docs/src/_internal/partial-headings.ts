@@ -36,8 +36,6 @@
  *     the build-time "not found" error with its helpful suggestions.
  */
 
-import { mdxToMdast } from "satteri";
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -111,11 +109,31 @@ export async function mergePartialHeadings(
   render: (entry: unknown) => Promise<{ headings: Heading[] }>,
   options?: PartialHeadingOptions,
 ): Promise<Heading[]> {
+  const { mdxToMdast } = await import("satteri");
+  return mergePartialHeadingsWithParser(
+    body,
+    astroHeadings,
+    getEntry,
+    render,
+    (source) => mdxToMdast(source) as unknown as MdNode,
+    options,
+  );
+}
+
+export async function mergePartialHeadingsWithParser(
+  body: string | undefined,
+  astroHeadings: Heading[],
+  getEntry: (collection: string, id: string) => Promise<unknown>,
+  render: (entry: unknown) => Promise<{ headings: Heading[] }>,
+  parse: (body: string) => MdNode,
+  options?: PartialHeadingOptions,
+): Promise<Heading[]> {
   return mergePartialHeadingsInternal(
     body,
     astroHeadings,
     getEntry,
     render,
+    parse,
     options,
     new Set(),
   );
@@ -126,6 +144,7 @@ async function mergePartialHeadingsInternal(
   astroHeadings: Heading[],
   getEntry: (collection: string, id: string) => Promise<unknown>,
   render: (entry: unknown) => Promise<{ headings: Heading[] }>,
+  parse: (body: string) => MdNode,
   options: PartialHeadingOptions | undefined,
   seen: Set<string>,
 ): Promise<Heading[]> {
@@ -133,7 +152,7 @@ async function mergePartialHeadingsInternal(
 
   let tree: MdNode;
   try {
-    tree = mdxToMdast(body) as unknown as MdNode;
+    tree = parse(body);
   } catch {
     // If the body doesn't parse, fall back to Astro's headings —
     // the build will fail elsewhere with a proper diagnostic.
@@ -164,6 +183,7 @@ async function mergePartialHeadingsInternal(
         slot.product,
         getEntry,
         render,
+        parse,
         resolve,
         seen,
       );
@@ -266,6 +286,7 @@ async function collectFromPartial(
   product: string | undefined,
   getEntry: (collection: string, id: string) => Promise<unknown>,
   render: (entry: unknown) => Promise<{ headings: Heading[] }>,
+  parse: (body: string) => MdNode,
   resolve: (attrs: {
     file: string | undefined;
     product: string | undefined;
@@ -324,6 +345,7 @@ async function collectFromPartial(
     partialHeadings,
     getEntry,
     render,
+    parse,
     { resolvePartialId: resolve },
     seen,
   );

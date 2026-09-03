@@ -8,6 +8,7 @@ const pkg = JSON.parse(
 export default defineConfig({
   entry: {
     index: "src/index.ts",
+    runtime: "src/runtime.ts",
     config: "src/config.ts",
     content: "src/content.ts",
     schemas: "src/schemas.ts",
@@ -20,6 +21,9 @@ export default defineConfig({
     api: "src/api/index.ts",
     "lib/pkgm": "src/lib/pkgm.ts",
     "cli/index": "src/cli/index.ts",
+    "_internal/request-route-inventory":
+      "src/_internal/request-route-inventory.ts",
+    "_internal/git-last-updated": "src/_internal/git-last-updated.ts",
   },
   format: "esm",
   dts: true,
@@ -55,6 +59,8 @@ export default defineConfig({
   // the same way Astro's content layer does.
   noExternal: [
     "github-slugger",
+    "remark-mdx",
+    "remark-parse",
     "unified",
     "vfile",
     /^remark-lint-/,

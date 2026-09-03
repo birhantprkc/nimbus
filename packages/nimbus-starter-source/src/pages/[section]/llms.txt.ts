@@ -20,7 +20,7 @@ import {
   getIndexedTopLevel,
   type IndexedEntry,
   withBase,
-} from "@cloudflare/nimbus-docs";
+} from "@cloudflare/nimbus-docs/runtime";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;

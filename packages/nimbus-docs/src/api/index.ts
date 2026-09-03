@@ -78,7 +78,8 @@ function specDigest(raw: string): string {
 /** Deterministic JSON with object keys sorted at every depth, so a route policy
  *  keys the model cache by *value*, not by authoring key order. */
 function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (value === null || typeof value !== "object")
+    return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const entries = Object.entries(value as Record<string, unknown>)
     .filter(([, v]) => v !== undefined)
@@ -167,19 +168,16 @@ export async function getApiModel(
   collection: string,
   version?: string,
 ): Promise<ApiModel> {
-  const { loadNimbusConfig, loadProjectRoot } = await import(
-    "../_internal/runtime-config.js"
-  );
-  const { resolveSpecSource } = await import("../_internal/api/resolve-spec.js");
-  const { resolveApiVersion } = await import(
-    "../_internal/api/resolve-versions.js"
-  );
-  const config = await loadNimbusConfig();
-  const resolved = resolveApiVersion(config.api, collection, version ?? null);
+  const { loadApiBuildConfig } =
+    await import("../_internal/api/runtime-build-config.js");
+  const { resolveSpecSource } =
+    await import("../_internal/api/resolve-spec.js");
+  const { resolveApiVersion } =
+    await import("../_internal/api/resolve-versions.js");
+  const { api, root } = await loadApiBuildConfig();
+  const resolved = resolveApiVersion(api, collection, version ?? null);
   if (!resolved) {
-    const suffix = version
-      ? ` version "${version}"`
-      : "";
+    const suffix = version ? ` version "${version}"` : "";
     throw new Error(
       `nimbus-docs api: no spec registered for collection "${collection}"${suffix}. ` +
         `Declare it in \`nimbus.config.ts\`: api: [{ collection: "${collection}", spec: "./openapi.yaml" }].`,
@@ -194,18 +192,16 @@ export async function getApiModel(
 
   // Resolve against the loader's base (astroConfig.root), not process.cwd() —
   // they differ under monorepo/subpackage/`--root`/Cloudflare builds.
-  const promise = loadProjectRoot().then((root) =>
-    resolveSpecSource(
-      {
-        collection: resolved.namespace,
-        spec: resolved.spec,
-        label: resolved.label,
-        mountPath: resolved.mountPath,
-        requireOperationId: resolved.requireOperationId,
-        routes: resolved.routes,
-      },
-      root,
-    ),
+  const promise = resolveSpecSource(
+    {
+      collection: resolved.namespace,
+      spec: resolved.spec,
+      label: resolved.label,
+      mountPath: resolved.mountPath,
+      requireOperationId: resolved.requireOperationId,
+      routes: resolved.routes,
+    },
+    root,
   );
   sourceCache.set(cacheKey, promise);
   // Never leave a rejected resolution cached — a transient read failure (an

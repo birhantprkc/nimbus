@@ -2,7 +2,7 @@
 import DocsLayout from "../layouts/DocsLayout.astro";
 import {
   getDocsStaticPaths,
-  getDocsPageProps,
+  getDocsPage,
   getRouteFlags,
   getSidebar,
   getPrevNext,
@@ -11,13 +11,15 @@ import {
   getLastUpdated,
   getTOC,
   withBase,
-} from "@cloudflare/nimbus-docs";
+} from "@cloudflare/nimbus-docs/runtime";
 import { components } from "../components";
 
 export const prerender = true;
 export const getStaticPaths = getDocsStaticPaths;
 
-const { entry, Content, headings } = await getDocsPageProps(Astro);
+const page = await getDocsPage(Astro);
+if (page instanceof Response) return page;
+const { entry, Content, headings } = page;
 
 const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
 
@@ -35,7 +37,8 @@ const prevNext = await getPrevNext(currentSlug, {
 const breadcrumbs = await getBreadcrumbs(currentSlug, { collection: entry.collection });
 const editUrl = await getEditUrl(entry);
 // Frontmatter wins; git is the fallback.
-const lastUpdated = entry.data.lastUpdated ?? await getLastUpdated(entry);
+const lastUpdated = entry.data.lastUpdated ??
+  await getLastUpdated(entry);
 // `tocOn` already implies `tableOfContents !== false`, but TS can't carry
 // that boolean narrowing to the value here — re-check it so `getTOC` only
 // ever sees its options object (or undefined), never `false`.

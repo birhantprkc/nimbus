@@ -8,6 +8,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { mergePartialHeadings } from "../src/_internal/partial-headings.js";
+import {
+  expandWorkerPartials,
+  mergeWorkerPartialHeadings,
+} from "../src/_internal/worker-partial-headings.js";
 
 import type { Heading } from "../src/_internal/partial-headings.js";
 
@@ -19,6 +23,7 @@ interface MockEntry {
   id: string;
   body: string;
   headings: Heading[];
+  data?: { params?: string[] };
 }
 
 function makeGetEntry(partials: Record<string, MockEntry>) {
@@ -66,6 +71,93 @@ test("partial heading is inserted between parent headings in document order", as
   );
 });
 
+test("Worker parser preserves partial heading order", async () => {
+  const partials: Record<string, MockEntry> = {
+    mid: {
+      id: "mid",
+      body: "## Worker partial\n",
+      headings: [{ depth: 2, text: "Worker partial", slug: "worker-partial" }],
+    },
+  };
+  const result = await mergeWorkerPartialHeadings(
+    '## Before\n\n<Render file="mid" />\n\n## After\n',
+    [
+      { depth: 2, text: "Before", slug: "before" },
+      { depth: 2, text: "After", slug: "after" },
+    ],
+    makeGetEntry(partials),
+    makeRender(partials),
+  );
+  assert.deepEqual(
+    result.map(({ slug }) => slug),
+    ["before", "worker-partial", "after"],
+  );
+});
+
+test("Worker markdown expansion preserves nested partial content in place", async () => {
+  const partials: Record<string, MockEntry> = {
+    outer: {
+      id: "outer",
+      body: 'Outer before.\n\n<Render file="inner" />\n\nOuter after.',
+      headings: [],
+    },
+    inner: {
+      id: "inner",
+      body: "## Inner heading\n\nSearchable partial sentence.",
+      headings: [],
+    },
+  };
+  const expanded = await expandWorkerPartials(
+    'Page before.\n\n<Render file="outer" />\n\nPage after.',
+    makeGetEntry(partials),
+  );
+
+  assert.equal(
+    expanded,
+    "Page before.\n\nOuter before.\n\n## Inner heading\n\nSearchable partial sentence.\n\nOuter after.\n\nPage after.",
+  );
+});
+
+test("Worker markdown expansion resolves and forwards declared partial params", async () => {
+  const partials: Record<string, MockEntry> = {
+    outer: {
+      id: "outer",
+      body: 'Outer targets {props.runtime}.\n\n<Render file="inner" params={{ runtime: props.runtime }} />',
+      headings: [],
+      data: { params: ["runtime"] },
+    },
+    inner: {
+      id: "inner",
+      body: "Inner targets {props.runtime}.",
+      headings: [],
+      data: { params: ["runtime"] },
+    },
+  };
+  const expanded = await expandWorkerPartials(
+    '<Render file="outer" params={{ runtime: "node" }} />',
+    makeGetEntry(partials),
+  );
+
+  assert.equal(expanded, "Outer targets node.\n\nInner targets node.");
+});
+
+test("Worker markdown expansion validates required partial params", async () => {
+  const partials: Record<string, MockEntry> = {
+    runtime: {
+      id: "runtime",
+      body: "Runtime: {props.runtime}",
+      headings: [],
+      data: { params: ["runtime"] },
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      expandWorkerPartials('<Render file="runtime" />', makeGetEntry(partials)),
+    /Missing required params \["runtime"\] for "runtime"/,
+  );
+});
+
 test("nested partial headings are included recursively", async () => {
   const parentBody = `## Parent\n\n<Render file="outer" />\n`;
   const parentHeadings: Heading[] = [
@@ -95,6 +187,17 @@ test("nested partial headings are included recursively", async () => {
     result.map((h) => h.slug),
     ["parent", "outer", "inner"],
   );
+
+  const workerResult = await mergeWorkerPartialHeadings(
+    parentBody,
+    parentHeadings,
+    makeGetEntry(partials),
+    makeRender(partials),
+  );
+  assert.deepEqual(
+    workerResult.map((h) => h.slug),
+    ["parent", "outer", "inner"],
+  );
 });
 
 test("missing partial is silently skipped (Render.astro owns the error)", async () => {
@@ -115,6 +218,16 @@ test("missing partial is silently skipped (Render.astro owns the error)", async 
     result.map((h) => h.slug),
     ["before", "after"],
   );
+  const workerResult = await mergeWorkerPartialHeadings(
+    parentBody,
+    parentHeadings,
+    makeGetEntry({}),
+    makeRender({}),
+  );
+  assert.deepEqual(
+    workerResult.map((h) => h.slug),
+    ["before", "after"],
+  );
 });
 
 test("dynamic file expression is ignored", async () => {
@@ -133,6 +246,16 @@ test("dynamic file expression is ignored", async () => {
 
   assert.deepEqual(
     result.map((h) => h.slug),
+    ["before", "after"],
+  );
+  const workerResult = await mergeWorkerPartialHeadings(
+    parentBody,
+    parentHeadings,
+    makeGetEntry({}),
+    makeRender({}),
+  );
+  assert.deepEqual(
+    workerResult.map((h) => h.slug),
     ["before", "after"],
   );
 });
@@ -165,6 +288,16 @@ test("cyclic partial reference throws a readable error", async () => {
       ),
     /Circular <Render> partial include: a -> b -> a/,
   );
+  await assert.rejects(
+    () =>
+      mergeWorkerPartialHeadings(
+        parentBody,
+        parentHeadings,
+        makeGetEntry(partials),
+        makeRender(partials),
+      ),
+    /Circular <Render> partial include: a -> b -> a/,
+  );
 });
 
 test("custom resolvePartialId is used (product convention)", async () => {
@@ -177,7 +310,9 @@ test("custom resolvePartialId is used (product convention)", async () => {
     "bots/snippet": {
       id: "bots/snippet",
       body: "## Snippet heading\n",
-      headings: [{ depth: 2, text: "Snippet heading", slug: "snippet-heading" }],
+      headings: [
+        { depth: 2, text: "Snippet heading", slug: "snippet-heading" },
+      ],
     },
   };
 
@@ -195,6 +330,48 @@ test("custom resolvePartialId is used (product convention)", async () => {
   assert.deepEqual(
     result.map((h) => h.slug),
     ["before", "snippet-heading", "after"],
+  );
+
+  const workerResult = await mergeWorkerPartialHeadings(
+    parentBody,
+    parentHeadings,
+    makeGetEntry(partials),
+    makeRender(partials),
+    {
+      resolvePartialId: ({ file, product }) =>
+        product ? `${product}/${file}` : file,
+    },
+  );
+  assert.deepEqual(
+    workerResult.map((h) => h.slug),
+    ["before", "snippet-heading", "after"],
+  );
+});
+
+test("Worker parser propagates nested partial resolver failures", async () => {
+  const partials: Record<string, MockEntry> = {
+    outer: {
+      id: "outer",
+      body: '<Render file="inner" />',
+      headings: [],
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      mergeWorkerPartialHeadings(
+        '<Render file="outer" />',
+        [],
+        makeGetEntry(partials),
+        makeRender(partials),
+        {
+          resolvePartialId: ({ file }) => {
+            if (file === "inner") throw new Error("resolver failed");
+            return file;
+          },
+        },
+      ),
+    /resolver failed/,
   );
 });
 
@@ -216,12 +393,21 @@ test("extra Astro headings without source nodes are appended (e.g. footnote-labe
     result.map((h) => h.slug),
     ["before", "footnote-label"],
   );
+
+  const workerResult = await mergeWorkerPartialHeadings(
+    parentBody,
+    parentHeadings,
+    makeGetEntry({}),
+    makeRender({}),
+  );
+  assert.deepEqual(
+    workerResult.map((h) => h.slug),
+    ["before", "footnote-label"],
+  );
 });
 
 test("entry with no body returns Astro headings unchanged", async () => {
-  const parentHeadings: Heading[] = [
-    { depth: 2, text: "Foo", slug: "foo" },
-  ];
+  const parentHeadings: Heading[] = [{ depth: 2, text: "Foo", slug: "foo" }];
 
   const result = await mergePartialHeadings(
     undefined,
@@ -231,6 +417,15 @@ test("entry with no body returns Astro headings unchanged", async () => {
   );
 
   assert.deepEqual(result, parentHeadings);
+  assert.deepEqual(
+    await mergeWorkerPartialHeadings(
+      undefined,
+      parentHeadings,
+      makeGetEntry({}),
+      makeRender({}),
+    ),
+    parentHeadings,
+  );
 });
 
 test("multiple Render calls in one page are all collected in order", async () => {
@@ -264,6 +459,16 @@ test("multiple Render calls in one page are all collected in order", async () =>
     result.map((h) => h.slug),
     ["first", "p1-heading", "second", "p2-heading", "third"],
   );
+  const workerResult = await mergeWorkerPartialHeadings(
+    parentBody,
+    parentHeadings,
+    makeGetEntry(partials),
+    makeRender(partials),
+  );
+  assert.deepEqual(
+    workerResult.map((h) => h.slug),
+    ["first", "p1-heading", "second", "p2-heading", "third"],
+  );
 });
 
 test("partial with no headings contributes nothing", async () => {
@@ -285,6 +490,37 @@ test("partial with no headings contributes nothing", async () => {
 
   assert.deepEqual(
     result.map((h) => h.slug),
+    ["before", "after"],
+  );
+  const workerResult = await mergeWorkerPartialHeadings(
+    parentBody,
+    parentHeadings,
+    makeGetEntry(partials),
+    makeRender(partials),
+  );
+  assert.deepEqual(
+    workerResult.map((h) => h.slug),
+    ["before", "after"],
+  );
+});
+
+test("Worker parser skips partial render failures", async () => {
+  const partials: Record<string, MockEntry> = {
+    broken: { id: "broken", body: "## Broken", headings: [] },
+  };
+  const result = await mergeWorkerPartialHeadings(
+    '## Before\n\n<Render file="broken" />\n\n## After',
+    [
+      { depth: 2, text: "Before", slug: "before" },
+      { depth: 2, text: "After", slug: "after" },
+    ],
+    makeGetEntry(partials),
+    async () => {
+      throw new Error("render failed");
+    },
+  );
+  assert.deepEqual(
+    result.map((heading) => heading.slug),
     ["before", "after"],
   );
 });

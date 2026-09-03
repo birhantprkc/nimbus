@@ -41,11 +41,11 @@ Run these inside your project:
 
 Static by default — `pnpm build` emits `dist/`, which you can host anywhere.
 
-Choose server output during scaffolding, or add an adapter later, when the site needs on-demand routes. Docs pages remain prerendered.
+Choose Cloudflare server output during scaffolding to render canonical content collection routes on request. Existing projects can wire the adapter, then hand the project-specific rendering edit to a coding agent:
 
 ```sh
 pnpm exec nimbus-docs add adapter-cloudflare
-# adapter-vercel, adapter-netlify, or adapter-node
+pnpm exec nimbus-docs add adapter-cloudflare --print | claude
 ```
 
 Cloudflare is the first-class target: the default scaffold ships a `wrangler.jsonc`.
@@ -82,7 +82,7 @@ Components and utilities copy in as editable files. Features hand off a recipe y
 
 ## Built on
 
-[Astro 7](https://astro.build) · Sätteri (Rust-based markdown) · Tailwind v4 · optional React 19. Static by default, with opt-in server output for Cloudflare, Vercel, Netlify, and Node.
+[Astro 7](https://astro.build) · Sätteri (Rust-based markdown) · Tailwind v4 · optional React 19. Static output deploys anywhere; request-rendered server output currently targets Cloudflare.
 
 ## Status
 

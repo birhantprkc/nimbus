@@ -25,11 +25,12 @@
  * tooling) can still see it.
  *
  * Returns:
- *   - `string[]` of registered names when the file exists and the
- *     pattern matches.
- *   - `null` when the file is missing OR present but doesn't expose a
- *     parseable `export const collections = { ... }`. Callers decide
- *     whether to warn or fall back to `["docs"]`.
+ *   - the statically known names and whether every registration was resolved
+ *     when the file exists and the pattern matches.
+ *   - an incomplete empty result when the file exists but doesn't expose a
+ *     parseable object-literal registration.
+ *   - `null` when the file is missing. Callers decide whether to warn or fall
+ *     back to `["docs"]`.
  */
 
 import fs from "node:fs/promises";
@@ -45,9 +46,14 @@ import {
 const EXPORT_PREFIX_PATTERN =
   /export\s+const\s+collections\s*(?::\s*[^=]+)?=\s*\{/;
 
+export interface ParsedContentCollections {
+  names: string[];
+  complete: boolean;
+}
+
 export async function parseContentCollections(
   filePath: string,
-): Promise<string[] | null> {
+): Promise<ParsedContentCollections | null> {
   let source: string;
   try {
     source = await fs.readFile(filePath, "utf8");
@@ -58,18 +64,23 @@ export async function parseContentCollections(
 
   const stripped = stripComments(source);
   const prefixMatch = stripped.match(EXPORT_PREFIX_PATTERN);
-  if (!prefixMatch || prefixMatch.index === undefined) return null;
+  if (!prefixMatch || prefixMatch.index === undefined) {
+    return { names: [], complete: false };
+  }
   const objectStart = prefixMatch.index + prefixMatch[0].length;
   const objectEnd = findMatchingBrace(stripped, objectStart - 1);
-  if (objectEnd === -1) return null;
+  if (objectEnd === -1) return { names: [], complete: false };
   const body = stripped.slice(objectStart, objectEnd);
 
   const names: string[] = [];
+  let complete = true;
   for (const raw of splitTopLevelCommas(body)) {
     const entry = raw.trim();
     if (!entry) continue;
-    if (entry.startsWith("...")) continue;
-    if (entry.startsWith("[")) continue;
+    if (entry.startsWith("...") || entry.startsWith("[")) {
+      complete = false;
+      continue;
+    }
 
     const colonIdx = entry.indexOf(":");
     const rawKey = colonIdx === -1 ? entry : entry.slice(0, colonIdx);
@@ -82,9 +93,23 @@ export async function parseContentCollections(
     // a leading letter or underscore (the `_*` underscore convention for
     // hidden-from-indexing collections stays intact).
     if (/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key)) names.push(key);
+    else complete = false;
   }
 
-  return names;
+  const remainder = stripped.slice(objectEnd + 1);
+  if (
+    /\bcollections\s*(?:\.\s*[A-Za-z_$][\w$]*|\[[^\]]+\])\s*=/.test(
+      remainder,
+    ) ||
+    /\bdelete\s+collections\s*(?:\.|\[)/.test(remainder) ||
+    /\b(?:Object\.(?:assign|definePropert(?:y|ies))|Reflect\.set)\s*\(\s*collections\b/.test(
+      remainder,
+    )
+  ) {
+    complete = false;
+  }
+
+  return { names, complete };
 }
 
 /**

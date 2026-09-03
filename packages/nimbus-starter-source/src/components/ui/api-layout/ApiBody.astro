@@ -20,8 +20,7 @@ import Code from "@/components/ui/code/Code.astro";
 import ApiEndpointCard from "./ApiEndpointCard.astro";
 import { authFields } from "./auth";
 import { cn } from "@/lib/cn";
-import { renderMarkdown } from "@cloudflare/nimbus-docs/markdown";
-import { withBase } from "@cloudflare/nimbus-docs";
+import { withBase } from "@cloudflare/nimbus-docs/runtime";
 import type { ApiPageProps } from "@cloudflare/nimbus-docs/api";
 
 interface Props {
@@ -89,8 +88,8 @@ const deprecationHtml = page.deprecated
 <div class="mt-6 flex flex-col gap-4">
   <h1 class="mb-0 leading-tight text-foreground [text-wrap:balance]" style="font-size:var(--nb-h1-size);font-weight:var(--nb-h1-weight);letter-spacing:var(--nb-h1-tracking)">{page.title}</h1>
 
-  {page.description && (
-    <div class="nb-md text-muted-foreground" set:html={renderMarkdown(page.description)} />
+  {page.descriptionHtml && (
+    <div class="nb-md text-muted-foreground" set:html={page.descriptionHtml} />
   )}
 
   {page.kind === "operation" && (
@@ -151,8 +150,8 @@ const deprecationHtml = page.deprecated
                     needed. Description sits inline as a sibling, not inside the h3. */}
                 <div class="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <h3 class={cn("font-mono text-sm font-semibold", statusToneClass(r.status))}>{r.status}</h3>
-                  {r.description && (
-                    <div class="nb-md text-sm text-muted-foreground" set:html={renderMarkdown(r.description)} />
+                  {r.descriptionHtml && (
+                    <div class="nb-md text-sm text-muted-foreground" set:html={r.descriptionHtml} />
                   )}
                 </div>
                 <div class="flex flex-col gap-4">

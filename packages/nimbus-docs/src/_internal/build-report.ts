@@ -1,9 +1,9 @@
 /**
  * Prerender invariant reporter. From the routes Astro resolves at build, it
- * asserts the bidirectional invariant — every public doc route stays
- * prerendered, and every on-demand route is *explained* — and produces the
- * build summary line. An unexplained on-demand route is a build failure, not a
- * warning.
+ * asserts the bidirectional invariant — every public doc route is prerendered
+ * or explicitly request-rendered, and every on-demand route is *explained* —
+ * and produces the build summary line. An unexplained on-demand route is a
+ * build failure, not a warning.
  *
  * Astro's own internal routes are excluded by route provenance. Project and
  * integration routes are explained only if they're declared feature routes.
@@ -21,7 +21,9 @@ export interface BuildReportInput {
   adapterName: string | null;
   routes: readonly ResolvedRouteLike[];
   prerenderedPageCount: number;
+  requestRenderedPageCount?: number;
   declaredFeatureRoutes?: readonly string[];
+  declaredRequestRoutes?: readonly string[];
   serverFeatures?: readonly string[];
 }
 
@@ -33,7 +35,8 @@ export interface BuildReport {
 }
 
 export function analyzeBuild(input: BuildReportInput): BuildReport {
-  const declared = new Set(input.declaredFeatureRoutes ?? []);
+  const declaredFeatures = new Set(input.declaredFeatureRoutes ?? []);
+  const declaredRequests = new Set(input.declaredRequestRoutes ?? []);
   const routable = input.routes.filter(
     (r) => r.type === "page" || r.type === "endpoint",
   );
@@ -41,8 +44,13 @@ export function analyzeBuild(input: BuildReportInput): BuildReport {
   const nonInfraOnDemand = reportable.filter((r) => !r.isPrerendered);
   const onDemandDocRoutes = nonInfraOnDemand.map((r) => r.pattern);
   const violations = nonInfraOnDemand
-    .filter((r) => !declared.has(r.pattern))
+    .filter(
+      (r) =>
+        !declaredFeatures.has(r.pattern) &&
+        !declaredRequests.has(r.pattern),
+    )
     .map((r) => r.pattern);
+  const moved = input.requestRenderedPageCount ?? 0;
 
   const fatal =
     input.outputMode === "server" && reportable.length === 0
@@ -53,7 +61,7 @@ export function analyzeBuild(input: BuildReportInput): BuildReport {
       : null;
 
   return {
-    summaryLine: formatSummary(input, onDemandDocRoutes, violations.length),
+    summaryLine: formatSummary(input, onDemandDocRoutes, moved),
     violations,
     onDemandDocRoutes,
     fatal,
@@ -93,8 +101,8 @@ export function formatInvariantFailure(violations: readonly string[]): string {
     `nimbus: prerender invariant FAILED — ${violations.length} unexplained ` +
     `on-demand route${violations.length === 1 ? "" : "s"}:\n` +
     violations.map((p) => `  - ${p}`).join("\n") +
-    `\n\nEvery public doc route must stay prerendered (\`export const prerender = true\`). ` +
-    `A route is on-demand because it opted out — restore its prerender export, or ` +
-    `(if it's a server feature endpoint) declare it so the reporter can explain it.`
+    `\n\nEvery public doc route must be prerendered or selected by the Nimbus rendering policy. ` +
+    `Restore prerendering, configure the route's collection for request rendering, or ` +
+    `(for a server feature endpoint) declare it so the reporter can explain it.`
   );
 }

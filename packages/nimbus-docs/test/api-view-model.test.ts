@@ -79,6 +79,28 @@ describe("seam: serializable + version-stamped across page kinds", () => {
     assert.equal(create.markdownHref, `${create.href}/index.md`);
   });
 
+  test("prepares sanitized HTML for page, response, and field descriptions", () => {
+    const root = getApiPageProps(smallco, "smallco");
+    assert.match(
+      root.descriptionHtml ?? "",
+      /^<p>A deliberately small API that still trips every grammar edge case\.<\/p>/,
+    );
+
+    const create = getApiPageProps(smallco, "create") as ApiOperationPage;
+    const response = create.responses.find((item) => item.status === "200");
+    assert.match(
+      response?.descriptionHtml ?? "",
+      /^<p>The created charge\.<\/p>/,
+    );
+
+    const charge = getApiPageProps(smallco, "Charge") as ApiSchemaPage;
+    const amount = charge.fields.find((field) => field.name === "amount");
+    assert.match(
+      amount?.descriptionHtml ?? "",
+      /^<p>Amount to collect in cents\.<\/p>/,
+    );
+  });
+
   test("getApiPageIndex covers every page slug with projection-identical title/description", () => {
     const index = getApiPageIndex(smallco);
     const slugs = getApiPageSlugs(smallco);

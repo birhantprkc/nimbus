@@ -78,6 +78,25 @@ const searchSchema = z
   ])
   .optional();
 
+const renderingModeSchema = z.enum(["build", "request"], {
+  error: 'rendering mode must be either "build" or "request"',
+});
+
+const renderingSchema = withStrictKeys(
+  z.object({
+    default: renderingModeSchema.optional(),
+    collections: z
+      .record(
+        z.string().min(1, {
+          message: "rendering collection names must not be empty",
+        }),
+        renderingModeSchema,
+      )
+      .optional(),
+  }),
+  { removedKeys: {}, contextLabel: "rendering sub-key" },
+).optional();
+
 // Sidebar items are intentionally loose — the sidebar builder accepts the
 // shapes documented in types.ts; tightening here adds friction for users
 // without catching real errors that the builder doesn't already catch.
@@ -478,6 +497,7 @@ const nimbusConfigSchema = withStrictKeys(
     versions: versionsSchema,
     api: apiSchema,
     apiReferences: apiReferencesSchema,
+    rendering: renderingSchema,
   }),
   {
     removedKeys: REMOVED_CONFIG_KEYS,

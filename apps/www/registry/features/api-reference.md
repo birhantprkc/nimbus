@@ -271,8 +271,10 @@ export async function GET({ props }: { props: SlugProps }) {
 ### 4e. Scaffold the HTML route
 
 The route is thin: `getApiStaticPaths` enumerates one path per page, and
-`getApiPage(Astro)` builds the model and projects the page props + nav in a
-single call — you hand both to `ApiLayout` (installed in 4a). `ApiLayout` composes `ApiSidebar` (verb chips +
+`getApiRoute(Astro)` reads the page props and shared navigation prepared by the
+content loader, then marks the current navigation path active. It never reads
+or parses the OpenAPI source at request time. Hand both results to `ApiLayout`
+(installed in 4a). `ApiLayout` composes `ApiSidebar` (verb chips +
 active-section pruning), `ApiFieldRow` (recursive fields with type links), and
 `ApiCodeRail` (server-generated code samples with a language switcher + a
 response-example status toggle), rendering any page
@@ -298,7 +300,7 @@ Write `src/pages/api/[...slug].astro`:
 <!-- api-reference-fixture:src/pages/api/[...slug].astro -->
 ```astro
 ---
-import { getApiPage, getApiStaticPaths } from "@cloudflare/nimbus-docs";
+import { getApiRoute, getApiStaticPaths } from "@cloudflare/nimbus-docs/runtime";
 import Header from "@/components/Header.astro";
 import { ApiLayout } from "@/components/ui/api-layout";
 import BaseLayout from "@/layouts/BaseLayout.astro";
@@ -306,13 +308,17 @@ import BaseLayout from "@/layouts/BaseLayout.astro";
 export const prerender = true;
 export const getStaticPaths = getApiStaticPaths("api");
 
-const { page, nav, collection, version, coordinate } = await getApiPage(Astro);
+const result = await getApiRoute(Astro);
+if (result instanceof Response) return result;
+const { page, nav, collection, version, coordinate } = result;
+const socialImage = `/og${page.href.replace(/\/$/, "")}.png`;
 ---
 
 <BaseLayout
   title={`${page.title} · API`}
   description={page.description}
   markdownUrl={page.markdownHref}
+  socialImage={socialImage}
   collection={collection}
   apiVersion={version ?? undefined}
   coordinate={coordinate}

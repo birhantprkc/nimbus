@@ -139,6 +139,10 @@ function writeBuildScriptsConfig(targetDir) {
   const yaml = `# Declines install scripts for ${names.join(" and ")} (they ship prebuilds),
 # clearing pnpm's build-scripts gate. Adding a package here lets it run scripts.
 packages: []
+supportedArchitectures:
+  cpu:
+    - current
+    - wasm32
 allowBuilds: # pnpm 11
 ${allowBuilds}
 ignoredBuiltDependencies: # pnpm 10

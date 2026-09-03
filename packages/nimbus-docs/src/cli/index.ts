@@ -11,7 +11,7 @@
  *   nimbus-docs add                    → list
  *   nimbus-docs add <slug>             → install (component path or feature path)
  *   nimbus-docs add <slug> --yes       → component: skip overwrite prompts
- *   nimbus-docs add <slug> --print     → feature: print markdown to stdout (skip detect)
+ *   nimbus-docs add <feature> --print  → print an agent-handoff recipe
  *
  * Feature behavior: print markdown to stdout iff `--print` OR an agent is
  * detected; otherwise print human-friendly pipe instructions to stderr.
@@ -27,12 +27,15 @@ import mri from "mri";
 import * as p from "@clack/prompts";
 
 import { ADAPTER_IDS, type AdapterId } from "../_internal/adapters.js";
-import { installAdapter } from "./adapter.js";
+import {
+  cloudflareRequestRenderingAgentRecipe,
+  installAdapter,
+} from "./adapter.js";
 import { BUNDLED_INDEX } from "./_registry.generated.js";
 import { checkCommand } from "./check.js";
 import { installComponents } from "./component.js";
 import { loadDotenv } from "./dotenv.js";
-import { installFeature } from "./feature.js";
+import { installFeature, shouldUseAgentHandoff } from "./feature.js";
 import { initCommand } from "./init.js";
 import { lintCommand } from "./lint.js";
 import {
@@ -129,7 +132,7 @@ const HELP = `
     --all                          \`outdated\`/\`diff\`: include content files (hidden by default)
     --to <templates-vX.Y.Z>        \`outdated\`/\`diff\`: compare against a specific tag (default latest)
     --template-dir <path>          \`outdated\`/\`diff\`: compare against a local checkout (offline)
-    --print                        Feature: print markdown to stdout (skip agent detect)
+    --print                        \`add\`: print a feature or Cloudflare adapter recipe
     --force                        \`init\`: rebuild an existing nimbus.json
     --root <dir>                   \`init\`: src dir to scan (monorepo; default src)
     --env, --structure, --lint, --types
@@ -152,6 +155,7 @@ const HELP = `
     nimbus-docs outdated                                # what's behind upstream (starter + registry)
     nimbus-docs init                                    # adopt an existing repo — writes nimbus.json
     nimbus-docs add 404-page --print | claude           # explicit pipe to claude
+    nimbus-docs add adapter-cloudflare --print | claude # finish project-specific rendering config
     nimbus-docs lint                                    # pretty output, exit non-zero on error
     nimbus-docs lint --format=json                      # agent-readable diagnostics
 
@@ -347,13 +351,17 @@ async function addCommand(
       );
       process.exit(1);
     }
-    await runAdapterInstall(adapterId, `server-output --adapter ${adapterId}`);
+    await runAdapterInstall(
+      adapterId,
+      `server-output --adapter ${adapterId}`,
+      flags.print,
+    );
     return;
   }
 
   const adapterId = ADAPTER_SLUGS[slug];
   if (adapterId) {
-    await runAdapterInstall(adapterId, `adapter-${adapterId}`);
+    await runAdapterInstall(adapterId, `adapter-${adapterId}`, flags.print);
     return;
   }
 
@@ -368,6 +376,11 @@ async function addCommand(
   if (entry.type === "registry:feature") {
     await installFeature(slug, { print: flags.print });
     return;
+  }
+
+  if (flags.print) {
+    p.log.error("`--print` is only available for features and the Cloudflare adapter.");
+    process.exit(1);
   }
 
   // Component / utility path. Read the record up front so a corrupt one (or a
@@ -478,7 +491,20 @@ function parseAdapterFlag(value: string | undefined): AdapterId | null {
 // `nimbus-docs add adapter-<id>` — server-output opt-in
 // ---------------------------------------------------------------------------
 
-async function runAdapterInstall(adapter: AdapterId, label: string): Promise<void> {
+async function runAdapterInstall(
+  adapter: AdapterId,
+  label: string,
+  printRecipe: boolean,
+): Promise<void> {
+  if (adapter === "cloudflare" && (await shouldUseAgentHandoff(printRecipe))) {
+    process.stdout.write(cloudflareRequestRenderingAgentRecipe());
+    return;
+  }
+  if (printRecipe) {
+    p.log.error("`--print` is only available for the Cloudflare adapter.");
+    process.exit(1);
+  }
+
   const cwd = process.cwd();
   p.intro(`nimbus-docs add ${label}`);
 
@@ -487,7 +513,7 @@ async function runAdapterInstall(adapter: AdapterId, label: string): Promise<voi
     cwd,
     installDeps: async (deps, at) => {
       const pm = detectPackageManager(at);
-      const { bin, args } = pmAddCommand(pm, deps);
+      const { bin, args } = pmAddCommand(pm, deps, { exact: true });
       const display = `${bin} ${args.map(quoteForDisplay).join(" ")}`;
       spinner.start(display);
       try {
@@ -517,6 +543,7 @@ async function runAdapterInstall(adapter: AdapterId, label: string): Promise<voi
       lines.push(`+ Installed ${outcome.depsInstalled.join(", ")}`);
     }
     appendWranglerWriteLine(lines, outcome.wrangler);
+    appendRequestRenderingStatus(lines, adapter, label, outcome.requestRendering);
     p.outro(lines.join("\n"));
     return;
   }
@@ -526,11 +553,36 @@ async function runAdapterInstall(adapter: AdapterId, label: string): Promise<voi
     lines.push(`+ Installed ${outcome.depsInstalled.join(", ")}`);
   }
   appendWranglerWriteLine(lines, outcome.wrangler);
-  lines.push(
-    "Public doc pages stay prerendered — the adapter only enables on-demand routes.",
-    `Verify with a build, then \`${invocation("check")}\`.`,
-  );
+  appendRequestRenderingStatus(lines, adapter, label, outcome.requestRendering);
+  lines.push(`Verify with a build, then \`${invocation("check")}\`.`);
   p.outro(lines.join("\n"));
+}
+
+function appendRequestRenderingStatus(
+  lines: string[],
+  adapter: AdapterId,
+  label: string,
+  status: "inserted" | "explicit" | "unresolved" | undefined,
+): void {
+  if (adapter !== "cloudflare") {
+    lines.push("Rendering behavior follows the policy in your Nimbus config.");
+    return;
+  }
+  if (status === "inserted") {
+    lines.push('+ Enabled request rendering in the active Nimbus config.');
+    return;
+  }
+  if (status === "explicit") {
+    lines.push("Rendering behavior follows your explicit Nimbus policy.");
+    return;
+  }
+  const command = invocation(`add ${label} --print`);
+  lines.push(
+    "Next: hand request-rendering configuration to your coding agent:",
+    `  ${command} | claude`,
+    `  ${command} | codex`,
+    `Or paste: Run \"${command}\" and follow the instructions.`,
+  );
 }
 
 function appendWranglerWriteLine(

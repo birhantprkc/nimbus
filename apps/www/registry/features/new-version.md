@@ -337,7 +337,7 @@ siblings:
 
 - `getCollectionStaticPaths("docs-<slug>")` — takes the collection
   name as an argument
-- `getCollectionPageProps<"docs-<slug>">(Astro)` — takes the
+- `getCollectionPage<"docs-<slug>">(Astro)` — takes the
   collection name as a TypeScript generic
 
 The snippet below uses the correct helpers. Copy it verbatim and
@@ -352,7 +352,7 @@ name with the user's slug):
 import DocsLayout from "../../layouts/DocsLayout.astro";
 import {
   getCollectionStaticPaths,
-  getCollectionPageProps,
+  getCollectionPage,
   getSidebar,
   getPrevNext,
   getBreadcrumbs,
@@ -366,7 +366,9 @@ import { components } from "../../components";
 export const prerender = true;
 export const getStaticPaths = getCollectionStaticPaths("docs-<slug>");
 
-const { entry, Content, headings } = await getCollectionPageProps<"docs-<slug>">(Astro);
+const page = await getCollectionPage<"docs-<slug>">(Astro);
+if (page instanceof Response) return page;
+const { entry, Content, headings } = page;
 
 const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
 const sidebar = await getSidebar(currentSlug, { collection: entry.collection });
@@ -376,7 +378,8 @@ const prevNext = await getPrevNext(currentSlug, {
 });
 const breadcrumbs = await getBreadcrumbs(currentSlug);
 const editUrl = await getEditUrl(entry);
-const lastUpdated = entry.data.lastUpdated ?? await getLastUpdated(entry);
+const lastUpdated = entry.data.lastUpdated ??
+  await getLastUpdated(entry);
 const toc = getTOC(headings, entry.data.tableOfContents);
 const markdownPath = `/<slug>/${entry.id}/index.md`;
 const basedMarkdownPath = withBase(markdownPath, import.meta.env.BASE_URL);

@@ -16,7 +16,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { PageActions } from "@/components/ui/page-actions";
 import { Badge } from "@/components/ui/badge";
 import type { DocsPageProps } from "@cloudflare/nimbus-docs/types";
-import { getVersionStatus, getVersionAlternates } from "@cloudflare/nimbus-docs";
+import { getVersionStatus, getVersionAlternates } from "@cloudflare/nimbus-docs/runtime";
 
 type Props = DocsPageProps & { audience?: "human" };
 
@@ -105,7 +105,7 @@ const hasPagination = Astro.slots.has("pagination");
               Only emit when the sidebar is rendered; otherwise the script is
               dead code (the `desktop-sidebar` element doesn't exist). */}
           {showSidebar && (
-          <script aria-hidden="true">
+          <script is:inline aria-hidden="true">
           (function () {
             function centerActive(sidebar, active) {
               const sr = sidebar.getBoundingClientRect();

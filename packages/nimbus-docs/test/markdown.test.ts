@@ -164,6 +164,21 @@ describe("renderMarkdown: CommonMark → HTML for spec descriptions", () => {
     assert.match(html, /<strong>primary<\/strong>/);
   });
 
+  test("preserves GFM used by existing API descriptions", () => {
+    const html = renderMarkdown(
+      "~~old~~\n\n| Name | Value |\n| --- | --- |\n| one | two |\n\n1. [x] done\n\n   More detail.",
+    );
+    assert.match(html, /<del>old<\/del>/);
+    assert.match(html, /<table>/);
+    assert.match(html, /<td>two<\/td>/);
+    assert.match(html, /<ol class="contains-task-list">/);
+    assert.match(html, /<li class="task-list-item">/);
+    assert.match(
+      html,
+      /<p><input(?=[^>]*type="checkbox")(?=[^>]*checked)(?=[^>]*disabled)[^>]*> done<\/p>/,
+    );
+  });
+
   test("empty/nullish input yields an empty string (no stray markup)", () => {
     assert.equal(renderMarkdown(undefined), "");
     assert.equal(renderMarkdown(null), "");

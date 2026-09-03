@@ -2,10 +2,9 @@
  * Tests for the server-output scaffold lane (`output: "server"` + an adapter).
  *
  * The load-bearing guarantee: a server scaffold's `astro.config` is
- * byte-identical to `scaffold static → nimbus-docs add adapter-<id>`, because
- * both run the *same* framework marker edit (`applyAdapterToConfig`). The
- * remaining tests cover the per-adapter deploy artifacts (Cloudflare wrangler,
- * dependency placement, .gitignore, nimbus.json provenance).
+ * uses the same framework marker edit as `nimbus-docs add adapter-<id>`.
+ * Cloudflare additionally flips the explicit rendering default in the
+ * Nimbus-owned template. The remaining tests cover per-adapter artifacts.
  */
 
 import assert from "node:assert/strict";
@@ -34,9 +33,14 @@ const BASE = {
 // lane, but the server marker edit needs a target to rewrite.)
 const STARTER_CONFIG =
   `import { defineConfig } from "astro/config";\n` +
+  `import nimbus, { defineConfig as defineNimbusConfig } from "@cloudflare/nimbus-docs";\n` +
+  `const nimbusConfig = defineNimbusConfig({\n` +
+  `  site: "https://example.com",\n` +
+  `});\n` +
   `export default defineConfig({\n` +
   `  // nimbus:adapter\n` +
   `  output: "static",\n` +
+  `  integrations: [nimbus(nimbusConfig)],\n` +
   `});\n`;
 
 function makeTemplate(astroConfig = STARTER_CONFIG): string {
@@ -53,6 +57,10 @@ function makeTemplate(astroConfig = STARTER_CONFIG): string {
     path.join(dir, "pnpm-workspace.yaml"),
     [
       "packages: []",
+      "supportedArchitectures:",
+      "  cpu:",
+      "    - current",
+      "    - wasm32",
       "allowBuilds: # pnpm 11",
       "  esbuild: false",
       "ignoredBuiltDependencies: # pnpm 10",
@@ -103,11 +111,8 @@ for (const adapter of ADAPTER_IDS) {
       );
       const cliEdit = applyAdapterToConfig(STARTER_CONFIG, adapter);
       assert.equal(cliEdit.status, "applied");
-      assert.equal(
-        scaffolded,
-        cliEdit.status === "applied" ? cliEdit.source : "",
-        `server scaffold must match \`add adapter-${adapter}\` exactly`,
-      );
+      const expected = cliEdit.status === "applied" ? cliEdit.source : "";
+      assert.equal(scaffolded, expected);
     } finally {
       cleanup(cwd, tmpl);
     }
@@ -145,6 +150,39 @@ for (const adapter of ADAPTER_IDS) {
     }
   });
 }
+
+test("server + cloudflare defaults canonical collections to request rendering", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  try {
+    await scaffold(
+      { ...BASE, output: "server", adapter: "cloudflare", dir: "my-docs" },
+      internals(cwd, tmpl),
+    );
+
+    const config = fs.readFileSync(path.join(cwd, "my-docs", "astro.config.ts"), "utf8");
+    assert.match(config, /rendering:\s*\{\s*default:\s*"request",?\s*\}/);
+    assert.equal((config.match(/default:\s*"request"/g) ?? []).length, 1);
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("explicit non-Cloudflare adapters leave request rendering disabled", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  try {
+    await scaffold(
+      { ...BASE, output: "server", adapter: "vercel", dir: "my-docs" },
+      internals(cwd, tmpl),
+    );
+
+    const config = fs.readFileSync(path.join(cwd, "my-docs", "astro.config.ts"), "utf8");
+    assert.doesNotMatch(config, /default:\s*["']request["']/);
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
 
 test("server + cloudflare writes a server wrangler.jsonc (nodejs_compat, no static assets.directory)", async () => {
   const cwd = makeCwd();
@@ -289,6 +327,52 @@ test("server fails closed and rolls back when the config has no output to flip",
       false,
       "the partial directory is rolled back",
     );
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("Cloudflare server scaffolding rolls back when rendering is ambiguous", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate(
+    STARTER_CONFIG.replace(
+      '  site: "https://example.com",',
+      '  ...sharedConfig,\n  site: "https://example.com",',
+    ),
+  );
+  try {
+    await assert.rejects(
+      scaffold(
+        { ...BASE, output: "server", adapter: "cloudflare", dir: "my-docs" },
+        internals(cwd, tmpl),
+      ),
+      /request rendering cannot be enabled safely/,
+    );
+    assert.equal(fs.existsSync(path.join(cwd, "my-docs")), false);
+  } finally {
+    cleanup(cwd, tmpl);
+  }
+});
+
+test("prewired Cloudflare scaffolding still rejects ambiguous rendering", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate(
+    STARTER_CONFIG.replace(
+      'import { defineConfig } from "astro/config";',
+      'import { defineConfig } from "astro/config";\nimport cloudflare from "@astrojs/cloudflare";',
+    )
+      .replace('  site: "https://example.com",', '  ...sharedConfig,\n  site: "https://example.com",')
+      .replace('output: "static",', 'output: "server",\n  adapter: cloudflare({ prerenderEnvironment: "node" }),'),
+  );
+  try {
+    await assert.rejects(
+      scaffold(
+        { ...BASE, output: "server", adapter: "cloudflare", dir: "my-docs" },
+        internals(cwd, tmpl),
+      ),
+      /request rendering cannot be enabled safely/,
+    );
+    assert.equal(fs.existsSync(path.join(cwd, "my-docs")), false);
   } finally {
     cleanup(cwd, tmpl);
   }

@@ -1,5 +1,5 @@
 ---
-import { getApiPage, getApiStaticPaths } from "@cloudflare/nimbus-docs";
+import { getApiRoute, getApiStaticPaths } from "@cloudflare/nimbus-docs/runtime";
 import Header from "@/components/Header.astro";
 import { ApiLayout } from "@/components/ui/api-layout";
 import BaseLayout from "@/layouts/BaseLayout.astro";
@@ -7,13 +7,17 @@ import BaseLayout from "@/layouts/BaseLayout.astro";
 export const prerender = true;
 export const getStaticPaths = getApiStaticPaths("api");
 
-const { page, nav, collection, version, coordinate } = await getApiPage(Astro);
+const result = await getApiRoute(Astro);
+if (result instanceof Response) return result;
+const { page, nav, collection, version, coordinate } = result;
+const socialImage = `/og${page.href.replace(/\/$/, "")}.png`;
 ---
 
 <BaseLayout
   title={`${page.title} · API`}
   description={page.description}
   markdownUrl={page.markdownHref}
+  socialImage={socialImage}
   collection={collection}
   apiVersion={version ?? undefined}
   coordinate={coordinate}

@@ -26,10 +26,11 @@ import {
   sanitizeWorkerName,
   type AdapterId,
   type AdapterRecipe,
+  type RequestRenderingEdit,
   type WranglerInputs,
 } from "../_internal/adapters.js";
 import { isRangeSubset, satisfies } from "../_internal/semver-lite.js";
-import { quoteForDisplay } from "./pm.js";
+import { invocation, quoteForDisplay } from "./pm.js";
 import { writeFileAtomic } from "./fs-atomic.js";
 import {
   NIMBUS_JSON,
@@ -85,6 +86,7 @@ export type AdapterInstallOutcome =
       depsInstalled: string[];
       warnings: string[];
       wrangler: WranglerWriteResult | null;
+      requestRendering?: RequestRenderingEdit;
     }
   | {
       status: "noop";
@@ -93,6 +95,7 @@ export type AdapterInstallOutcome =
       depsInstalled: string[];
       warnings: string[];
       wrangler: WranglerWriteResult | null;
+      requestRendering?: RequestRenderingEdit;
     }
   | { status: "error"; code: AdapterInstallErrorCode; message: string };
 
@@ -117,6 +120,33 @@ export type DepInstaller = (
 export interface AdapterInstallOptions {
   cwd: string;
   installDeps: DepInstaller;
+}
+
+export function cloudflareRequestRenderingAgentRecipe(): string {
+  return `# Finish Nimbus Cloudflare request rendering
+
+Work in the current repository. Make the smallest safe change and do not modify unrelated files.
+
+## Goal
+
+Ensure the site uses the Cloudflare Astro adapter with server output, and default Nimbus canonical collection routes to request rendering unless the project already declares an explicit rendering policy.
+
+## Steps
+
+1. Inspect the active Astro config in Astro's resolution order: astro.config.mjs, astro.config.js, astro.config.ts, then astro.config.mts.
+2. If Cloudflare server output is not wired yet, install \`@astrojs/cloudflare@>=14.1.0 <14.2.0\`, import its default export, set Astro \`output: "server"\`, and set \`adapter: cloudflare({ prerenderEnvironment: "node" })\`. Preserve unrelated config and fail rather than replacing another adapter.
+3. Ensure the project has a server-compatible Wrangler config. Preserve custom Wrangler settings; use \`nodejs_compat\` and do not configure a static assets directory for Nimbus server output.
+4. Find the default Nimbus integration imported from \`@cloudflare/nimbus-docs\`, then locate the config object passed as its first argument. Follow local imports if that config lives in another file.
+5. If the object has no \`rendering\` property, add \`rendering: { default: "request" }\`. If it already has a rendering policy, preserve it and report what it does instead of overwriting user intent.
+6. Do not add parser dependencies, magic comments, or broad formatting changes.
+7. Inspect the diff, run the project's build command, then run \`${invocation("check")}\` if available. Fix only failures caused by this change.
+
+## Acceptance
+
+- Astro uses \`output: "server"\` and \`@astrojs/cloudflare\`.
+- Nimbus defaults to request rendering, or an existing explicit rendering policy is preserved and reported.
+- The project build passes.
+`;
 }
 
 export function resolveAstroConfig(
@@ -305,6 +335,7 @@ export async function installAdapter(
       depsInstalled: depResult.installed,
       warnings: [...warnings, ...wr.warnings],
       wrangler: wr.result,
+      requestRendering: edit.requestRendering,
     };
   }
 
@@ -332,6 +363,7 @@ export async function installAdapter(
     depsInstalled: depResult.installed,
     warnings: [...warnings, ...wr.warnings],
     wrangler: wr.result,
+    requestRendering: edit.requestRendering,
   };
 }
 

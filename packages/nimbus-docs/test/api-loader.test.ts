@@ -1,8 +1,6 @@
-// Guards the `apiCollection()` loader: it is a thin index (one small entry per
-// page carrying routing + display metadata, no body), the root's empty slug
-// maps to Astro's `index` id, buildApiModel is content-addressed (parse-once +
-// hot-reload eviction), and two specs compose without aliasing. If this goes
-// red, the loader/render contract moved.
+// Guards the `apiCollection()` loader: each entry carries its prepared page,
+// the root carries shared navigation, and the root's empty slug maps to Astro's
+// `index` id. It also covers content-addressed parsing and multi-spec isolation.
 
 import { test, describe, before } from "node:test";
 import assert from "node:assert/strict";
@@ -10,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { apiCollection } from "../src/content.js";
+import { activatePreparedApiNav } from "../src/_internal/api/prepared.js";
 import {
   buildApiModel,
   clearApiModelCache,
@@ -63,16 +62,24 @@ function makeStore() {
 }
 function makeContext(collection: string, store: ReturnType<typeof makeStore>) {
   const logs: { level: string; msg: string }[] = [];
-  const log = (level: string) => (msg: string) => void logs.push({ level, msg });
+  const log = (level: string) => (msg: string) =>
+    void logs.push({ level, msg });
   return {
     logs,
     context: {
       collection,
       store: store as unknown as import("astro/loaders").LoaderContext["store"],
       meta: { get: () => undefined, set() {}, has: () => false, delete() {} },
-      logger: { info: log("info"), warn: log("warn"), error: log("error"), debug: log("debug"), label: "t", fork: () => makeContext(collection, store).context.logger } as never,
+      logger: {
+        info: log("info"),
+        warn: log("warn"),
+        error: log("error"),
+        debug: log("debug"),
+        label: "t",
+        fork: () => makeContext(collection, store).context.logger,
+      } as never,
       config: { root: pathToFileURL(ROOT) } as never,
-      parseData: async <T,>({ data }: { data: T }) => data,
+      parseData: async <T>({ data }: { data: T }) => data,
       renderMarkdown: async () => ({ html: "" }),
       generateDigest: (v: unknown) => JSON.stringify(v).length.toString(36),
       watcher: undefined,
@@ -80,7 +87,10 @@ function makeContext(collection: string, store: ReturnType<typeof makeStore>) {
   };
 }
 
-async function runLoader(collection: string, spec: string | Record<string, unknown>) {
+async function runLoader(
+  collection: string,
+  spec: string | Record<string, unknown>,
+) {
   const store = makeStore();
   const { logs, context } = makeContext(collection, store);
   const { loader } = apiCollection({ collection, spec });
@@ -90,10 +100,13 @@ async function runLoader(collection: string, spec: string | Record<string, unkno
 
 let smallco: ApiModel;
 before(async () => {
-  smallco = await buildApiModel({ collection: "api", spec: fixtureText("smallco.yaml") });
+  smallco = await buildApiModel({
+    collection: "api",
+    spec: fixtureText("smallco.yaml"),
+  });
 });
 
-describe("apiCollection loader — thin index", () => {
+describe("apiCollection loader — prepared index", () => {
   test("writes exactly one entry per page slug, root mapped to `index`", async () => {
     const slugs = getApiPageSlugs(smallco);
     // The loader reads its own spec via the path form to exercise fs + resolve.
@@ -109,26 +122,81 @@ describe("apiCollection loader — thin index", () => {
     }
   });
 
-  test("entries are thin: routing + display metadata only, no body/rendered", async () => {
+  test("entries carry prepared page data and only roots carry shared navigation", async () => {
     const { store } = await runLoader("api", "test/fixtures/api/smallco.yaml");
     for (const entry of store.values()) {
       const keys = Object.keys(entry.data);
       assert.ok(keys.includes("coordinate"), "carries coordinate");
       assert.ok(keys.includes("title"), "carries title");
-      // description is optional (omitted when the page has none).
-      for (const key of keys) assert.ok(["coordinate", "title", "description"].includes(key), `unexpected data key "${key}"`);
+      assert.ok(keys.includes("prepared"), "carries prepared runtime data");
+      for (const key of keys)
+        assert.ok(
+          ["coordinate", "title", "description", "prepared"].includes(key),
+          `unexpected data key "${key}"`,
+        );
       assert.equal(typeof entry.data.coordinate, "string");
       assert.equal(typeof entry.data.title, "string");
-      assert.equal(entry.body, undefined, "no MDX body — render re-derives the model");
+      const prepared = entry.data.prepared as {
+        page: { coordinate: string };
+        nav?: unknown;
+      };
+      assert.equal(prepared.page.coordinate, entry.data.coordinate);
+      assert.equal("nav" in prepared, entry.id === "index");
+      assert.equal(entry.body, undefined, "no MDX body");
       assert.equal(entry.rendered, undefined);
     }
   });
 
-  test("thin entries stay small (well under a 1 KB/entry budget)", async () => {
+  test("prepared entries stay bounded", async () => {
     const { store } = await runLoader("api", "test/fixtures/api/smallco.yaml");
     const bytes = Buffer.byteLength(JSON.stringify(store.values()));
     const perEntry = bytes / store.keys().length;
-    assert.ok(perEntry < 1024, `~${perEntry.toFixed(0)} B/entry should be < 1 KB`);
+    assert.ok(
+      perEntry < 4096,
+      `~${perEntry.toFixed(0)} B/entry should be < 4 KB`,
+    );
+  });
+
+  test("versioned prepared navigation matches direct model projection", async () => {
+    const spec = smallcoAsObject();
+    const { store } = await runLoaderOpts({
+      collection: "api",
+      versions: [
+        { version: "v2", spec, default: true },
+        { version: "v1", spec },
+      ],
+    });
+
+    for (const { version, rootId, prefix, mountPath } of [
+      { version: "v2", rootId: "index", prefix: "", mountPath: "/api" },
+      { version: "v1", rootId: "v1", prefix: "v1/", mountPath: "/api/v1" },
+    ]) {
+      const root = store.get(rootId);
+      assert.ok(root);
+      const preparedRoot = root.data.prepared as {
+        nav: Parameters<typeof activatePreparedApiNav>[0];
+      };
+      const model = await buildApiModel({ collection: "api", spec, mountPath });
+
+      for (const entry of store.values()) {
+        const belongsToVersion = prefix
+          ? entry.id === rootId || entry.id.startsWith(prefix)
+          : entry.id !== "v1" && !entry.id.startsWith("v1/");
+        if (!belongsToVersion) continue;
+        const prepared = entry.data.prepared as {
+          page: { coordinate: string };
+        };
+        assert.equal(entry.data.version, version);
+        assert.deepEqual(
+          prepared.page,
+          getApiPageProps(model, prepared.page.coordinate),
+        );
+        assert.deepEqual(
+          activatePreparedApiNav(preparedRoot.nav, prepared.page.coordinate),
+          getApiNav(model, prepared.page.coordinate),
+        );
+      }
+    }
   });
 
   test("inline-object spec works without touching the filesystem", async () => {
@@ -147,7 +215,11 @@ describe("apiCollection loader — thin index", () => {
       info: { title: "Collide", version: "1.0.0" },
       paths: {
         "/index": {
-          get: { operationId: "index", summary: "Index", responses: { "200": { description: "ok" } } },
+          get: {
+            operationId: "index",
+            summary: "Index",
+            responses: { "200": { description: "ok" } },
+          },
         },
       },
     };
@@ -164,12 +236,26 @@ describe("canonical routing — one URL per page, no duplicate or /index alias",
     const root = slugs.find((s) => s.slug === "");
     assert.ok(root, "model exposes an api-root page (empty slug)");
     const base = getApiPageProps(smallco, root!.coordinate).href;
-    assert.ok(!/\/index$/.test(base), `root URL "${base}" must be the bare collection path, not an /index alias`);
+    assert.ok(
+      !/\/index$/.test(base),
+      `root URL "${base}" must be the bare collection path, not an /index alias`,
+    );
 
     const hrefs = slugs.map((s) => getApiPageProps(smallco, s.coordinate).href);
-    assert.equal(new Set(hrefs).size, hrefs.length, "two coordinates share a URL — the SEO duplicate a canonical would have to paper over");
-    assert.equal(hrefs.filter((h) => h === base).length, 1, "exactly one page owns the canonical root URL");
-    assert.ok(!hrefs.includes(`${base}/index`), "no page is served at the /index duplicate of the root");
+    assert.equal(
+      new Set(hrefs).size,
+      hrefs.length,
+      "two coordinates share a URL — the SEO duplicate a canonical would have to paper over",
+    );
+    assert.equal(
+      hrefs.filter((h) => h === base).length,
+      1,
+      "exactly one page owns the canonical root URL",
+    );
+    assert.ok(
+      !hrefs.includes(`${base}/index`),
+      "no page is served at the /index duplicate of the root",
+    );
   });
 
   test("the root's markdown twin lives at <root>/index.md without minting an HTML /index route", () => {
@@ -192,7 +278,9 @@ describe("round-trip completeness (pageSlugs ⊆ domain(pageProps))", () => {
 
   test("nav marks each page's coordinate active along a real ancestor path", () => {
     const slugs = getApiPageSlugs(smallco);
-    const findActive = (items: ReturnType<typeof getApiNav>["items"]): string | undefined => {
+    const findActive = (
+      items: ReturnType<typeof getApiNav>["items"],
+    ): string | undefined => {
       for (const item of items) {
         if (item.active) return item.coordinate;
         const nested = item.children ? findActive(item.children) : undefined;
@@ -235,17 +323,23 @@ describe("buildApiModel — content-addressed cache", () => {
   test("edited content busts the cache (hot-reload correctness)", async () => {
     const original = fixtureText("smallco.yaml");
     const h1 = await buildApiModel({ collection: "edit", spec: original });
-    const h2 = await buildApiModel({ collection: "edit", spec: original + "\n# edited\n" });
+    const h2 = await buildApiModel({
+      collection: "edit",
+      spec: original + "\n# edited\n",
+    });
     assert.notEqual(h1, h2, "different bytes → different key → reparsed");
   });
 
   test("a broken spec fails with a legible error, both attempts (reject not cached)", async () => {
     const broken = { collection: "broken", spec: fixtureText("broken.yaml") };
-    await assert.rejects(() => buildApiModel(broken), (err: Error) => {
-      assert.ok(err instanceof Error);
-      assert.ok(err.message.length > 0);
-      return true;
-    });
+    await assert.rejects(
+      () => buildApiModel(broken),
+      (err: Error) => {
+        assert.ok(err instanceof Error);
+        assert.ok(err.message.length > 0);
+        return true;
+      },
+    );
     await assert.rejects(() => buildApiModel({ ...broken }));
   });
 });
@@ -262,12 +356,26 @@ describe("composition — two collections, no aliasing", () => {
     // Either way each is only used with its own model. The guarantee that
     // matters is disjoint URL spaces: every href carries its collection prefix,
     // so no two collections can ever mint the same page URL.
-    const aHrefs = getApiPageSlugs(a).map((s) => getApiPageProps(a, s.coordinate).href);
-    const bHrefs = getApiPageSlugs(b).map((s) => getApiPageProps(b, s.coordinate).href);
+    const aHrefs = getApiPageSlugs(a).map(
+      (s) => getApiPageProps(a, s.coordinate).href,
+    );
+    const bHrefs = getApiPageSlugs(b).map(
+      (s) => getApiPageProps(b, s.coordinate).href,
+    );
     assert.ok(aHrefs.length > 0);
-    assert.ok(aHrefs.every((h) => h === "/alpha" || h.startsWith("/alpha/")), "all under /alpha");
-    assert.ok(bHrefs.every((h) => h === "/beta" || h.startsWith("/beta/")), "all under /beta");
-    assert.equal(aHrefs.filter((h) => bHrefs.includes(h)).length, 0, "URL spaces are disjoint");
+    assert.ok(
+      aHrefs.every((h) => h === "/alpha" || h.startsWith("/alpha/")),
+      "all under /alpha",
+    );
+    assert.ok(
+      bHrefs.every((h) => h === "/beta" || h.startsWith("/beta/")),
+      "all under /beta",
+    );
+    assert.equal(
+      aHrefs.filter((h) => bHrefs.includes(h)).length,
+      0,
+      "URL spaces are disjoint",
+    );
   });
 
   test("independent DataStores: two loaders don't bleed ids", async () => {
@@ -290,7 +398,8 @@ async function runLoaderOpts(options: Parameters<typeof apiCollection>[0]) {
 async function captureWarnings(fn: () => Promise<void>): Promise<string[]> {
   const warnings: string[] = [];
   const real = console.warn;
-  console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(" "));
+  console.warn = (...args: unknown[]) =>
+    void warnings.push(args.map(String).join(" "));
   try {
     await fn();
   } finally {
@@ -303,7 +412,9 @@ function missingOpIdSpec(): Record<string, unknown> {
   return {
     openapi: "3.0.0",
     info: { title: "No opId", version: "1.0.0" },
-    paths: { "/widgets": { get: { responses: { "200": { description: "ok" } } } } },
+    paths: {
+      "/widgets": { get: { responses: { "200": { description: "ok" } } } },
+    },
   };
 }
 
@@ -311,11 +422,19 @@ describe("apiCollection — missing operationId is lenient by default, strict on
   test("default: an operationId-less op indexes via a path-derived fallback page + aggregate warning", async () => {
     let store!: Awaited<ReturnType<typeof runLoaderOpts>>["store"];
     const warnings = await captureWarnings(async () => {
-      ({ store } = await runLoaderOpts({ collection: "leni", spec: missingOpIdSpec() }));
+      ({ store } = await runLoaderOpts({
+        collection: "leni",
+        spec: missingOpIdSpec(),
+      }));
     });
-    assert.ok(store.has("get/widgets"), "the fallback page is indexed (build did not abort)");
     assert.ok(
-      warnings.some((w) => /lack a usable operationId and fell back to/i.test(w)),
+      store.has("get/widgets"),
+      "the fallback page is indexed (build did not abort)",
+    );
+    assert.ok(
+      warnings.some((w) =>
+        /lack a usable operationId and fell back to/i.test(w),
+      ),
       "the guaranteed aggregate line is surfaced",
     );
   });
@@ -323,9 +442,15 @@ describe("apiCollection — missing operationId is lenient by default, strict on
   test("the aggregate survives the per-op warning cap (25 missing ids > 20-line cap)", async () => {
     const paths: Record<string, unknown> = {};
     for (let i = 0; i < 25; i++) {
-      paths[`/w${i}`] = { get: { responses: { "200": { description: "ok" } } } };
+      paths[`/w${i}`] = {
+        get: { responses: { "200": { description: "ok" } } },
+      };
     }
-    const spec = { openapi: "3.0.0", info: { title: "Many", version: "1.0.0" }, paths };
+    const spec = {
+      openapi: "3.0.0",
+      info: { title: "Many", version: "1.0.0" },
+      paths,
+    };
     const warnings = await captureWarnings(async () => {
       await runLoaderOpts({ collection: "captest", spec });
     });
@@ -334,14 +459,21 @@ describe("apiCollection — missing operationId is lenient by default, strict on
       "per-op warnings are truncated by the cap",
     );
     assert.ok(
-      warnings.some((w) => /25 operation\(s\) lack a usable operationId/.test(w)),
+      warnings.some((w) =>
+        /25 operation\(s\) lack a usable operationId/.test(w),
+      ),
       "the aggregate survives truncation and reports the full count",
     );
   });
 
   test("requireOperationId: true reaches the LOADER path and fails the build (regression: flag was dropped)", async () => {
     await assert.rejects(
-      () => runLoaderOpts({ collection: "stricti", spec: missingOpIdSpec(), requireOperationId: true }),
+      () =>
+        runLoaderOpts({
+          collection: "stricti",
+          spec: missingOpIdSpec(),
+          requireOperationId: true,
+        }),
       /operationId/i,
       "strict must abort via apiCollection(), not silently warn",
     );
@@ -352,19 +484,34 @@ describe("apiCollection — missing operationId is lenient by default, strict on
     const lenient = await buildApiModel({ collection: "cachesep", spec });
     assert.ok(lenient, "lenient builds");
     await assert.rejects(
-      () => buildApiModel({ collection: "cachesep", spec, requireOperationId: true }),
+      () =>
+        buildApiModel({
+          collection: "cachesep",
+          spec,
+          requireOperationId: true,
+        }),
       /operationId/i,
       "strict is a distinct cache key, so it re-parses and fails",
     );
   });
 
   test("a collision involving a synthesized fallback names the real fix (add an operationId)", async () => {
-    const idParam = { name: "id", in: "path", required: true, schema: { type: "string" } };
+    const idParam = {
+      name: "id",
+      in: "path",
+      required: true,
+      schema: { type: "string" },
+    };
     const spec = {
       openapi: "3.0.0",
       info: { title: "Collide", version: "1.0.0" },
       paths: {
-        "/a/{id}": { get: { parameters: [idParam], responses: { "200": { description: "ok" } } } },
+        "/a/{id}": {
+          get: {
+            parameters: [idParam],
+            responses: { "200": { description: "ok" } },
+          },
+        },
         "/a/id": { get: { responses: { "200": { description: "ok" } } } },
       },
     };
@@ -372,9 +519,21 @@ describe("apiCollection — missing operationId is lenient by default, strict on
       () => buildApiModel({ collection: "synthcollide", spec }),
       (err: unknown) => {
         const msg = (err as Error).message;
-        assert.match(msg, /duplicate operation coordinate "get\/a\/id"/i, "the failure is the coordinate collision");
-        assert.match(msg, /add an operationId/i, "points at adding an operationId, not just 'rename'");
-        assert.doesNotMatch(msg, /path parameter/i, "no unrelated spec-deviation noise");
+        assert.match(
+          msg,
+          /duplicate operation coordinate "get\/a\/id"/i,
+          "the failure is the coordinate collision",
+        );
+        assert.match(
+          msg,
+          /add an operationId/i,
+          "points at adding an operationId, not just 'rename'",
+        );
+        assert.doesNotMatch(
+          msg,
+          /path parameter/i,
+          "no unrelated spec-deviation noise",
+        );
         return true;
       },
     );
@@ -386,12 +545,34 @@ describe("apiCollection — missing operationId is lenient by default, strict on
       info: { title: "Edge", version: "1.0.0" },
       paths,
     });
-    const root = await buildApiModel({ collection: "edgeroot", spec: base({ "/": { get: { responses: { "200": { description: "ok" } } } } }) });
-    assert.ok(getApiPageSlugs(root).some((s) => s.coordinate === "get"), "root op folds to `get`");
-    const dbl = await buildApiModel({ collection: "edgeslash", spec: base({ "/a//b": { get: { responses: { "200": { description: "ok" } } } } }) });
-    assert.ok(getApiPageSlugs(dbl).some((s) => s.coordinate === "get/a/b"), "`/a//b` folds to `get/a/b`");
+    const root = await buildApiModel({
+      collection: "edgeroot",
+      spec: base({
+        "/": { get: { responses: { "200": { description: "ok" } } } },
+      }),
+    });
+    assert.ok(
+      getApiPageSlugs(root).some((s) => s.coordinate === "get"),
+      "root op folds to `get`",
+    );
+    const dbl = await buildApiModel({
+      collection: "edgeslash",
+      spec: base({
+        "/a//b": { get: { responses: { "200": { description: "ok" } } } },
+      }),
+    });
+    assert.ok(
+      getApiPageSlugs(dbl).some((s) => s.coordinate === "get/a/b"),
+      "`/a//b` folds to `get/a/b`",
+    );
     await assert.rejects(
-      () => buildApiModel({ collection: "edgebrace", spec: base({ "/x/{}": { get: { responses: { "200": { description: "ok" } } } } }) }),
+      () =>
+        buildApiModel({
+          collection: "edgebrace",
+          spec: base({
+            "/x/{}": { get: { responses: { "200": { description: "ok" } } } },
+          }),
+        }),
       /route|path segment|escape|empty/i,
       "a `{}` param is malformed and fails, never a broken slug",
     );
@@ -418,18 +599,25 @@ describe("apiCollection — a non-default version id shadowing a default-version
             {
               version: "stable",
               default: true,
-              spec: versionSpec({ "/charges": { get: { operationId: "listCharges", ...OK } } }),
+              spec: versionSpec({
+                "/charges": { get: { operationId: "listCharges", ...OK } },
+              }),
               routes: { convention: "resource-action-v1" },
             },
             {
               version: "charges",
-              spec: versionSpec({ "/widgets": { get: { operationId: "listWidgets", ...OK } } }),
+              spec: versionSpec({
+                "/widgets": { get: { operationId: "listWidgets", ...OK } },
+              }),
               routes: { convention: "resource-action-v1" },
             },
           ],
         }),
       (err: Error) => {
-        assert.match(err.message, /version "charges" of collection "shadow" collides/);
+        assert.match(
+          err.message,
+          /version "charges" of collection "shadow" collides/,
+        );
         assert.match(err.message, /routes\.operations` override/);
         assert.doesNotMatch(err.message, /the colliding operation\/tag/);
         return true;
@@ -446,19 +634,32 @@ describe("apiCollection — a non-default version id shadowing a default-version
             {
               version: "stable",
               default: true,
-              spec: versionSpec({ "/charges": { get: { operationId: "listCharges", ...OK } } }),
-              routes: { convention: "resource-action-v1", operations: { listCharges: "charges/summary" } },
+              spec: versionSpec({
+                "/charges": { get: { operationId: "listCharges", ...OK } },
+              }),
+              routes: {
+                convention: "resource-action-v1",
+                operations: { listCharges: "charges/summary" },
+              },
             },
             {
               version: "charges",
-              spec: versionSpec({ "/widgets": { get: { operationId: "listWidgets", ...OK } } }),
+              spec: versionSpec({
+                "/widgets": { get: { operationId: "listWidgets", ...OK } },
+              }),
               routes: { convention: "resource-action-v1" },
             },
           ],
         }),
       (err: Error) => {
-        assert.match(err.message, /version "charges" of collection "shadow3" collides/);
-        assert.match(err.message, /adjust the `routes\.operations` override target/i);
+        assert.match(
+          err.message,
+          /version "charges" of collection "shadow3" collides/,
+        );
+        assert.match(
+          err.message,
+          /adjust the `routes\.operations` override target/i,
+        );
         assert.doesNotMatch(err.message, /the colliding operation\/tag/);
         return true;
       },
@@ -476,16 +677,25 @@ describe("apiCollection — a non-default version id shadowing a default-version
             {
               version: "stable",
               default: true,
-              spec: versionSpec({ "/a": { get: { operationId: "list", tags: ["charges"], ...OK } } }),
+              spec: versionSpec({
+                "/a": {
+                  get: { operationId: "list", tags: ["charges"], ...OK },
+                },
+              }),
             },
             {
               version: "charges",
-              spec: versionSpec({ "/widgets": { get: { operationId: "listWidgets", ...OK } } }),
+              spec: versionSpec({
+                "/widgets": { get: { operationId: "listWidgets", ...OK } },
+              }),
             },
           ],
         }),
       (err: Error) => {
-        assert.match(err.message, /version "charges" of collection "shadow2" collides/);
+        assert.match(
+          err.message,
+          /version "charges" of collection "shadow2" collides/,
+        );
         assert.match(err.message, /the colliding operation\/tag/);
         assert.doesNotMatch(err.message, /routes\.operations` override/);
         return true;
@@ -501,7 +711,11 @@ function smallcoAsObject(): Record<string, unknown> {
     info: { title: "Inline", version: "1.0.0" },
     paths: {
       "/things": {
-        get: { operationId: "listThings", summary: "List things", responses: { "200": { description: "ok" } } },
+        get: {
+          operationId: "listThings",
+          summary: "List things",
+          responses: { "200": { description: "ok" } },
+        },
       },
     },
   };
