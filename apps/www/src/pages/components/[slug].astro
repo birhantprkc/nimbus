@@ -28,10 +28,10 @@ export async function getStaticPaths() {
 }
 
 const { slug } = Astro.params;
-if (!slug) return Astro.redirect("/404");
+if (!slug) return new Response("Not found", { status: 404 });
 
 const entry = await getEntry("components", slug);
-if (!entry) return Astro.redirect("/404");
+if (!entry) return new Response("Not found", { status: 404 });
 
 const manifest = MANIFESTS[slug as keyof typeof MANIFESTS];
 const isBuiltin = !manifest || manifest.type !== "registry:ui";
@@ -72,9 +72,7 @@ const headings: TOCItem[] = [
 ];
 
 const name = manifest?.type === "registry:ui" ? manifest.title : entry.data.title;
-const markdownUrl = Astro.site
-  ? new URL(`/components/${slug}/index.md`, Astro.site).href
-  : `/components/${slug}/index.md`;
+const markdownUrl = `/components/${slug}/index.md`;
 
 const breadcrumbs = [
   { label: "Home", href: "/" },

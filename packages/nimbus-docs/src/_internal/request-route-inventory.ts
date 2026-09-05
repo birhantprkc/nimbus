@@ -62,7 +62,7 @@ export async function GET() {
     if (versionStatus?.isDeprecated) route.deprecated = true;
     if (route.request && searchable) {
       route.content = apiCollections.has(collection)
-        ? await renderIndexedEntryMarkdown(item)
+        ? await renderIndexedEntryMarkdown(item, { base: import.meta.env.BASE_URL })
         : (
             await getPreparedTwinArtifact({
               collection,

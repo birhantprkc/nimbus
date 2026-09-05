@@ -7,6 +7,7 @@
  */
 import type { APIRoute } from "astro";
 import { getCollection, getEntry } from "astro:content";
+import { withBase } from "@cloudflare/nimbus-docs/runtime";
 import { MANIFESTS } from "@/../registry/manifests";
 
 export const prerender = true;
@@ -23,9 +24,8 @@ export const GET: APIRoute = async ({ params, site }) => {
   const entry = await getEntry("components", slug);
   if (!entry) return new Response("Not found", { status: 404 });
 
-  const canonicalUrl = site
-    ? new URL(`/components/${slug}/`, site).href
-    : `/components/${slug}/`;
+  const canonicalPath = withBase(`/components/${slug}/`, import.meta.env.BASE_URL);
+  const canonicalUrl = site ? new URL(canonicalPath, site).href : canonicalPath;
 
   const manifest = MANIFESTS[slug as keyof typeof MANIFESTS];
   const isBuiltin = !manifest || manifest.type !== "registry:ui";

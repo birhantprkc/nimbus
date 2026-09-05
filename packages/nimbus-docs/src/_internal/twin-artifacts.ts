@@ -1272,7 +1272,7 @@ export async function bakePreparedTwins(
       );
     }
     corpusPages.push(
-      corpusPage(entry, renderApiPageMarkdown(prepared.page), options),
+      corpusPage(entry, renderApiPageMarkdown(prepared.page, { base }), options),
     );
   }
   records.sort(

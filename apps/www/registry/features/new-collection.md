@@ -201,7 +201,7 @@ import {
   getLastUpdated,
   getTOC,
   entryRouteKey,
-  withBaseRoute,
+  stripBase,
 } from "@cloudflare/nimbus-docs";
 import { components } from "../../components";
 
@@ -212,7 +212,7 @@ const page = await getCollectionPage<"<collection>">(Astro);
 if (page instanceof Response) return page;
 const { entry, Content, headings } = page;
 
-const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
+const currentSlug = stripBase(Astro.url.pathname, import.meta.env.BASE_URL).replace(/\/$/, "") || "/";
 // Pass collection so the sidebar/prev-next resolve against the current
 // collection's tree. Critical for version pages — without this, version
 // pages render the current docs sidebar with wrong prev/next.
@@ -230,8 +230,7 @@ const routeKey = entryRouteKey(entry.id);
 const markdownPath = routeKey
   ? `/<prefix>/${routeKey}/index.md`
   : "/<prefix>/index.md";
-const basedMarkdownPath = withBaseRoute(markdownPath, import.meta.env.BASE_URL);
-const markdownUrl = Astro.site ? new URL(basedMarkdownPath, Astro.site).href : basedMarkdownPath;
+const markdownUrl = markdownPath;
 const socialImage = entry.data.socialImage ?? `/og/<prefix>/${entry.id}.png`;
 ---
 

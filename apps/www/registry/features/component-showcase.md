@@ -316,10 +316,10 @@ export async function getStaticPaths() {
 }
 
 const { slug } = Astro.params;
-if (!slug) return Astro.redirect("/404");
+if (!slug) return new Response("Not found", { status: 404 });
 
 const entry = await getEntry("components", slug);
-if (!entry) return Astro.redirect("/404");
+if (!entry) return new Response("Not found", { status: 404 });
 
 const { title, tagline, props } = entry.data;
 const hasProps = props.length > 0;
@@ -384,7 +384,7 @@ in the body.
 ---
 import { getCollection } from "astro:content";
 import DocsLayout from "@/layouts/DocsLayout.astro";
-import { getSidebar } from "@cloudflare/nimbus-docs";
+import { getSidebar, withBase } from "@cloudflare/nimbus-docs";
 
 export const prerender = true;
 
@@ -407,7 +407,7 @@ const sidebar = await getSidebar("/components");
   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-2 mb-12">
     {sorted.map((entry) => (
       <a
-        href={`/components/${entry.id}`}
+        href={withBase(`/components/${entry.id}`, import.meta.env.BASE_URL)}
         class="block rounded-lg border border-border bg-card p-6 no-underline transition-colors hover:border-border-strong"
       >
         <h3 class="text-sm font-semibold text-foreground mb-1">{entry.data.title}</h3>

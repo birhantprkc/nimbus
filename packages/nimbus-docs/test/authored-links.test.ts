@@ -22,8 +22,13 @@ test("normalizes authored Markdown and static JSX links", () => {
 <Card href={("/parenthesized")} />
 <Card href={\`/template\`} />
 <Card href={"/" + "joined"} />
+<Card href={/* fixed */ "/commented"} />
+<Card href={true ? "/conditional" : "/other"} />
+<Card href={(void 0, "/sequence")} />
+<Card href={"\\u002fescaped"} />
 <Card href={destination} />
 <Card {...{ pattern: /}/ }} href="/after-spread" />
+<Card before={{.../}/}} href={"/after-regex-spread"} />
 
 \`[Code](/unchanged)\`
 
@@ -46,8 +51,16 @@ test("normalizes authored Markdown and static JSX links", () => {
   assert.match(transformed, /href=\{\("\/docs\/parenthesized"\)\}/);
   assert.match(transformed, /href=\{`\/docs\/template`\}/);
   assert.match(transformed, /href=\{"\/docs\/" \+ "joined"\}/);
+  assert.match(transformed, /href=\{\/\* fixed \*\/ "\/docs\/commented"\}/);
+  assert.match(
+    transformed,
+    /href=\{true \? "\/docs\/conditional" : "\/other"\}/,
+  );
+  assert.match(transformed, /href=\{\(void 0, "\/docs\/sequence"\)\}/);
+  assert.match(transformed, /href=\{"\/docs\\u002fescaped"\}/);
   assert.match(transformed, /href=\{destination\}/);
   assert.match(transformed, /href="\/docs\/after-spread"/);
+  assert.match(transformed, /href=\{"\/docs\/after-regex-spread"\}/);
   assert.match(transformed, /\[Code\]\(\/unchanged\)/);
   assert.match(transformed, /\[Fence\]\(\/unchanged\)/);
 });
@@ -84,6 +97,14 @@ test("rejects canonical-path escapes", () => {
       );
     }
   }
+
+  assert.throws(
+    () =>
+      normalizeAuthoredLinks(`<Card href={"\\u002f..\\u002fadmin"} />`, {
+        base: "/docs",
+      }),
+    /destination escapes its canonical path/,
+  );
 });
 
 test("maps Satteri code-point positions to UTF-16 offsets", () => {
@@ -91,6 +112,13 @@ test("maps Satteri code-point positions to UTF-16 offsets", () => {
   assert.equal(
     normalizeAuthoredLinks(source, { base: "/文档" }),
     `😀😀 [Link](/文档/link)\n\n😀 <Card href="/文档/card" />`,
+  );
+});
+
+test("normalizes links nested in JSX fragments", () => {
+  assert.equal(
+    normalizeAuthoredLinks("<>[Guide](/guide)</>", { base: "/docs" }),
+    "<>[Guide](/docs/guide)</>",
   );
 });
 

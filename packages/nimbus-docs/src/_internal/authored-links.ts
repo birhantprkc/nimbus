@@ -1,4 +1,5 @@
 import { mdxToMdast } from "satteri";
+import ts from "typescript";
 
 interface MdNode {
   type?: string;
@@ -178,158 +179,6 @@ function visit(node: MdNode, callback: (node: MdNode) => void): void {
   }
 }
 
-function expressionEnd(raw: string, start: number): number | null {
-  if (raw[start] !== "{") return null;
-  let depth = 1;
-  let cursor = start + 1;
-  let mode: "code" | "single" | "double" | "template" | "regex" = "code";
-  let regexClass = false;
-  let canStartRegex = true;
-  const templateDepths: number[] = [];
-
-  while (cursor < raw.length) {
-    const character = raw[cursor]!;
-    const next = raw[cursor + 1];
-
-    if (mode === "single" || mode === "double") {
-      if (character === "\\") cursor += 2;
-      else {
-        cursor += 1;
-        if (
-          (mode === "single" && character === "'") ||
-          (mode === "double" && character === '"')
-        ) {
-          mode = "code";
-          canStartRegex = false;
-        }
-      }
-      continue;
-    }
-
-    if (mode === "template") {
-      if (character === "\\") cursor += 2;
-      else if (character === "`") {
-        mode = "code";
-        canStartRegex = false;
-        cursor += 1;
-      } else if (character === "$" && next === "{") {
-        depth += 1;
-        templateDepths.push(depth);
-        mode = "code";
-        canStartRegex = true;
-        cursor += 2;
-      } else {
-        cursor += 1;
-      }
-      continue;
-    }
-
-    if (mode === "regex") {
-      if (character === "\\") cursor += 2;
-      else if (character === "[") {
-        regexClass = true;
-        cursor += 1;
-      } else if (character === "]") {
-        regexClass = false;
-        cursor += 1;
-      } else if (character === "/" && !regexClass) {
-        cursor += 1;
-        while (/[A-Za-z]/.test(raw[cursor] ?? "")) cursor += 1;
-        mode = "code";
-        canStartRegex = false;
-      } else if (character === "\n" || character === "\r") {
-        return null;
-      } else {
-        cursor += 1;
-      }
-      continue;
-    }
-
-    if (/\s/.test(character)) {
-      cursor += 1;
-      continue;
-    }
-    if (character === "/" && next === "/") {
-      const end = raw.indexOf("\n", cursor + 2);
-      cursor = end === -1 ? raw.length : end + 1;
-      continue;
-    }
-    if (character === "/" && next === "*") {
-      const end = raw.indexOf("*/", cursor + 2);
-      if (end === -1) return null;
-      cursor = end + 2;
-      continue;
-    }
-    if (character === "'") {
-      mode = "single";
-      cursor += 1;
-      continue;
-    }
-    if (character === '"') {
-      mode = "double";
-      cursor += 1;
-      continue;
-    }
-    if (character === "`") {
-      mode = "template";
-      cursor += 1;
-      continue;
-    }
-    if (character === "/" && canStartRegex && raw[cursor - 1] !== "<") {
-      mode = "regex";
-      regexClass = false;
-      cursor += 1;
-      continue;
-    }
-    if (character === "{") {
-      depth += 1;
-      canStartRegex = true;
-      cursor += 1;
-      continue;
-    }
-    if (character === "}") {
-      const templateDepth = templateDepths.at(-1);
-      if (templateDepth === depth) {
-        templateDepths.pop();
-        depth -= 1;
-        mode = "template";
-        cursor += 1;
-        continue;
-      }
-      depth -= 1;
-      cursor += 1;
-      if (depth === 0) return cursor;
-      canStartRegex = false;
-      continue;
-    }
-    if ((character === "+" || character === "-") && next === character) {
-      const postfix: boolean = !canStartRegex;
-      canStartRegex = !postfix;
-      cursor += 2;
-      continue;
-    }
-    if (/[A-Za-z_$]/.test(character)) {
-      const match = raw.slice(cursor).match(/^[A-Za-z_$][\w$]*/u);
-      const identifier = match?.[0] ?? character;
-      canStartRegex =
-        /^(?:await|case|delete|in|instanceof|new|of|return|throw|typeof|void|yield)$/u.test(
-          identifier,
-        );
-      cursor += identifier.length;
-      continue;
-    }
-    if (/[0-9]/.test(character) || character === ")" || character === "]") {
-      canStartRegex = false;
-    } else if (character === ".") {
-      canStartRegex = false;
-    } else {
-      canStartRegex = true;
-    }
-    cursor += 1;
-  }
-  return null;
-}
-
 function isHref(node: MdNode, name: string): boolean {
   return (
     name === "href" || (node.name === "a" && name.toLowerCase() === "href")
@@ -337,67 +186,63 @@ function isHref(node: MdNode, name: string): boolean {
 }
 
 function expressionLiteral(
-  value: unknown,
+  expression: ts.Expression,
+  sourceFile: ts.SourceFile,
+  sourceBase: number,
 ): { value: string; slashOffset: number } | null {
-  if (!value || typeof value !== "object") return null;
-  const expression = (value as { value?: unknown }).value;
-  if (typeof expression !== "string") return null;
-  let cursor = 0;
-
-  const skipWhitespace = () => {
-    while (/\s/.test(expression[cursor] ?? "")) cursor += 1;
-  };
-  const parseString = (): { value: string; slashOffset: number } | null => {
-    skipWhitespace();
-    const quote = expression[cursor];
-    if (quote !== '"' && quote !== "'" && quote !== "`") return null;
-    cursor += 1;
-    const start = cursor;
-    while (cursor < expression.length && expression[cursor] !== quote) {
-      if (expression[cursor] === "\\") return null;
-      if (quote === "`" && expression.startsWith("${", cursor)) return null;
-      cursor += 1;
-    }
-    if (expression[cursor] !== quote) return null;
-    const result = {
-      value: expression.slice(start, cursor),
-      slashOffset: expression.indexOf("/", start),
-    };
-    cursor += 1;
-    return result;
-  };
-  const parsePrimary = (): { value: string; slashOffset: number } | null => {
-    skipWhitespace();
-    if (expression[cursor] !== "(") return parseString();
-    cursor += 1;
-    const result = parseExpression();
-    skipWhitespace();
-    if (!result || expression[cursor] !== ")") return null;
-    cursor += 1;
-    return result;
-  };
-  const parseExpression = (): { value: string; slashOffset: number } | null => {
-    const first = parsePrimary();
-    if (!first) return null;
-    let result = first;
-    while (true) {
-      skipWhitespace();
-      if (expression[cursor] !== "+") break;
-      cursor += 1;
-      const next = parsePrimary();
-      if (!next) return null;
-      result = {
-        value: result.value + next.value,
-        slashOffset:
-          result.slashOffset >= 0 ? result.slashOffset : next.slashOffset,
+  const evaluate = (
+    node: ts.Expression,
+  ): { value: string; slashOffset: number } | null => {
+    if (ts.isParenthesizedExpression(node)) return evaluate(node.expression);
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      return {
+        value: node.text,
+        slashOffset: node.text.startsWith("/")
+          ? node.getStart(sourceFile) + 1 + sourceBase
+          : -1,
       };
     }
-    return result;
+    if (ts.isConditionalExpression(node)) {
+      if (node.condition.kind === ts.SyntaxKind.TrueKeyword) {
+        return evaluate(node.whenTrue);
+      }
+      if (node.condition.kind === ts.SyntaxKind.FalseKeyword) {
+        return evaluate(node.whenFalse);
+      }
+      return null;
+    }
+    if (!ts.isBinaryExpression(node)) return null;
+    if (node.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+      return evaluate(node.right);
+    }
+    if (node.operatorToken.kind !== ts.SyntaxKind.PlusToken) return null;
+    const left = evaluate(node.left);
+    const right = evaluate(node.right);
+    if (!left || !right) return null;
+    return {
+      value: left.value + right.value,
+      slashOffset:
+        left.slashOffset >= 0
+          ? left.slashOffset
+          : left.value.length === 0
+            ? right.slashOffset
+            : -1,
+    };
   };
 
-  const result = parseExpression();
-  skipWhitespace();
-  return result && cursor === expression.length ? result : null;
+  return evaluate(expression);
+}
+
+type ParsedJsxNode = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment;
+
+interface ParsedJsxRange {
+  node: ParsedJsxNode;
+  sourceFile: ts.SourceFile;
+  sourceBase: number;
+}
+
+function jsxRangeKey(start: number, end: number): string {
+  return `${start}:${end}`;
 }
 
 function staticHrefOffsets(
@@ -406,83 +251,120 @@ function staticHrefOffsets(
   source: string,
   sourceId: string | undefined,
   sourceStart: number,
+  parsedRanges: Map<string, ParsedJsxRange>,
 ): number[] {
   if (!Array.isArray(node.attributes)) {
     fail("missing JSX attributes", source, sourceId, sourceStart);
   }
+  const key = jsxRangeKey(sourceStart, sourceStart + raw.length);
+  if (!parsedRanges.has(key)) {
+    const prefix = "const element = (";
+    const parsed = ts.createSourceFile(
+      "nimbus-authored-link.tsx",
+      `${prefix}${raw});`,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    const sourceBase = sourceStart - prefix.length;
+    const collect = (candidate: ts.Node) => {
+      if (
+        ts.isJsxElement(candidate) ||
+        ts.isJsxSelfClosingElement(candidate) ||
+        ts.isJsxFragment(candidate)
+      ) {
+        parsedRanges.set(
+          jsxRangeKey(
+            candidate.getStart(parsed) + sourceBase,
+            candidate.getEnd() + sourceBase,
+          ),
+          { node: candidate, sourceFile: parsed, sourceBase },
+        );
+      }
+      ts.forEachChild(candidate, collect);
+    };
+    collect(parsed);
+  }
+  const parsedRange = parsedRanges.get(key);
+  if (!parsedRange) {
+    fail("ambiguous JSX range", source, sourceId, sourceStart);
+  }
+  const { node: element, sourceFile: parsed, sourceBase } = parsedRange;
+  if (ts.isJsxFragment(element)) {
+    if (node.attributes.length > 0) {
+      fail("ambiguous JSX fragment", source, sourceId, sourceStart);
+    }
+    return [];
+  }
+  const properties = ts.isJsxElement(element)
+    ? element.openingElement.attributes.properties
+    : element.attributes.properties;
+  if (properties.length !== node.attributes.length) {
+    fail("ambiguous JSX attributes", source, sourceId, sourceStart);
+  }
   const offsets: number[] = [];
-  const attributes = node.attributes;
-  let cursor = 1;
-  while (cursor < raw.length && !/[\s/>]/.test(raw[cursor] ?? "")) cursor += 1;
 
-  for (const value of attributes) {
+  for (const [index, value] of node.attributes.entries()) {
     if (!value || typeof value !== "object") {
-      fail("invalid JSX attribute", source, sourceId, sourceStart + cursor);
+      fail("invalid JSX attribute", source, sourceId, sourceStart);
     }
     const attribute = value as {
       type?: string;
       name?: unknown;
       value?: unknown;
     };
-    while (/\s/.test(raw[cursor] ?? "")) cursor += 1;
+    const property = properties[index]!;
 
     if (attribute.type === "mdxJsxExpressionAttribute") {
-      const end = expressionEnd(raw, cursor);
-      if (end === null) {
+      if (!ts.isJsxSpreadAttribute(property)) {
         fail(
           "ambiguous JSX spread expression",
           source,
           sourceId,
-          sourceStart + cursor,
+          property.getStart(parsed) + sourceBase,
         );
       }
-      cursor = end;
       continue;
     }
 
     if (
       attribute.type !== "mdxJsxAttribute" ||
-      typeof attribute.name !== "string"
+      typeof attribute.name !== "string" ||
+      !ts.isJsxAttribute(property) ||
+      property.name.getText(parsed) !== attribute.name
     ) {
-      fail("unsupported JSX attribute", source, sourceId, sourceStart + cursor);
-    }
-    if (!raw.startsWith(attribute.name, cursor)) {
       fail(
-        "ambiguous JSX attribute position",
+        "unsupported JSX attribute",
         source,
         sourceId,
-        sourceStart + cursor,
+        property.getStart(parsed) + sourceBase,
       );
     }
-    cursor += attribute.name.length;
-    if (attribute.value === null) continue;
-    while (/\s/.test(raw[cursor] ?? "")) cursor += 1;
-    if (raw[cursor] !== "=") {
-      fail(
-        "missing JSX attribute assignment",
-        source,
-        sourceId,
-        sourceStart + cursor,
-      );
+    if (attribute.value === null) {
+      if (property.initializer) {
+        fail("ambiguous JSX attribute value", source, sourceId, sourceStart);
+      }
+      continue;
     }
-    cursor += 1;
-    while (/\s/.test(raw[cursor] ?? "")) cursor += 1;
 
     if (typeof attribute.value === "object") {
-      const valueStart = cursor;
-      const end = expressionEnd(raw, cursor);
-      if (end === null) {
+      if (
+        !property.initializer ||
+        !ts.isJsxExpression(property.initializer) ||
+        !property.initializer.expression
+      ) {
         fail(
           "ambiguous JSX value expression",
           source,
           sourceId,
-          sourceStart + cursor,
+          property.getStart(parsed) + sourceBase,
         );
       }
-      cursor = end;
-      const literal = expressionLiteral({
-        value: raw.slice(valueStart + 1, end - 1),
-      });
+      const literal = expressionLiteral(
+        property.initializer.expression,
+        parsed,
+        sourceBase,
+      );
       if (
         isHref(node, attribute.name) &&
         literal?.value.startsWith("/") &&
@@ -492,67 +374,34 @@ function staticHrefOffsets(
           literal.value,
           source,
           sourceId,
-          sourceStart + valueStart + 1 + literal.slashOffset,
+          literal.slashOffset,
         );
-        offsets.push(valueStart + 1 + literal.slashOffset);
+        offsets.push(literal.slashOffset);
       }
       continue;
     }
 
-    if (typeof attribute.value !== "string") {
+    if (
+      typeof attribute.value !== "string" ||
+      !property.initializer ||
+      !ts.isStringLiteral(property.initializer)
+    ) {
       fail(
         "unsupported JSX attribute value",
         source,
         sourceId,
-        sourceStart + cursor,
+        property.getStart(parsed) + sourceBase,
       );
     }
-    const delimiter = raw[cursor];
-    if (delimiter !== '"' && delimiter !== "'") {
-      fail(
-        "unquoted static JSX attribute",
-        source,
-        sourceId,
-        sourceStart + cursor,
-      );
-    }
-    const valueStart = ++cursor;
-    while (cursor < raw.length) {
-      if (raw[cursor] === delimiter) {
-        let backslashes = 0;
-        for (
-          let escape = cursor - 1;
-          escape >= valueStart && raw[escape] === "\\";
-          escape -= 1
-        ) {
-          backslashes += 1;
-        }
-        if (backslashes % 2 === 0) break;
-      }
-      cursor += 1;
-    }
-    if (cursor >= raw.length) {
-      fail(
-        "unterminated JSX attribute",
-        source,
-        sourceId,
-        sourceStart + valueStart,
-      );
-    }
+    const valueStart = property.initializer.getStart(parsed) + 1 + sourceBase;
     if (
       isHref(node, attribute.name) &&
       attribute.value.startsWith("/") &&
       !attribute.value.startsWith("//")
     ) {
-      assertCanonicalDestination(
-        attribute.value,
-        source,
-        sourceId,
-        sourceStart + valueStart,
-      );
+      assertCanonicalDestination(attribute.value, source, sourceId, valueStart);
       offsets.push(valueStart);
     }
-    cursor += 1;
   }
   return offsets;
 }
@@ -578,6 +427,7 @@ export function normalizeAuthoredLinks(
   }
   const offsetMap = buildOffsetMap(source);
   const insertions = new Set<number>();
+  const parsedJsxRanges = new Map<string, ParsedJsxRange>();
   visit(tree, (node) => {
     if (
       (node.type === "link" || node.type === "definition") &&
@@ -585,7 +435,12 @@ export function normalizeAuthoredLinks(
       node.url.startsWith("/") &&
       !node.url.startsWith("//")
     ) {
-      const offset = destinationOffset(source, node, offsetMap, options.sourceId);
+      const offset = destinationOffset(
+        source,
+        node,
+        offsetMap,
+        options.sourceId,
+      );
       assertCanonicalDestination(node.url, source, options.sourceId, offset);
       insertions.add(offset);
       return;
@@ -601,8 +456,9 @@ export function normalizeAuthoredLinks(
       source,
       options.sourceId,
       start,
+      parsedJsxRanges,
     )) {
-      insertions.add(start + offset);
+      insertions.add(offset);
     }
   });
   if (!prefix) return source;

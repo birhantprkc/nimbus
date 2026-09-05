@@ -20,6 +20,7 @@ import {
   NIMBUS_MARKDOWN_META_KEY,
   prepareMarkdownLoader,
 } from "../src/_internal/markdown-loader.ts";
+import { decorateMarkdownProcessor } from "../src/_internal/markdown-processor-decorator.ts";
 import { registerAuthoredLinkNormalizer } from "../src/_internal/authored-link-normalizer.ts";
 import { normalizeAuthoredLinks } from "../src/_internal/authored-links.ts";
 import {
@@ -55,6 +56,7 @@ function createHarness(root: string) {
   const entries = new Map<string, StoredEntry>();
   const metadata = new Map<string, string>();
   const handlers = new Map<string, Array<(file: string) => unknown>>();
+  const errors: string[] = [];
   let clearCount = 0;
   let parseCount = 0;
   const store = {
@@ -98,7 +100,9 @@ function createHarness(root: string) {
     logger: {
       info() {},
       warn() {},
-      error() {},
+      error(message: string) {
+        errors.push(message);
+      },
       debug() {},
       fork() {
         return this;
@@ -133,6 +137,7 @@ function createHarness(root: string) {
     context,
     entries,
     metadata,
+    errors,
     get clearCount() {
       return clearCount;
     },
@@ -502,8 +507,7 @@ describe("Markdown loader preparation", () => {
               fail = false;
               context.store.delete("stable");
               context.store.delete("sibling");
-              context.logger.error("watch failed");
-              return;
+              throw new Error("watch failed");
             }
             context.store.delete("stable");
             context.store.set({ id: "stable", body: "fixed", data: {} });
@@ -532,6 +536,9 @@ describe("Markdown loader preparation", () => {
         ?.entries.get("sibling")?.body,
       "sibling",
     );
+    assert.deepEqual(harness.errors, [
+      "Nimbus Markdown watcher failed: watch failed",
+    ]);
     await harness.emit("change", "ignored.md");
     assert.equal(calls, 2);
     assert.equal(
@@ -545,6 +552,104 @@ describe("Markdown loader preparation", () => {
         ?.collections.get("docs")
         ?.entries.get("sibling")?.body,
       "sibling",
+    );
+  });
+
+  test("commits watcher mutations after a nonfatal error diagnostic", async () => {
+    const wrapped = prepareMarkdownLoader(
+      {
+        name: "diagnostic-watch-loader",
+        async load(context: LoaderContext) {
+          context.store.set({ id: "entry", body: "before", data: {} });
+          context.watcher?.on("change", () => {
+            context.store.set({ id: "entry", body: "after", data: {} });
+            context.logger.error("entry was recovered");
+          });
+        },
+      },
+      { generation: 1, base: "/docs", transform: (source) => source },
+    );
+    const root = await mkdtemp(
+      path.join(os.tmpdir(), "nimbus-registry-diagnostic-"),
+    );
+    temporaryRoots.push(root);
+    const harness = createHarness(root);
+
+    await wrapped.load(harness.context);
+    await harness.emit("change", "entry.md");
+
+    assert.equal(
+      getPreparedMarkdownSnapshot(root)
+        ?.collections.get("docs")
+        ?.entries.get("entry")?.body,
+      "after",
+    );
+    assert.deepEqual(harness.errors, ["entry was recovered"]);
+  });
+
+  test("does not normalize prepared bodies again while extracting headings", async () => {
+    let transformations = 0;
+    const transform = (source: string) => {
+      transformations += 1;
+      return normalizeAuthoredLinks(source, { base: "/docs" });
+    };
+    const processor = decorateMarkdownProcessor(
+      {
+        name: "prepared-body-test",
+        options: {},
+        async createRenderer() {
+          return {
+            async render(source: string) {
+              return {
+                code: source,
+                metadata: {
+                  headings: [],
+                  localImagePaths: [],
+                  remoteImagePaths: [],
+                  frontmatter: {},
+                },
+              };
+            },
+          };
+        },
+      },
+      transform,
+    );
+    const renderer = await processor.createRenderer({ syntaxHighlight: false });
+    const wrapped = prepareMarkdownLoader(
+      {
+        name: "prepared-body-loader",
+        load(context: LoaderContext) {
+          context.store.set({
+            id: "collision",
+            body: "[Collision](/docs/guide)",
+            data: {},
+          });
+        },
+      },
+      { generation: 1, base: "/docs", transform },
+    );
+    const root = await mkdtemp(
+      path.join(os.tmpdir(), "nimbus-registry-prepared-body-"),
+    );
+    temporaryRoots.push(root);
+    const harness = createHarness(root);
+    harness.context.renderMarkdown = async (source, options) => {
+      const result = await renderer.render(source, options);
+      return {
+        html: result.code,
+        metadata: { headings: result.metadata.headings, imagePaths: [] },
+      };
+    };
+
+    await wrapped.load(harness.context);
+
+    assert.equal(transformations, 1);
+    assert.equal(
+      getPreparedMarkdownSnapshot(root)
+        ?.collections.get("docs")
+        ?.entries.get("collision")?.body,
+      "[Collision](/docs/docs/guide)",
     );
   });
 

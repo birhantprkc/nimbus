@@ -1177,13 +1177,20 @@ async function assertBasePathMetadata() {
       `non-root base Markdown body is missing ${url}`,
     );
   }
+  for (const match of operationMarkdown.matchAll(/\]\((\/[^)]*)\)/g)) {
+    assert(
+      /^\/docs(?:\/|$)/.test(match[1] ?? ""),
+      `non-root API Markdown contains an unbased link: ${match[1]}`,
+    );
+  }
   const ordinaryHtml = await readFile(
     join(site, "dist-base", "guide", "index.html"),
     "utf8",
   );
-  const ordinaryMarkdownUrl = absoluteUrl("/docs/guide/index.md");
+  const ordinaryMarkdownPath = "/docs/guide/index.md";
+  const ordinaryMarkdownUrl = absoluteUrl(ordinaryMarkdownPath);
   assert(
-    ordinaryHtml.includes(`data-md-url="${ordinaryMarkdownUrl}"`),
+    ordinaryHtml.includes(`data-md-url="${ordinaryMarkdownPath}"`),
     "non-root ordinary page actions use an unbased Markdown URL",
   );
   assert(
@@ -1201,6 +1208,33 @@ async function assertBasePathMetadata() {
   assert(
     ordinaryDirective?.includes(`href="${ordinaryMarkdownUrl}"`),
     "non-root ordinary agent directive uses an unbased Markdown URL",
+  );
+  const homeHtml = await readFile(join(site, "dist-base", "index.html"), "utf8");
+  const notFoundHtml = await readFile(join(site, "dist-base", "404.html"), "utf8");
+  for (const [surface, html] of Object.entries({
+    operation: operationHtml,
+    ordinary: ordinaryHtml,
+    home: homeHtml,
+    "not found": notFoundHtml,
+  })) {
+    for (const match of html.matchAll(/\shref="(\/(?!\/)[^"]*)"/g)) {
+      assert(
+        /^\/docs(?:\/|$)/.test(match[1] ?? ""),
+        `non-root ${surface} HTML contains an unbased href: ${match[1]}`,
+      );
+    }
+  }
+  assert(
+    homeHtml.includes('<meta property="og:type" content="website">'),
+    "non-root homepage is not classified as a website",
+  );
+  assert(
+    ordinaryHtml.includes('href="/docs/favicon.ico"'),
+    "non-root favicon URL is malformed",
+  );
+  assert(
+    ordinaryHtml.includes('rel="stylesheet" href="/docs/_nimbus/shiki.css"'),
+    "non-root Shiki stylesheet URL is malformed",
   );
   const basedArtifacts = {
     "root agent index": [
@@ -1232,7 +1266,59 @@ async function assertBasePathMetadata() {
       assert(contents.includes(url), `non-root ${artifact} is missing ${url}`);
     }
   }
-  ok("non-root base is preserved in metadata, directives, and Markdown bodies");
+
+  phase("building generated consumer with a colliding base segment");
+  await run(
+    "pnpm",
+    [
+      "exec",
+      "astro",
+      "build",
+      "--base",
+      "/api",
+      "--outDir",
+      "dist-base-collision",
+    ],
+    { cwd: site, timeoutMs: 15 * 60_000 },
+  );
+  const collisionHtml = await readFile(
+    join(
+      site,
+      "dist-base-collision",
+      "api",
+      "charges",
+      "create",
+      "index.html",
+    ),
+    "utf8",
+  );
+  const collisionMarkdown = await readFile(
+    join(
+      site,
+      "dist-base-collision",
+      "api",
+      "charges",
+      "create",
+      "index.md",
+    ),
+    "utf8",
+  );
+  for (const url of [
+    absoluteUrl("/api/api/charges/create/index.md"),
+    absoluteUrl("/api/api/llms.txt"),
+  ]) {
+    assert(
+      collisionHtml.includes(`href="${url}"`),
+      `colliding base metadata or agent surface is missing ${url}`,
+    );
+  }
+  assert(
+    collisionMarkdown.includes(
+      absoluteUrl("/api/api/charges/create/index.md"),
+    ),
+    "colliding base Markdown source URL dropped a route segment",
+  );
+  ok("non-root base is preserved across metadata, navigation, and agent surfaces");
 }
 
 async function execute() {

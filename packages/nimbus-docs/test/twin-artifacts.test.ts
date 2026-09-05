@@ -193,9 +193,9 @@ test("bakes expanded source and transformed Markdown artifacts deterministically
     base: "/docs",
     site: "https://example.test",
     title: "Test",
-    socialImage: "/docs/og.png",
+    socialImage: "/og.png",
     indexedCollections: ["docs"],
-    citationIndex: new Map([["api:list", "/docs/api/list"]]),
+    citationIndex: new Map([["api:list", "/api/list"]]),
     componentMap: {
       Catalog: {
         revision: "catalog-v1",
@@ -238,7 +238,7 @@ test("bakes expanded source and transformed Markdown artifacts deterministically
   assert.match(markdown.body, /\[Catalog\]\(\/docs:\/docs\/catalog\)/);
   assert.match(markdown.body, /\[Nested\]\(\/nested\)/);
   assert.doesNotMatch(markdown.body, /wrong/);
-  assert.match(markdown.body, /\[API\]\(\/docs\/docs\/api\/list\)/);
+  assert.match(markdown.body, /\[API\]\(\/docs\/api\/list\)/);
   assert.match(
     markdown.body,
     /image: "https:\/\/example\.test\/docs\/og\.png"/,
@@ -314,7 +314,9 @@ test("bakes site and section corpora from public discoverable prose and API page
               description: "API reference",
               version: "1",
               servers: [],
-              sections: [],
+              sections: [
+                { label: "Users", href: "/api/tags/users" },
+              ],
             },
           },
         },
@@ -372,6 +374,7 @@ test("bakes site and section corpora from public discoverable prose and API page
   assert.match(full.body, /# Guide A/);
   assert.match(full.body, /\*\*Guide B\*\*/);
   assert.match(full.body, /# API[\s\S]*API reference/);
+  assert.match(full.body, /\[Users\]\(\/docs\/api\/tags\/users\)/);
   assert.match(full.body, /# Post/);
   assert.doesNotMatch(full.body, /# Old|# Hidden|Secret API/);
 

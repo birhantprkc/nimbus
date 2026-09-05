@@ -49,6 +49,9 @@ A reasonable shape:
 ---
 import BaseLayout from "@/layouts/BaseLayout.astro";
 import { LinkButton } from "@/components/ui/link-button";
+import { withBase } from "@cloudflare/nimbus-docs/runtime";
+
+const homeHref = withBase("/", import.meta.env.BASE_URL);
 ---
 
 <BaseLayout title="404 — Page not found">
@@ -58,7 +61,7 @@ import { LinkButton } from "@/components/ui/link-button";
     <p class="text-muted-foreground">
       The page you are looking for does not exist or has moved.
     </p>
-    <LinkButton href="/">Back to home</LinkButton>
+    <LinkButton href={homeHref}>Back to home</LinkButton>
   </section>
 </BaseLayout>
 ```

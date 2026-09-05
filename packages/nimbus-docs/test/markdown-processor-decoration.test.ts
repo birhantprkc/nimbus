@@ -85,6 +85,46 @@ describe("Markdown processor decoration", () => {
     assert.equal(Object.isFrozen(decorated), true);
   });
 
+  test("shares prepared-render provenance across module instances", async () => {
+    const duplicate = (await import(
+      `${new URL("../src/_internal/markdown-processor-decorator.ts", import.meta.url).href}?copy=1`
+    )) as typeof import("../src/_internal/markdown-processor-decorator.ts");
+    let transformations = 0;
+    const decorated = decorateMarkdownProcessor(
+      {
+        name: "duplicate-module",
+        options: {},
+        async createRenderer() {
+          return {
+            async render(source: string): Promise<MarkdownRenderResult> {
+              return {
+                code: source,
+                metadata: {
+                  headings: [],
+                  localImagePaths: [],
+                  remoteImagePaths: [],
+                  frontmatter: {},
+                },
+              };
+            },
+          };
+        },
+      },
+      (source) => {
+        transformations += 1;
+        return `prepared:${source}`;
+      },
+    );
+    const renderer = await decorated.createRenderer(shared);
+
+    const result = await duplicate.renderPreparedMarkdown(() =>
+      renderer.render("source"),
+    );
+
+    assert.equal(result.code, "source");
+    assert.equal(transformations, 0);
+  });
+
   test("preserves custom processor and renderer receivers", async () => {
     const options = { marker: "custom" };
     const renderOptions: MarkdownRenderOptions = {

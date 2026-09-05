@@ -745,14 +745,12 @@ export interface BasePageProps {
    * sitemap); the page, its `.md` alternate, and nav links still resolve.
    */
   noindex?: boolean;
-  /** Absolute or site-relative URL for this page's markdown variant. */
+  /** Absolute URL or unbased logical path for this page's markdown variant. */
   markdownUrl?: string;
   /**
-   * Page-level OG/Twitter image. Site-relative (e.g. `/og/welcome.png`) or
-   * absolute. Resolution lives in the user's page route — by the time it
-   * reaches the layout, this is either an explicit frontmatter override or
-   * a programmatically-generated card path. Falls back to
-   * `config.socialImage` when absent.
+   * Page-level OG/Twitter image. An unbased logical path (e.g.
+   * `/og/welcome.png`) or an absolute URL. Falls back to `config.socialImage`
+   * when absent.
    */
   socialImage?: string;
   /**

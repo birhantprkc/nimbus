@@ -2,13 +2,13 @@ import type { Loader, LoaderContext } from "astro/loaders";
 import {
   abortPreparedMarkdownLoad,
   beginPreparedMarkdownLoad,
-  cancelPreparedMarkdownLoad,
   commitPreparedMarkdownCollection,
   isPreparedMarkdownLoadActive,
   preparedMarkdownCollectionCapability,
   preparedMarkdownRootKey,
   runPreparedMarkdownTransaction,
 } from "./prepared-markdown-registry.js";
+import { renderPreparedMarkdown } from "./markdown-processor-decorator.js";
 import { transparentProxy } from "./transparent-proxy.js";
 
 export const NIMBUS_MARKDOWN_META_KEY = "nimbus-markdown-capability";
@@ -130,33 +130,6 @@ function proxyStore(
   );
 }
 
-function proxyLogger(
-  logger: LoaderContext["logger"],
-  onError: () => void,
-): LoaderContext["logger"] {
-  const error = Reflect.get(logger, "error", logger) as (
-    ...args: unknown[]
-  ) => unknown;
-  const fork = Reflect.get(logger, "fork", logger) as (
-    ...args: unknown[]
-  ) => unknown;
-  const preparedError = (...args: unknown[]) => {
-    onError();
-    return Reflect.apply(error, logger, args);
-  };
-  const preparedFork = (...args: unknown[]) => {
-    const child = Reflect.apply(fork, logger, args) as LoaderContext["logger"];
-    return proxyLogger(child, onError);
-  };
-  return transparentProxy(
-    logger,
-    new Map<PropertyKey, unknown>([
-      ["error", preparedError],
-      ["fork", preparedFork],
-    ]),
-  );
-}
-
 function proxyWatcher(
   context: LoaderContext,
   isActive: () => boolean,
@@ -165,7 +138,6 @@ function proxyWatcher(
     entries: Iterable<StoreEntry>,
     publish: () => () => void,
   ) => Promise<boolean>,
-  getErrorCount: () => number,
   mutationState: StoreMutationState,
 ): LoaderContext["watcher"] {
   const watcher = context.watcher;
@@ -185,7 +157,6 @@ function proxyWatcher(
     ): Promise<unknown> {
       return runTransaction(async () => {
         if (!isActive()) return undefined;
-        const errorCount = getErrorCount();
         const mutationCount = mutationState.count;
         mutationState.baseline = new Map(
           [...context.store.values()].map((entry) => [
@@ -201,7 +172,7 @@ function proxyWatcher(
         );
         try {
           const result = await Reflect.apply(handler, this, args);
-          if (getErrorCount() !== errorCount || !isActive()) {
+          if (!isActive()) {
             discardStoreMutations(mutationState, mutationCount);
             return result;
           }
@@ -292,19 +263,14 @@ function proxyContext(
     entries: Iterable<StoreEntry>,
     publish: () => () => void,
   ) => Promise<boolean>,
-  errorState: { count: number },
   mutationState: StoreMutationState,
 ): LoaderContext {
   const store = proxyStore(context.store, options.transform, mutationState);
-  const logger = proxyLogger(context.logger, () => {
-    errorState.count += 1;
-  });
   const watcher = proxyWatcher(
     context,
     isActive,
     runWatcherTransaction,
     onWatcherSettled,
-    () => errorState.count,
     mutationState,
   );
   const renderMarkdown = Reflect.get(
@@ -323,10 +289,7 @@ function proxyContext(
       renderOptions,
     ]);
 
-  const overrides = new Map<PropertyKey, unknown>([
-    ["store", store],
-    ["logger", logger],
-  ]);
+  const overrides = new Map<PropertyKey, unknown>([["store", store]]);
   if (watcher) overrides.set("watcher", watcher);
   if (options.transformRenderMarkdown !== false) {
     overrides.set("renderMarkdown", preparedRenderMarkdown);
@@ -387,10 +350,13 @@ export function prepareMarkdownLoader<T extends Loader>(
           const fileURL = entry.filePath
             ? new URL(entry.filePath, context.config.root)
             : undefined;
-          const rendered = await Reflect.apply(renderMarkdown, context, [
-            entry.body,
-            fileURL ? { fileURL } : undefined,
-          ]);
+          const rendered = await renderPreparedMarkdown(
+            () =>
+              Reflect.apply(renderMarkdown, context, [
+                entry.body,
+                fileURL ? { fileURL } : undefined,
+              ]) as ReturnType<LoaderContext["renderMarkdown"]>,
+          );
           headings.set(entry.id, rendered.metadata?.headings ?? []);
         }
         const rollback = publish?.();
@@ -422,7 +388,6 @@ export function prepareMarkdownLoader<T extends Loader>(
         }
         return committed;
       };
-      const errorState = { count: 0 };
       const mutationState: StoreMutationState = {
         count: 0,
         baseline: null,
@@ -441,17 +406,9 @@ export function prepareMarkdownLoader<T extends Loader>(
             () => isPreparedMarkdownLoadActive(root, context.collection, epoch),
             runWatcherTransaction,
             commit,
-            errorState,
             mutationState,
           ),
         ]);
-        if (errorState.count > 0) {
-          cancelPreparedMarkdownLoad(root, context.collection, epoch);
-          context.store.clear();
-          throw new Error(
-            `Nimbus Markdown preparation failed for collection ${context.collection}`,
-          );
-        }
         if (!(await commit())) {
           throw new Error(
             `Nimbus Markdown preparation became obsolete for collection ${context.collection}`,

@@ -27,7 +27,7 @@ interface Props {
 }
 
 const { page } = Astro.props;
-const markdownUrl = withBase(page.markdownHref, import.meta.env.BASE_URL);
+const markdownUrl = page.markdownHref;
 
 const detail = (v: unknown): string => JSON.stringify(v);
 
@@ -68,8 +68,8 @@ const deprecationHtml = page.deprecated
   ? [
       "<strong>Deprecated.</strong>",
       page.deprecation?.successor &&
-        ` Use <a href="${esc(page.deprecation.successor.href)}">${esc(page.deprecation.successor.label)}</a> instead.`,
-      page.deprecation?.migrationHref && ` See the <a href="${esc(page.deprecation.migrationHref)}">migration guide</a>.`,
+        ` Use <a href="${esc(withBase(page.deprecation.successor.href, import.meta.env.BASE_URL))}">${esc(page.deprecation.successor.label)}</a> instead.`,
+      page.deprecation?.migrationHref && ` See the <a href="${esc(withBase(page.deprecation.migrationHref, import.meta.env.BASE_URL))}">migration guide</a>.`,
     ]
       .filter(Boolean)
       .join("")
@@ -208,7 +208,7 @@ const deprecationHtml = page.deprecated
     <ul class="flex list-none flex-col gap-1 p-0">
       {page.operations.map((op) => (
         <li>
-          <a href={op.href} class="font-medium underline-offset-2 hover:underline">{op.label}</a>
+          <a href={withBase(op.href, import.meta.env.BASE_URL)} class="font-medium underline-offset-2 hover:underline">{op.label}</a>
         </li>
       ))}
     </ul>
@@ -229,7 +229,7 @@ const deprecationHtml = page.deprecated
         <ul class="flex list-none flex-col gap-1 p-0">
           {page.sections.map((s) => (
             <li>
-              <a href={s.href} class="font-medium underline-offset-2 hover:underline">{s.label}</a>
+              <a href={withBase(s.href, import.meta.env.BASE_URL)} class="font-medium underline-offset-2 hover:underline">{s.label}</a>
             </li>
           ))}
         </ul>

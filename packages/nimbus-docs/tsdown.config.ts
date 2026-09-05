@@ -83,7 +83,7 @@ export default defineConfig({
       groups: [
         {
           name: "build-markdown",
-          test: /(?:authored-links|build-partials|default-markdown-processor|partial-headings|scan-code-langs|lint[\\/]parse|markdown[\\/]render)\.ts$/,
+          test: /(?:build-partials|default-markdown-processor|partial-headings|scan-code-langs|lint[\\/]parse|markdown[\\/]render)\.ts$/,
           priority: 10,
         },
       ],

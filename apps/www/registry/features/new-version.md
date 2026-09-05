@@ -360,7 +360,7 @@ import {
   getLastUpdated,
   getTOC,
   entryRouteKey,
-  withBaseRoute,
+  stripBase,
 } from "@cloudflare/nimbus-docs";
 import { components } from "../../components";
 
@@ -371,7 +371,7 @@ const page = await getCollectionPage<"docs-<slug>">(Astro);
 if (page instanceof Response) return page;
 const { entry, Content, headings } = page;
 
-const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
+const currentSlug = stripBase(Astro.url.pathname, import.meta.env.BASE_URL).replace(/\/$/, "") || "/";
 const sidebar = await getSidebar(currentSlug, { collection: entry.collection });
 const prevNext = await getPrevNext(currentSlug, {
   sidebarTree: sidebar,
@@ -386,8 +386,7 @@ const routeKey = entryRouteKey(entry.id);
 const markdownPath = routeKey
   ? `/<slug>/${routeKey}/index.md`
   : "/<slug>/index.md";
-const basedMarkdownPath = withBaseRoute(markdownPath, import.meta.env.BASE_URL);
-const markdownUrl = Astro.site ? new URL(basedMarkdownPath, Astro.site).href : basedMarkdownPath;
+const markdownUrl = markdownPath;
 const socialImage = entry.data.socialImage ?? `/og/<slug>/${entry.id}.png`;
 ---
 

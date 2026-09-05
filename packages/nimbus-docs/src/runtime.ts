@@ -43,7 +43,7 @@ import {
   sidebarHash,
 } from "./_internal/sidebar.js";
 import { entryRouteKey, entryRouteUrl } from "./_internal/astro-slug.js";
-import { toBrowserHref, withBase, withBaseRoute } from "./_internal/url.js";
+import { stripBase, toBrowserHref, withBase } from "./_internal/url.js";
 import {
   PRIMARY_COLLECTION,
   collectionLabel as resolveCollectionSlug,
@@ -143,7 +143,7 @@ export { defineConfig } from "./config.js";
 export { sidebarHash };
 
 /** Prefix a site-root-relative URL with Astro's configured base path. */
-export { entryRouteKey, withBase, withBaseRoute };
+export { entryRouteKey, stripBase, withBase };
 
 /** The `noindex` visibility contract — filter custom index/corpus routes with this. */
 export { isDiscoverable };
@@ -488,6 +488,7 @@ export async function getIndexedTopLevel(): Promise<IndexedTopLevel> {
  */
 export async function renderIndexedEntryMarkdown(
   item: IndexedEntry,
+  options?: { base?: string },
 ): Promise<string> {
   const apiCollections = await loadApiCollections();
   if (!apiCollections.includes(item.collection)) {
@@ -512,7 +513,7 @@ export async function renderIndexedEntryMarkdown(
         "is missing its prepared page data — rebuild the apiCollection() index.",
     );
   }
-  return renderApiPageMarkdown(apiData.prepared.page);
+  return renderApiPageMarkdown(apiData.prepared.page, { base: options?.base });
 }
 
 /**
@@ -560,7 +561,7 @@ export async function renderCorpusMarkdown(options?: {
       description: item.description,
       url: item.url,
       markdownUrl: item.markdownUrl,
-      markdown: await renderIndexedEntryMarkdown(item),
+      markdown: await renderIndexedEntryMarkdown(item, { base: options?.base }),
     })),
   );
 

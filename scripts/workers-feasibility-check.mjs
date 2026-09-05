@@ -635,6 +635,11 @@ const WORKER_TEXT_DENYLIST = [
     pattern:
       /(?:@astrojs[\\/]markdown-satteri|@bruits[\\/]|node_modules[\\/]satteri(?:[\\/]|$)|(?:from\s*|import\s*\(?|require\s*\()\s*["']satteri(?:[\\/][^"']*)?["']|(?:node_modules[\\/]|["'])(?:unified|micromark|mdast-util-from-markdown|@mdx-js[\\/]mdx)(?:[\\/"']|$)|remark-(?:parse|mdx))/,
   },
+  {
+    category: "compiler",
+    pattern:
+      /(?:node_modules[\\/]typescript(?:[\\/]|$)|(?:from\s*|import\s*\(?|require\s*\()\s*["']typescript(?:[\\/][^"']*)?["'])/,
+  },
   { category: "worker partial parser", pattern: /worker-partial-headings/ },
   {
     category: "build helper",
@@ -694,6 +699,8 @@ function assertWorkerPurityScanner() {
     ['import("micromark")', "parser"],
     ['from "mdast-util-from-markdown"', "parser"],
     ['require("@mdx-js/mdx")', "parser"],
+    ['import ts from "typescript"', "compiler"],
+    ["/bundle/node_modules/typescript/lib/typescript.js", "compiler"],
     ["worker-partial-headings", "worker partial parser"],
     ['from "@cloudflare/nimbus-docs/build"', "build helper"],
     ['import("../build.js")', "build helper"],
@@ -731,6 +738,15 @@ function assertWorkerPurityScanner() {
       },
     ]).length === 0,
     "Worker purity scanner rejected Satteri configuration text",
+  );
+  assert(
+    workerPurityViolations([
+      {
+        path: "api-sample.js",
+        body: Buffer.from('const language = "typescript"'),
+      },
+    ]).length === 0,
+    "Worker purity scanner rejected a TypeScript language label",
   );
 }
 
