@@ -139,6 +139,32 @@ test("happy path writes and transforms the project", async () => {
   }
 });
 
+test("non-TTY scaffolds report each completed step without spinner frames", async () => {
+  const cwd = makeCwd();
+  const tmpl = makeTemplate();
+  const chunks: string[] = [];
+  const write = process.stdout.write;
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    chunks.push(chunk.toString());
+    return true;
+  }) as typeof process.stdout.write;
+
+  try {
+    await scaffold(
+      { ...BASE_OPTIONS, dir: "my-docs" },
+      { ...internals(cwd, tmpl), stdoutIsTTY: false },
+    );
+  } finally {
+    process.stdout.write = write;
+    cleanup(cwd, tmpl);
+  }
+
+  const output = chunks.join("");
+  assert.equal(output.match(/Template ready/g)?.length, 1);
+  assert.equal(output.match(/Project configured/g)?.length, 1);
+  assert.doesNotMatch(output, /\u001B\[\?25[hl]/);
+});
+
 test("strips stale .nimbus build output so it never reaches the project", async () => {
   const cwd = makeCwd();
   const tmpl = makeTemplate();
