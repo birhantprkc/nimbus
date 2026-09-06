@@ -1,10 +1,10 @@
 /**
- * The API-page Markdown emitter — the agent-surface twin for reference pages.
+ * The API-page Markdown emitter for generated reference pages.
  *
  * API entries carry no MDX body, so `renderEntryAsMarkdown` (which reads
  * `entry.body`) yields nothing for them. This serializes the frozen view-model
  * instead: every fact in `ApiPageProps` becomes Markdown, deterministically and
- * with no spine access. Output is corpus-safe — page content starts at `##`,
+ * with no spine access. Output is safe to embed in `llms-full.txt` — page content starts at `##`,
  * and every spec-controlled string is neutralized so a hostile description or
  * field name can neither forge a heading nor break an inline-code span.
  */
@@ -139,8 +139,8 @@ function renderField(field: ApiFieldView, depth: number, out: string[], base?: s
   if (field.nullable) flags.push("nullable");
   if (field.deprecated) flags.push("deprecated");
   // The field's own coordinate is its identifier — `create.amount`, not the bare
-  // leaf `amount` — so an agent reading the twin can cite it unambiguously across
-  // the corpus. Indentation still conveys nesting; the leaf is the suffix.
+  // leaf `amount` — so an agent reading the Markdown can cite it unambiguously.
+  // Indentation still conveys nesting; the leaf is the suffix.
   let head = `${pad}- ${inlineCode(field.coordinate)} (${flags.join(", ")})`;
   if (field.description) head += ` — ${inlineText(field.description)}`;
   if (field.link) head += ` (${link("details", field.link.href, base)})`;
@@ -164,7 +164,7 @@ function renderField(field: ApiFieldView, depth: number, out: string[], base?: s
 
 /** The "N more field(s) omitted" affordance shared by nested containers and
  *  page-root field lists. Only ever emitted when a container hits the inline
- *  ceiling (`FIELD_INLINE_CEILING`) — never on the measured corpus. */
+ *  ceiling (`FIELD_INLINE_CEILING`) — never on the measured documentation set. */
 function renderOmitted(total: number, shown: number, out: string[], pad = ""): void {
   const remaining = total - shown;
   if (remaining > 0) out.push(`${pad}- … ${remaining} more field(s) omitted`);

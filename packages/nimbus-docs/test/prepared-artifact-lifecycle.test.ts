@@ -24,8 +24,10 @@ afterEach(async () => {
   );
 });
 
-test("bakes prepared twins at astro:build:start for prerendered build helpers", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "nimbus-twin-lifecycle-"));
+test("bakes prepared artifacts at astro:build:start for prerendered build helpers", async () => {
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), "nimbus-generated-markdown-lifecycle-"),
+  );
   roots.push(root);
   await symlink(
     path.resolve(import.meta.dirname, "../node_modules"),
@@ -54,7 +56,7 @@ export const collections = {
   );
   await writeFile(
     path.join(root, "src/content/docs/guide.mdx"),
-    '---\ntitle: Guide\n---\n[Guide](/guide)\n\n<Render file="shared" />',
+    '---\ntitle: Guide\n---\n[Guide](/guide)\n\n<ProductName>Cloud</ProductName>\n\n<Render file="shared" />',
     "utf8",
   );
   await mkdir(path.join(root, "src/content/docs/nested"), { recursive: true });
@@ -69,48 +71,48 @@ export const collections = {
     "utf8",
   );
   await writeFile(
-    path.join(root, "src/content/partials/shared.mdx"),
+    path.join(root, "src/content/partials/resolved-shared.mdx"),
     "## Shared\n\n[Root](/)",
     "utf8",
   );
   await writeFile(
     path.join(root, "src/pages/[...slug]/index.md.ts"),
-    `import { getPreparedTwinArtifact, getPreparedTwinStaticPaths } from ${JSON.stringify(buildModule)};
+    `import { getPreparedMarkdownArtifact, getPreparedMarkdownStaticPaths } from ${JSON.stringify(buildModule)};
 export const prerender = true;
-export const getStaticPaths = () => getPreparedTwinStaticPaths({ collection: "docs", surface: "markdown" });
+export const getStaticPaths = () => getPreparedMarkdownStaticPaths({ collection: "docs", surface: "markdown" });
 export async function GET({ props }) {
-  const artifact = await getPreparedTwinArtifact(props.artifact);
+  const artifact = await getPreparedMarkdownArtifact(props.artifact);
   return new Response(artifact.body, { headers: { "content-type": artifact.mediaType } });
 }`,
     "utf8",
   );
   await writeFile(
     path.join(root, "src/pages/llms.txt.ts"),
-    `import { getPreparedCorpusArtifact } from ${JSON.stringify(buildModule)};
+    `import { getPreparedLlmsArtifact } from ${JSON.stringify(buildModule)};
 export const prerender = true;
 export async function GET() {
-  const artifact = await getPreparedCorpusArtifact({ scope: "site", surface: "index" });
+  const artifact = await getPreparedLlmsArtifact({ scope: "site", surface: "index" });
   return new Response(artifact.body, { headers: { "content-type": artifact.mediaType } });
 }`,
     "utf8",
   );
   await writeFile(
     path.join(root, "src/pages/llms-full.txt.ts"),
-    `import { getPreparedCorpusArtifact } from ${JSON.stringify(buildModule)};
+    `import { getPreparedLlmsArtifact } from ${JSON.stringify(buildModule)};
 export const prerender = true;
 export async function GET() {
-  const artifact = await getPreparedCorpusArtifact({ scope: "site", surface: "full" });
+  const artifact = await getPreparedLlmsArtifact({ scope: "site", surface: "full" });
   return new Response(artifact.body, { headers: { "content-type": artifact.mediaType } });
 }`,
     "utf8",
   );
   await writeFile(
     path.join(root, "src/pages/[section]/llms.txt.ts"),
-    `import { getPreparedCorpusArtifact, getPreparedCorpusStaticPaths } from ${JSON.stringify(buildModule)};
+    `import { getPreparedLlmsArtifact, getPreparedLlmsStaticPaths } from ${JSON.stringify(buildModule)};
 export const prerender = true;
-export const getStaticPaths = () => getPreparedCorpusStaticPaths();
+export const getStaticPaths = () => getPreparedLlmsStaticPaths();
 export async function GET({ props }) {
-  const artifact = await getPreparedCorpusArtifact(props.artifact);
+  const artifact = await getPreparedLlmsArtifact(props.artifact);
   return new Response(artifact.body, { headers: { "content-type": artifact.mediaType } });
 }`,
     "utf8",
@@ -132,16 +134,33 @@ export async function GET({ props }) {
           description: "Test",
           search: false,
         },
-        { admonitions: false, sitemap: false, validateMdx: false },
+        {
+          admonitions: false,
+          sitemap: false,
+          validateMdx: false,
+          markdown: {
+            componentMap: {
+              ProductName: {
+                revision: "product-name-v1",
+                render: ({ children }) => `**${children}**`,
+              },
+            },
+            partialResolver: {
+              revision: "partials-v1",
+              resolve: ({ file }) => `resolved-${file}`,
+            },
+          },
+        },
       ),
     ],
   });
 
-  const twin = await readFile(path.join(root, "dist/guide/index.md"), "utf8");
-  assert.match(twin, /\[Guide\]\(\/docs\/guide\)/);
-  assert.match(twin, /## Shared/);
-  assert.match(twin, /\[Root\]\(\/docs\/\)/);
-  assert.doesNotMatch(twin, /<Render/);
+  const markdown = await readFile(path.join(root, "dist/guide/index.md"), "utf8");
+  assert.match(markdown, /\[Guide\]\(\/docs\/guide\)/);
+  assert.match(markdown, /\*\*Cloud\*\*/);
+  assert.match(markdown, /## Shared/);
+  assert.match(markdown, /\[Root\]\(\/docs\/\)/);
+  assert.doesNotMatch(markdown, /<Render/);
   assert.match(
     await readFile(path.join(root, "dist/nested/index.md"), "utf8"),
     /# Nested/,
@@ -154,21 +173,21 @@ export async function GET({ props }) {
     await readFile(path.join(root, "dist/nested/llms.txt"), "utf8"),
     /Nested/,
   );
-  const corpus = await readFile(path.join(root, "dist/llms-full.txt"), "utf8");
-  assert.match(corpus, /# Guide/);
-  assert.match(corpus, /## Shared/);
-  assert.match(corpus, /\[Root\]\(\/docs\/\)/);
-  assert.doesNotMatch(corpus, /<Render/);
+  const llmsFull = await readFile(path.join(root, "dist/llms-full.txt"), "utf8");
+  assert.match(llmsFull, /# Guide/);
+  assert.match(llmsFull, /## Shared/);
+  assert.match(llmsFull, /\[Root\]\(\/docs\/\)/);
+  assert.doesNotMatch(llmsFull, /<Render/);
   assert.match(
     await readFile(
-      path.join(root, ".astro/nimbus/twins/manifest.json"),
+      path.join(root, ".astro/nimbus/prepared-artifacts/manifest.json"),
       "utf8",
     ),
     /"audience": "public"/,
   );
   assert.match(
     await readFile(
-      path.join(root, ".astro/nimbus/twins/manifest.json"),
+      path.join(root, ".astro/nimbus/prepared-artifacts/manifest.json"),
       "utf8",
     ),
     /"slug": "shared"/,
@@ -176,7 +195,7 @@ export async function GET({ props }) {
 });
 
 test("does not bake for unrelated Markdown endpoints", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "nimbus-non-twin-route-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "nimbus-unrelated-markdown-route-"));
   roots.push(root);
   await symlink(
     path.resolve(import.meta.dirname, "../node_modules"),

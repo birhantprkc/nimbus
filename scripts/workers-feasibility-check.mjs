@@ -548,13 +548,13 @@ function assertSizeBudgets(site) {
     `Worker output is ${workerGzipBytes} gzip bytes; budget is ${SIZE_BUDGET.worker.maxGzipBytes}`,
   );
 
-  const twinRoot = join(site, ".astro", "nimbus", "twins");
+  const preparedArtifactRoot = join(site, ".astro", "nimbus", "prepared-artifacts");
   const manifest = JSON.parse(
-    readFileSync(join(twinRoot, "manifest.json"), "utf8"),
+    readFileSync(join(preparedArtifactRoot, "manifest.json"), "utf8"),
   );
-  const sourceBodies = manifest.artifacts
+  const sourceBodies = manifest.markdownArtifacts
     .filter((artifact) => artifact.surface === "source")
-    .map((artifact) => readFileSync(join(twinRoot, artifact.path)));
+    .map((artifact) => readFileSync(join(preparedArtifactRoot, artifact.path)));
   const sourceBytes = sourceBodies.reduce(
     (total, body) => total + body.length,
     0,
@@ -647,8 +647,9 @@ const WORKER_TEXT_DENYLIST = [
       /(?:@cloudflare\/nimbus-docs\/build|nimbus-docs[\\/](?:(?:src|dist)[\\/])?build\.(?:[cm]?[jt]s)|(?:from\s*|import\s*\(?|require\s*\()\s*["'](?:\.\.?[\\/])+build\.js["']|(?:^|[\\/])build-markdown(?:-[^\\/"']+)?\.js)/m,
   },
   {
-    category: "twin artifact",
-    pattern: /\.astro[\\/]nimbus[\\/]twins|nimbus\/twins\/manifest\.json/,
+    category: "prepared artifact",
+    pattern:
+      /\.astro[\\/]nimbus[\\/]prepared-artifacts|nimbus\/prepared-artifacts\/manifest\.json/,
   },
   {
     category: "native binding",
@@ -707,7 +708,7 @@ function assertWorkerPurityScanner() {
     ["/server/chunks/build-markdown-CX42.js", "build helper"],
     ["/node_modules/@cloudflare/nimbus-docs/src/build.ts", "build helper"],
     ["/node_modules/@cloudflare/nimbus-docs/dist/build.js", "build helper"],
-    [".astro/nimbus/twins/manifest.json", "twin artifact"],
+    [".astro/nimbus/prepared-artifacts/manifest.json", "prepared artifact"],
     ['require("binding.node")', "native binding"],
     ["/server/binding.node", "native binding"],
     ['WebAssembly.instantiate(atob("AGFzbAAAA"))', "embedded wasm"],
@@ -871,24 +872,24 @@ for (const output of ["dist", ".astro", join("node_modules", ".vite")]) {
 }
 build(site, { docs: "build", api: "build" });
 const firstWorkerBuild = directorySnapshot(join(site, "dist", "server"));
-const firstTwinBuild = directorySnapshot(
-  join(site, ".astro", "nimbus", "twins"),
+const firstPreparedArtifactBuild = directorySnapshot(
+  join(site, ".astro", "nimbus", "prepared-artifacts"),
 );
 for (const output of ["dist", ".astro", join("node_modules", ".vite")]) {
   rmSync(join(site, output), { recursive: true, force: true });
 }
 build(site, { docs: "build", api: "build" });
 const secondWorkerBuild = directorySnapshot(join(site, "dist", "server"));
-const secondTwinBuild = directorySnapshot(
-  join(site, ".astro", "nimbus", "twins"),
+const secondPreparedArtifactBuild = directorySnapshot(
+  join(site, ".astro", "nimbus", "prepared-artifacts"),
 );
 assert(
   JSON.stringify(secondWorkerBuild) === JSON.stringify(firstWorkerBuild),
   `two clean Worker builds differed: ${snapshotDifference(firstWorkerBuild, secondWorkerBuild).join(", ")}`,
 );
 assert(
-  JSON.stringify(secondTwinBuild) === JSON.stringify(firstTwinBuild),
-  `two clean twin builds differed: ${snapshotDifference(firstTwinBuild, secondTwinBuild).join(", ")}`,
+  JSON.stringify(secondPreparedArtifactBuild) === JSON.stringify(firstPreparedArtifactBuild),
+  `two clean prepared-artifact builds differed: ${snapshotDifference(firstPreparedArtifactBuild, secondPreparedArtifactBuild).join(", ")}`,
 );
 const staticPages = captureStaticPages(site);
 const proseStatic = prosePages(staticPages);

@@ -304,7 +304,7 @@ describe("canonical routing — one URL per page, no duplicate or /index alias",
     );
   });
 
-  test("the root's markdown twin lives at <root>/index.md without minting an HTML /index route", () => {
+  test("the root's Markdown version lives at <root>/index.md without minting an HTML /index route", () => {
     const root = getApiPageSlugs(smallco).find((s) => s.slug === "")!;
     const props = getApiPageProps(smallco, root.coordinate);
     assert.equal(props.markdownHref, `${props.href}/index.md`);

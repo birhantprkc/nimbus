@@ -11,7 +11,7 @@
 
 You are helping the user write a **tutorial** for their Nimbus docs site — a lesson that takes a newcomer from nothing to a working project, where the teacher carries **all** responsibility and every stage produces a visible result ("Teach me to build something real with this"). Read this entire file before writing.
 
-The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/tutorial> — and its agent-readable twin at <https://nimbus-docs.com/writing/recipes/tutorial/index.md>. Fetch it if you need more depth than this handoff carries.
+The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/tutorial> — and its Markdown version at <https://nimbus-docs.com/writing/recipes/tutorial/index.md>. Fetch it if you need more depth than this handoff carries.
 
 ## 1. Discovery
 

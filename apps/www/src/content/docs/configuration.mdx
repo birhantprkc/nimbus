@@ -57,47 +57,26 @@ export default defineConfig({
 | Mode | Behavior | Deployment requirement |
 | --- | --- | --- |
 | `"build"` | Prerenders the route during `astro build`. This is the default. | Any static or server deployment. |
-| `"request"` | Renders the route when a visitor requests it. | Astro server output with the Cloudflare adapter. |
+| `"request"` | Renders the route when a visitor requests it. | Astro server output with a Nimbus-supported adapter. |
 
 Omitting `rendering` is equivalent to `rendering: { default: "build" }`.
 
 #### Enable request rendering
 
-Choose **Server** and **Cloudflare** when creating a new site. For an existing site, run the adapter installer from the project root:
+Request rendering requires three things: `output: "server"` in the Astro config, an adapter supported by Nimbus, and at least one collection set to `"request"` in the Nimbus config. Provider-specific setup is listed below.
 
-<PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add adapter-cloudflare" />
+Set the default when most or all canonical collection routes should render on request:
 
-The installer wires the adapter and server Wrangler configuration, then adds `rendering: { default: "request" }` when the active Nimbus config has no rendering policy. Existing policies are preserved. If the config is imported or otherwise cannot be edited safely, the installer prints a coding-agent runbook instead:
-
-```sh
-pnpm dlx @cloudflare/nimbus-docs add adapter-cloudflare --print | claude
-```
-
-The resulting configuration has these three parts:
-
-```ts title="astro.config.ts"
-import cloudflare from "@astrojs/cloudflare";
-import { defineConfig } from "astro/config";
-import nimbus, {
-  defineConfig as defineNimbusConfig,
-} from "@cloudflare/nimbus-docs";
-
+```ts
 const nimbusConfig = defineNimbusConfig({
-  site: "https://docs.example.com",
-  title: "Acme",
+  // ...
   rendering: {
     default: "request",
   },
 });
-
-export default defineConfig({
-  output: "server",
-  adapter: cloudflare({ prerenderEnvironment: "node" }),
-  integrations: [nimbus(nimbusConfig)],
-});
 ```
 
-Run `pnpm build` after changing output mode. A successful production build is the authoritative check that the adapter and Wrangler configuration agree.
+Run the production build after changing output mode or rendering policy. It is the authoritative check that the selected adapter supports Nimbus request rendering.
 
 #### Mix build and request rendering
 
@@ -127,11 +106,47 @@ rendering: {
 
 Every override must name a registered collection with its own canonical catch-all route. Nimbus fails the build for unknown collection names rather than silently ignoring them.
 
-Request-rendered routes are still added to the sitemap and Pagefind search index during the production build. Nimbus uses the content source to create those build-time discovery artifacts; no extra sitemap or search configuration is required.
+Request-rendered routes are still added to the sitemap and Pagefind search index during the production build. Nimbus uses the content source to create those build-time discovery files; no extra sitemap or search configuration is required.
 
-<Aside type="note">
-  Request rendering currently requires `output: "server"`, `@astrojs/cloudflare`, and a server-compatible `wrangler.jsonc`. Other adapters support Astro server output, but not Nimbus request-rendering policy yet.
-</Aside>
+##### Cloudflare
+
+Cloudflare is currently the supported provider for request-rendered Nimbus collection routes. Choose **Server** and **Cloudflare** when creating a new site. For an existing site, run the adapter installer from the project root:
+
+<PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add adapter-cloudflare" />
+
+The installer wires `@astrojs/cloudflare` and sets Astro to server output. It creates `wrangler.jsonc` when none exists or replaces an unchanged Nimbus static configuration. Customized Wrangler files and alternate JSON or TOML configurations are preserved with manual guidance.
+
+When the active Nimbus config has no rendering policy, the installer adds `rendering: { default: "request" }`. Existing policies are preserved. If an imported or ambiguous Nimbus config cannot be edited safely, the installer completes the adapter setup and prints instructions for generating a coding-agent recipe. Generate that recipe with:
+
+<PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add adapter-cloudflare --print" />
+
+Pass the printed recipe to your coding agent to finish the project-specific configuration.
+
+The resulting Astro configuration includes the rendering policy, server output, and adapter:
+
+```ts title="astro.config.ts"
+import cloudflare from "@astrojs/cloudflare";
+import { defineConfig } from "astro/config";
+import nimbus, {
+  defineConfig as defineNimbusConfig,
+} from "@cloudflare/nimbus-docs";
+
+const nimbusConfig = defineNimbusConfig({
+  site: "https://docs.example.com",
+  title: "Acme",
+  rendering: {
+    default: "request",
+  },
+});
+
+export default defineConfig({
+  output: "server",
+  adapter: cloudflare({ prerenderEnvironment: "node" }),
+  integrations: [nimbus(nimbusConfig)],
+});
+```
+
+Cloudflare deployments also require a server-compatible `wrangler.jsonc`. Run `pnpm build` after setup to verify the adapter and Wrangler configuration together.
 
 See [Server adapters](/cli#server-adapters) for installer behavior and safety checks.
 
@@ -143,7 +158,7 @@ The second argument to `nimbus()` controls build behavior:
 | -------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `validateMdx`        | `true`                  | PascalCase tag validation. `false` to skip; object to override paths. See [Markdown and MDX](/writing/markdown-and-mdx).                                                                                                                               |
 | `admonitions`        | `true`                  | `:::type` → `<Aside>` rewrite; object adds `typeAliases`.                                                                                                                                                                                              |
-| `markdown.processor` | Sätteri                 | Swap to `unified(...)` for remark/rehype plugins.                                                                                                                                                                                                      |
+| `markdown`           | Sätteri processor       | Configure authored Markdown processing and generated Markdown customization.                                                                                                                                                                          |
 | `sitemap`            | enabled when `site` set | `false` to disable.                                                                                                                                                                                                                                    |
 | `mdx`                | —                       | Options forwarded to `@astrojs/mdx`.                                                                                                                                                                                                                   |
 | `icons`              | `true`                  | Built-in icon system. `true` auto-detects `@iconify-json/*` packages (Phosphor, Material Icons, etc.) and local `src/icons/*.svg`. `false` to disable. Object for explicit config (`iconDir`, `include`, `svgoOptions`). See [Icon](/components/icon). |
@@ -156,3 +171,31 @@ nimbus(config, {
   rules: { "nimbus/single-h1": "error", "nimbus/bare-url": "warn" },
 });
 ```
+
+### Customize generated Markdown
+
+Use `markdown.componentMap` to define how project-specific MDX components appear in generated Markdown. Use `markdown.partialResolver` when `<Render>` attributes map to a custom partial ID:
+
+```ts title="astro.config.ts"
+nimbus(config, {
+  markdown: {
+    componentMap: {
+      ProductName: {
+        revision: "product-name-v1",
+        render: ({ children }) => children,
+      },
+    },
+    partialResolver: {
+      revision: "product-partials-v1",
+      resolve: ({ file, product }) =>
+        product ? `${product}/${file}` : file,
+    },
+  },
+});
+```
+
+`<ProductName>Acme</ProductName>` becomes `Acme` in clean Markdown. Nimbus normalizes static authored `href` values before a transform runs, so validate and render those values directly. The transform also receives the active `base` for destinations it constructs itself.
+
+Each transform requires a non-empty `revision`. Increment it whenever its output changes so Nimbus invalidates the generated Markdown cache.
+
+Request-rendered HTML consumes prepared entries and headings. Markdown versions, `llms-full.txt`, reusable-snippet expansion, and syntax highlighting remain build-time work, and their routes must stay prerendered. `llms.txt` files remain indexes of those Markdown versions. Run a production build after changing these options; development mode does not validate the final Worker bundle.

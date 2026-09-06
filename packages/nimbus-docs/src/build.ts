@@ -1,23 +1,25 @@
 import {
-  getTwinManifest,
-  registerTwinArtifactDemand,
-  readPreparedCorpusArtifact,
-  readPreparedTwinArtifact,
-  type PreparedCorpusArtifact,
-  type PreparedCorpusReference,
-  type PreparedTwinArtifact,
-  type PreparedTwinReference,
-  type TwinSurface,
-} from "./_internal/twin-artifacts.js";
+  getPreparedArtifactManifest,
+  registerPreparedArtifactDemand,
+  readPreparedLlmsArtifact,
+  readPreparedMarkdownArtifact,
+} from "./_internal/prepared-artifacts.js";
+import type {
+  PreparedLlmsArtifact,
+  PreparedLlmsReference,
+  PreparedMarkdownArtifact,
+  PreparedMarkdownReference,
+  PreparedMarkdownSurface,
+} from "./types.js";
 import { entryRouteKey } from "./_internal/astro-slug.js";
 
 export type {
-  PreparedCorpusArtifact,
-  PreparedCorpusReference,
-  PreparedTwinArtifact,
-  PreparedTwinReference,
-  TwinSurface,
-} from "./_internal/twin-artifacts.js";
+  PreparedLlmsArtifact,
+  PreparedLlmsReference,
+  PreparedMarkdownArtifact,
+  PreparedMarkdownReference,
+  PreparedMarkdownSurface,
+} from "./types.js";
 
 const projectRoot: unknown =
   typeof import.meta.env === "object"
@@ -25,7 +27,7 @@ const projectRoot: unknown =
     : undefined;
 
 if (typeof projectRoot === "string" && projectRoot.length > 0) {
-  registerTwinArtifactDemand(projectRoot);
+  registerPreparedArtifactDemand(projectRoot);
 }
 
 function configuredRoot(): string {
@@ -37,18 +39,18 @@ function configuredRoot(): string {
   return projectRoot;
 }
 
-export async function getPreparedTwinStaticPaths(options: {
+export async function getPreparedMarkdownStaticPaths(options: {
   collection: string;
-  surface: TwinSurface;
+  surface: PreparedMarkdownSurface;
 }): Promise<
   Array<{
     params: { slug: string | undefined };
-    props: { artifact: PreparedTwinReference };
+    props: { artifact: PreparedMarkdownReference };
     cacheKey: string;
   }>
 > {
-  const manifest = await getTwinManifest(configuredRoot());
-  return manifest.artifacts
+  const manifest = await getPreparedArtifactManifest(configuredRoot());
+  return manifest.markdownArtifacts
     .filter(
       (artifact) =>
         artifact.collection === options.collection &&
@@ -67,26 +69,26 @@ export async function getPreparedTwinStaticPaths(options: {
     }));
 }
 
-export function getPreparedTwinArtifact(
-  reference: PreparedTwinReference,
-): Promise<PreparedTwinArtifact> {
-  return readPreparedTwinArtifact(configuredRoot(), reference);
+export function getPreparedMarkdownArtifact(
+  reference: PreparedMarkdownReference,
+): Promise<PreparedMarkdownArtifact> {
+  return readPreparedMarkdownArtifact(configuredRoot(), reference);
 }
 
-export async function getPreparedCorpusStaticPaths(): Promise<
+export async function getPreparedLlmsStaticPaths(): Promise<
   Array<{
     params: { section: string };
-    props: { artifact: PreparedCorpusReference };
+    props: { artifact: PreparedLlmsReference };
     cacheKey: string;
   }>
 > {
-  const manifest = await getTwinManifest(configuredRoot());
-  return manifest.corpora
+  const manifest = await getPreparedArtifactManifest(configuredRoot());
+  return manifest.llmsArtifacts
     .filter(
       (
         artifact,
       ): artifact is Extract<
-        (typeof manifest.corpora)[number],
+        (typeof manifest.llmsArtifacts)[number],
         { scope: "section" }
       > => artifact.scope === "section",
     )
@@ -103,8 +105,8 @@ export async function getPreparedCorpusStaticPaths(): Promise<
     }));
 }
 
-export function getPreparedCorpusArtifact(
-  reference: PreparedCorpusReference,
-): Promise<PreparedCorpusArtifact> {
-  return readPreparedCorpusArtifact(configuredRoot(), reference);
+export function getPreparedLlmsArtifact(
+  reference: PreparedLlmsReference,
+): Promise<PreparedLlmsArtifact> {
+  return readPreparedLlmsArtifact(configuredRoot(), reference);
 }

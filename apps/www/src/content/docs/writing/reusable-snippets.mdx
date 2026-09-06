@@ -13,6 +13,7 @@ Partials are reusable content fragments. Write a snippet once, include it in man
 Partials live in `src/content/partials/` as `.md` or `.mdx`, registered as a collection in `src/content.config.ts`:
 
 ```ts title="src/content.config.ts"
+import { defineCollection } from "astro:content";
 import { partialsCollection } from "@cloudflare/nimbus-docs/content";
 
 export const collections = {
@@ -33,7 +34,31 @@ Nimbus requires Node 22.12 or later and any package manager.
 <Render file="workers/setup" />
 ```
 
-If the id doesn't resolve, the build fails with a "did you mean…" suggestion and a list of available partials.
+If the ID does not resolve while rendering canonical HTML, `Render.astro` fails with a "did you mean..." suggestion and a list of available partials. Generated Markdown builds report the missing prepared partial by ID.
+
+Nimbus expands partials in generated Markdown and merges their headings during the build. Circular or missing partials, a non-static or missing `file`, invalid `params`, undeclared parameters, and excluded or unknown visibility decisions fail the build before deployment.
+
+### Custom partial IDs
+
+If attributes on `<Render>` determine where a partial lives, configure one resolver on the Nimbus integration:
+
+```ts title="astro.config.ts"
+nimbus(config, {
+  markdown: {
+    partialResolver: {
+      revision: "product-v1",
+      resolve: ({ file, product }) =>
+        product ? `${product}/${file}` : file,
+    },
+  },
+});
+```
+
+The resolver controls partial IDs in Markdown versions, `llms-full.txt`, and prepared headings. Change `revision` whenever its output rules change so Nimbus rebuilds the affected Markdown.
+
+`Render.astro` is user-owned and resolves the canonical HTML partial separately. If you customize partial IDs, move the resolver function into a shared project file and call it from both `astro.config.ts` and `Render.astro` before `getVisibleEntry("partials", id)`. This keeps HTML, headings, and generated Markdown aligned.
+
+Route-level `partialHeadings` options are not supported. Configure prepared heading resolution on the integration so request-rendered pages do not bundle generated-Markdown and heading logic. The user-owned `Render.astro` still loads and renders the selected partial as part of the HTML page.
 
 ## Parameters
 

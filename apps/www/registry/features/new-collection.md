@@ -31,12 +31,12 @@ plain doc tree.
 **For an OpenAPI spec, this is also the wrong recipe.** This recipe makes a
 tree of hand-authored MDX pages. If the user wants their API reference
 *generated from an OpenAPI/Swagger document* — pages per operation and schema,
-`.md` twins, llms coverage — use `nimbus-docs add api-reference`. Use this
+Markdown versions and `llms.txt` coverage — use `nimbus-docs add api-reference`. Use this
 recipe for `api` only when they're writing the API docs by hand.
 
 **This recipe owns the whole setup of a non-version collection.** You
 will create the content directory, register the collection in
-`content.config.ts`, scaffold the page + `.md` alternate routes, and
+`content.config.ts`, scaffold the page and Markdown routes, and
 optionally seed a starter entry. The user does not pre-create files or
 edit configs — you do.
 
@@ -62,7 +62,7 @@ conventions:
 - `src/pages/[...slug].astro` — read it. The new route will mirror this
   shape exactly except for the helper names (`getCollectionStaticPaths` /
   `getCollectionPage` instead of the `Docs` variants).
-- `src/pages/[...slug]/index.md.ts` — read it. The new `.md` alternate
+- `src/pages/[...slug]/index.md.ts` — read it. The new Markdown route
   will mirror it.
 - `src/layouts/DocsLayout.astro` — confirm it exists. The new route uses
   it.
@@ -115,7 +115,7 @@ URL convention — a `docs-v1` collection always mounts at `/v1/`, never at
 `/docs-v1/`.
 
 For every other collection, the URL prefix must match the collection name.
-Prepared markdown and corpus URLs use that identity as their mount prefix.
+Per-page Markdown versions and the collection's `llms.txt` index use that identity as their mount prefix.
 
 ### Q4. Add a starter entry?
 
@@ -273,21 +273,21 @@ If the user's primary `DocsLayout` accepts an `audience` prop or any other
 field not listed above, mirror it. If it drops one of the props above, drop
 that prop here too.
 
-### 4d. Scaffold the `.md` alternate
+### 4d. Scaffold the Markdown version
 
 Write `src/pages/<prefix>/[...slug]/index.md.ts`:
 
 ```ts
 /**
- * Per-page /<prefix>/<slug>/index.md — clean markdown alternate for every
+ * Per-page /<prefix>/<slug>/index.md — clean Markdown version of every
  * indexable entry of the `<collection>` collection. Mirrors the primary
- * .md alternate at src/pages/[...slug]/index.md.ts.
+ * Markdown route at src/pages/[...slug]/index.md.ts.
  */
 
 import {
-  getPreparedTwinArtifact,
-  getPreparedTwinStaticPaths,
-  type PreparedTwinReference,
+  getPreparedMarkdownArtifact,
+  getPreparedMarkdownStaticPaths,
+  type PreparedMarkdownReference,
 } from "@cloudflare/nimbus-docs/build";
 
 export const prerender = true;
@@ -295,14 +295,14 @@ export const prerender = true;
 const COLLECTION = "<collection>";
 
 interface SlugProps {
-  artifact: PreparedTwinReference;
+  artifact: PreparedMarkdownReference;
 }
 
 export const getStaticPaths = () =>
-  getPreparedTwinStaticPaths({ collection: COLLECTION, surface: "markdown" });
+  getPreparedMarkdownStaticPaths({ collection: COLLECTION, surface: "markdown" });
 
 export async function GET({ props }: { props: SlugProps }) {
-  const artifact = await getPreparedTwinArtifact(props.artifact);
+  const artifact = await getPreparedMarkdownArtifact(props.artifact);
   return new Response(artifact.body, {
     headers: { "Content-Type": artifact.mediaType },
   });

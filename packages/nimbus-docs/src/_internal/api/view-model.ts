@@ -102,7 +102,7 @@ class ModelView {
     return `${base}/${slug}`;
   }
 
-  /** Whether the coordinate has a page of its own (a route + `.md` twin). Nav-only
+  /** Whether the coordinate has a page of its own (a route + Markdown version). Nav-only
    *  grouping nodes (x-tagGroups categories) do not. */
   hasPage(coordinate: Coordinate): boolean {
     return this.model.pages.pages.has(coordinate);
@@ -153,7 +153,7 @@ function base32(input: string): string {
 
 /**
  * URL-fragment-safe anchor from an opaque coordinate. Case is preserved (the
- * grammar permits case-only twins), `.`/`_`/`-` survive, and every other run of
+ * grammar permits case-only identifiers), `.`/`_`/`-` survive, and every other run of
  * characters collapses to a single `-`. Coordinates are globally unique, so a
  * lossless projection is already injective; when the cleaning step is *lossy*
  * (a disallowed character was rewritten) a `--` separator and a base32 encoding
@@ -367,10 +367,10 @@ function unionView(
 
 /**
  * Per-container inline-field ceiling — a last-resort safety net, NOT a routine
- * collapse. Across the 10,379-page Cloudflare corpus the largest page carries
+ * collapse. Across the 10,379-page Cloudflare documentation set the largest page carries
  * 848 fields (p99.9 = 694), so at 1000 this never fires on any real spec
  * measured; it exists only to bound a pathological spec (a container with
- * thousands of siblings) so the agent twin cannot blow past a sane size. The
+ * thousands of siblings) so generated Markdown cannot blow past a sane size. The
  * companion structural bound is `SCHEMA_FIELD_DEPTH` (parse.ts). Kept fields are
  * required-first then source order (see `requiredFirst`), so a truncated
  * container stays byte-reproducible across builds — load-bearing for the

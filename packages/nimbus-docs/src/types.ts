@@ -6,6 +6,48 @@
 // Config
 // ---------------------------------------------------------------------------
 
+export interface GeneratedMarkdownComponentRenderContext {
+  name: string;
+  attrs: Record<string, string | boolean>;
+  children: string;
+  base: string;
+}
+
+export interface GeneratedMarkdownComponentTransform {
+  revision: string;
+  render: (context: GeneratedMarkdownComponentRenderContext) => string;
+}
+
+export interface GeneratedMarkdownPartialResolver {
+  revision: string;
+  resolve: (attrs: { file: string; product: string | undefined }) => string;
+}
+
+export type PreparedMarkdownSurface = "markdown" | "source";
+
+export interface PreparedMarkdownReference {
+  collection: string;
+  id: string;
+  surface: PreparedMarkdownSurface;
+}
+
+export interface PreparedMarkdownArtifact extends PreparedMarkdownReference {
+  digest: string;
+  mediaType: string;
+  body: string;
+  content: string;
+}
+
+export type PreparedLlmsReference =
+  | { scope: "site"; surface: "index" | "full" }
+  | { scope: "section"; surface: "index"; section: string };
+
+export type PreparedLlmsArtifact = PreparedLlmsReference & {
+  digest: string;
+  mediaType: string;
+  body: string;
+};
+
 export interface NimbusConfig {
   /** Canonical site URL, e.g. `https://docs.example.com`. */
   site: string;
@@ -729,7 +771,7 @@ export interface BannerProps {
  * Every field is something the Nimbus framework knows how to handle:
  *   - `head` entries get concatenated with `config.head` in the layout.
  *   - `noindex` emits `<meta name="robots" content="noindex">` and removes the
- *     page from every machine discovery surface (`llms.txt`, the corpus,
+ *     page from every machine-readable output (`llms.txt`, `llms-full.txt`,
  *     on-site search, sitemap) while keeping it addressable and navigable.
  *   - `title` / `description` populate `<title>` / `<meta name="description">`.
  */
@@ -741,11 +783,11 @@ export interface BasePageProps {
   /**
    * Hide the page from machines while keeping it human-reachable. Emits
    * `<meta name="robots" content="noindex">` and drops the page from every
-   * discovery surface (`llms.txt`, `llms-full.txt` corpus, on-site search,
+   * discovery output (`llms.txt`, `llms-full.txt`, on-site search,
    * sitemap); the page, its `.md` alternate, and nav links still resolve.
    */
   noindex?: boolean;
-  /** Absolute URL or unbased logical path for this page's markdown variant. */
+  /** Absolute URL or unbased logical path for this page's Markdown version. */
   markdownUrl?: string;
   /**
    * Page-level OG/Twitter image. An unbased logical path (e.g.

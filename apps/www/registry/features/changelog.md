@@ -954,9 +954,9 @@ export async function GET() {
 import { entryRouteKey, withBase } from "@cloudflare/nimbus-docs";
 import { getEntry } from "astro:content";
 import {
-  getPreparedTwinArtifact,
-  getPreparedTwinStaticPaths,
-  type PreparedTwinReference,
+  getPreparedMarkdownArtifact,
+  getPreparedMarkdownStaticPaths,
+  type PreparedMarkdownReference,
 } from "@cloudflare/nimbus-docs/build";
 import { config } from "virtual:nimbus/config";
 
@@ -967,15 +967,15 @@ const absoluteUrl = (path: string) =>
   new URL(withBase(path, import.meta.env.BASE_URL), config.site).href;
 
 interface SlugProps {
-  artifact: PreparedTwinReference;
+  artifact: PreparedMarkdownReference;
 }
 
 export const getStaticPaths = () =>
-  getPreparedTwinStaticPaths({ collection: COLLECTION, surface: "markdown" })
+  getPreparedMarkdownStaticPaths({ collection: COLLECTION, surface: "markdown" })
     .then((paths) => paths.filter((path) => path.params.slug !== undefined));
 
 export async function GET({ props }: { props: SlugProps }) {
-  const artifact = await getPreparedTwinArtifact(props.artifact);
+  const artifact = await getPreparedMarkdownArtifact(props.artifact);
   const entry = await getEntry(COLLECTION, props.artifact.id);
   if (!entry) return new Response(null, { status: 404 });
   const data = (entry.data ?? {}) as Record<string, unknown>;
@@ -1034,23 +1034,23 @@ export async function GET({ props }: { props: SlugProps }) {
 
 ```ts
 import {
-  getPreparedTwinArtifact,
-  getPreparedTwinStaticPaths,
-  type PreparedTwinReference,
+  getPreparedMarkdownArtifact,
+  getPreparedMarkdownStaticPaths,
+  type PreparedMarkdownReference,
 } from "@cloudflare/nimbus-docs/build";
 
 export const prerender = true;
 
 interface SlugProps {
-  artifact: PreparedTwinReference;
+  artifact: PreparedMarkdownReference;
 }
 
 export const getStaticPaths = () =>
-  getPreparedTwinStaticPaths({ collection: "changelog", surface: "source" })
+  getPreparedMarkdownStaticPaths({ collection: "changelog", surface: "source" })
     .then((paths) => paths.filter((path) => path.params.slug !== undefined));
 
 export async function GET({ props }: { props: SlugProps }) {
-  const artifact = await getPreparedTwinArtifact(props.artifact);
+  const artifact = await getPreparedMarkdownArtifact(props.artifact);
   return new Response(artifact.body, {
     headers: { "Content-Type": artifact.mediaType },
   });

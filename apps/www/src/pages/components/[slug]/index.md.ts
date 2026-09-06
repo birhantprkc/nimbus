@@ -1,5 +1,5 @@
 /**
- * /components/<slug>/index.md — agent-facing alternate.
+ * /components/<slug>/index.md — generated Markdown version.
  *
  * Pairs with the showcase page. Surfaces install info + props + the
  * canonical URL so agents can act on the component without parsing the

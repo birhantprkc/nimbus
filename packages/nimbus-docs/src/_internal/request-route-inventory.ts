@@ -14,7 +14,7 @@ import {
   getVersionStatus,
   renderIndexedEntryMarkdown,
 } from "../runtime.js";
-import { getPreparedTwinArtifact } from "../build.js";
+import { getPreparedMarkdownArtifact } from "../build.js";
 
 export const prerender = true;
 
@@ -64,7 +64,7 @@ export async function GET() {
       route.content = apiCollections.has(collection)
         ? await renderIndexedEntryMarkdown(item, { base: import.meta.env.BASE_URL })
         : (
-            await getPreparedTwinArtifact({
+            await getPreparedMarkdownArtifact({
               collection,
               id: item.entry.id,
               surface: "markdown",

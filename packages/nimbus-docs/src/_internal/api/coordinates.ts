@@ -404,10 +404,10 @@ export class CoordinateRegistry {
     }
 
     const lower = coordinate.toLowerCase();
-    const caseTwin = this.byLowercase.get(lower);
-    if (caseTwin && caseTwin !== coordinate) {
+    const caseVariant = this.byLowercase.get(lower);
+    if (caseVariant && caseVariant !== coordinate) {
       this.warn(
-        `Coordinates "${caseTwin}" and "${coordinate}" differ only by case — the page-slug machinery will disambiguate, but consider renaming.`,
+        `Coordinates "${caseVariant}" and "${coordinate}" differ only by case — the page-slug machinery will disambiguate, but consider renaming.`,
         coordinate,
         source,
       );

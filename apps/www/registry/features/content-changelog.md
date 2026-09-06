@@ -11,7 +11,7 @@
 
 You are helping the user write a **changelog** for their Nimbus docs site — the record of change: dated, categorized entries that answer the maintainer's questions ("What changed, does it break me, and what do I do about it?") and correct an agent's stale priors. Read this entire file before writing.
 
-The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/changelog> — and its agent-readable twin at <https://nimbus-docs.com/writing/recipes/changelog/index.md>. Fetch it if you need more depth than this handoff carries.
+The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/changelog> — and its Markdown version at <https://nimbus-docs.com/writing/recipes/changelog/index.md>. Fetch it if you need more depth than this handoff carries.
 
 ## 1. Discovery
 

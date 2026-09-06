@@ -1,5 +1,5 @@
 /**
- * MDX → markdown transform for AI-readable static routes.
+ * MDX → Markdown transform for generated static routes.
  *
  * This intentionally starts small and dependency-free: it operates on the
  * raw MDX body that Astro's content layer exposes and maps the starter's
@@ -287,7 +287,7 @@ export function renderEntryAsMarkdown(
   if (/<Render(?=[\s/>])/.test(protectCode(markdown).markdown)) {
     throw new Error(
       "nimbus-docs: renderEntryAsMarkdown no longer expands <Render> partials at runtime. " +
-        "Use the prepared twin and corpus helpers from @cloudflare/nimbus-docs/build.",
+        "Use the prepared artifact helpers from @cloudflare/nimbus-docs/build.",
     );
   }
 

@@ -74,7 +74,7 @@ describe("seam: serializable + version-stamped across page kinds", () => {
     });
   }
 
-  test("markdownHref is the pre-resolved .md twin of href", () => {
+  test("markdownHref is the pre-resolved .md version of href", () => {
     const create = getApiPageProps(smallco, "create");
     assert.equal(create.markdownHref, `${create.href}/index.md`);
   });
@@ -110,7 +110,7 @@ describe("seam: serializable + version-stamped across page kinds", () => {
       assert.equal(entry.slug, bySlug.get(entry.coordinate), `slug for ${entry.coordinate}`);
       const props = getApiPageProps(smallco, entry.coordinate);
       // The index title/description must be byte-identical to what the page
-      // itself projects — the loader seeds llms.txt/corpus from the index, and
+      // itself projects — the loader seeds llms.txt and full-documentation from the index, and
       // the served page from the projection; they must never disagree.
       assert.equal(entry.title, props.title, `title for ${entry.coordinate}`);
       assert.equal(entry.description ?? undefined, props.description ?? undefined, `description for ${entry.coordinate}`);
@@ -1003,7 +1003,7 @@ describe("nav hierarchy: x-tagGroups categories + tag.parent subresources", () =
     const slugs = getApiPageSlugs(grouped).map((s) => s.coordinate);
     assert.ok(
       !slugs.includes("tags.Account & User Management"),
-      "category mints no page, so no route or .md twin is generated",
+      "category mints no page, so no route or .md version is generated",
     );
   });
 

@@ -25,7 +25,8 @@ export default defineConfig({
     "_internal/request-route-inventory":
       "src/_internal/request-route-inventory.ts",
     "_internal/git-last-updated": "src/_internal/git-last-updated.ts",
-    "_internal/twin-artifacts": "src/_internal/twin-artifacts.ts",
+    "_internal/prepared-artifacts":
+      "src/_internal/prepared-artifacts.ts",
     "_internal/api-loader": "src/_internal/api-loader.ts",
   },
   format: "esm",

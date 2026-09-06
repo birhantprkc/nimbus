@@ -1,20 +1,20 @@
 import {
-  getPreparedTwinArtifact,
-  getPreparedTwinStaticPaths,
-  type PreparedTwinReference,
+  getPreparedMarkdownArtifact,
+  getPreparedMarkdownStaticPaths,
+  type PreparedMarkdownReference,
 } from "@cloudflare/nimbus-docs/build";
 
 export const prerender = true;
 
 interface SlugProps {
-  artifact: PreparedTwinReference;
+  artifact: PreparedMarkdownReference;
 }
 
 export const getStaticPaths = () =>
-  getPreparedTwinStaticPaths({ collection: "docs", surface: "source" });
+  getPreparedMarkdownStaticPaths({ collection: "docs", surface: "source" });
 
 export async function GET({ props }: { props: SlugProps }) {
-  const artifact = await getPreparedTwinArtifact(props.artifact);
+  const artifact = await getPreparedMarkdownArtifact(props.artifact);
   return new Response(artifact.body, {
     headers: { "Content-Type": artifact.mediaType },
   });

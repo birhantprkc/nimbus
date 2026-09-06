@@ -1,4 +1,4 @@
-// Opt-in resilience gauntlet against the real-spec corpus (23 MB Cloudflare,
+// Opt-in resilience gauntlet against the real-spec fixture set (23 MB Cloudflare,
 // Stripe, GitHub, OpenAI). Heavy — skipped by default so `pnpm test` stays fast
 // and low-memory. Run with:
 //   NIMBUS_API_GAUNTLET=1 node --max-old-space-size=6144 --import tsx --test test/api-production-gauntlet.test.ts

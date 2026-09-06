@@ -18,7 +18,7 @@ import { components } from "../components";
 
 export const prerender = true;
 // Serve the root index entry (`docs/index.mdx`) at `/` instead of `/index`,
-// mirroring the `.md`/`.mdx` twin routes which already map `id === "index"`
+// mirroring the `.md`/`.mdx` routes which already map `id === "index"`
 // to the bare root segment.
 export const getStaticPaths: GetStaticPaths = async (options) => {
   const paths = await getDocsStaticPaths(options);

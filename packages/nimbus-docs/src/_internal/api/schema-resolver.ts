@@ -304,7 +304,7 @@ export class SchemaResolver {
     };
     // A `mapping` is meaningless (and invalid OpenAPI) without a `propertyName`;
     // gate its capture on the name so the view-model never carries a mapping the
-    // markdown twin — which renders it under the discriminator — would drop.
+    // generated Markdown — which renders it under the discriminator — would drop.
     const disc = folded.discriminator?.propertyName;
     if (typeof disc === "string" && disc.length > 0) {
       shape.discriminator = disc;

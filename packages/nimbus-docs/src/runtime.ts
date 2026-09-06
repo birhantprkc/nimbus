@@ -53,7 +53,7 @@ import {
   renderEntryAsMarkdown,
   type RenderEntryAsMarkdownOptions,
 } from "./_internal/transform.js";
-import { buildCorpusMarkdown } from "./_internal/corpus.js";
+import { buildLlmsFullMarkdown } from "./_internal/llms-full.js";
 import { isDiscoverable } from "./_internal/discoverability.js";
 import {
   assembleBreadcrumbs,
@@ -63,7 +63,6 @@ import {
   type BreadcrumbOptions,
 } from "./_internal/navigation.js";
 import { getHeadings } from "./_internal/toc.js";
-import type { PartialHeadingOptions } from "./_internal/partial-headings.js";
 import {
   clearValidInternalLinksCache,
   getValidInternalLinks,
@@ -122,7 +121,6 @@ export type {
   VersionsConfig,
 } from "./types.js";
 
-export type { PartialHeadingOptions } from "./_internal/partial-headings.js";
 export type { Heading } from "./_internal/partial-headings.js";
 
 /**
@@ -145,7 +143,7 @@ export { sidebarHash };
 /** Prefix a site-root-relative URL with Astro's configured base path. */
 export { entryRouteKey, stripBase, withBase };
 
-/** The `noindex` visibility contract — filter custom index/corpus routes with this. */
+/** The `noindex` visibility contract for custom indexes and full Markdown routes. */
 export { isDiscoverable };
 
 /** Render an Astro content entry's raw MDX body as clean markdown. */
@@ -235,8 +233,8 @@ export interface IndexedEntry {
   markdownUrl: string;
   /**
    * Site-relative URL of the page's raw-source alternate, e.g.
-   * `/getting-started/index.mdx`. Twin grammar: `index.md` is the
-   * downleveled render for reading, `index.mdx` is the authored source.
+   * `/getting-started/index.mdx`. `index.md` is the clean Markdown version for
+   * reading, while `index.mdx` preserves the prepared authored source.
    * `undefined` when the entry has no string body to serve (data-loader
    * collections) — such entries get no `.mdx` route.
    */
@@ -372,7 +370,7 @@ export async function getIndexedEntries(
       // wrong path.
       const markdownUrl =
         canonicalUrl === "/" ? "/index.md" : `${canonicalUrl}/index.md`;
-      // The raw-source twin exists only for entries with a string body —
+      // The prepared source version exists only for entries with a string body —
       // data-loader collections without one get no `.mdx` alternate.
       const sourceUrl =
         typeof entry.body === "string" && entry.body.length > 0
@@ -483,8 +481,8 @@ export async function getIndexedTopLevel(): Promise<IndexedTopLevel> {
  * Prose entries render their MDX body via `renderEntryAsMarkdown`. OpenAPI
  * reference entries carry no body, so their frozen view-model is projected and
  * emitted through the `./api` seam — dynamic-imported so the engine and its
- * parser stay out of the main bundle for prose-only sites. Both the corpus and
- * the served `.md` twin route go through here, so the two never drift.
+ * parser stay out of the main bundle for prose-only sites. Both `llms-full.txt`
+ * and the served `.md` route go through here, so the two never drift.
  */
 export async function renderIndexedEntryMarkdown(
   item: IndexedEntry,
@@ -517,27 +515,28 @@ export async function renderIndexedEntryMarkdown(
 }
 
 /**
- * Render the full published corpus as one markdown document — the body of
- * the `llms-full.txt` route. One fetch hands an agent (or a RAG ingestion
- * job) every page as clean markdown, no crawling.
+ * Render the full published documentation as one Markdown document for the
+ * `llms-full.txt` route. One fetch returns every discoverable current page as
+ * clean Markdown, with no crawling.
  *
  * Scope matches the root `llms.txt`: the primary `docs` collection plus
  * every secondary collection, **excluding** non-current version collections
- * (`docs-<v>`) — old versions keep their own per-version surfaces and never
+ * (`docs-<v>`) — old versions keep their own per-version indexes and never
  * multiply this document — and **excluding** `noindex: true` pages (see
- * {@link isDiscoverable}), which stay addressable but off discovery surfaces.
+ * {@link isDiscoverable}), which stay addressable but off discovery indexes.
  *
- * Contract (see `buildCorpusMarkdown` for the collation rules):
+ * Contract (see `buildLlmsFullMarkdown` for the collation rules):
  *   - Entries are sorted by `url`; output is deterministic across rebuilds.
  *   - Each entry is a `#`-level block (bodies render at `##` and below).
  *   - The document header cross-references `/llms.txt`.
  *
- * The starter route stays policy-free and ~10 lines; a site that wants a
- * different corpus (per-version, filtered, chunked) reshapes its own route
- * on top of `getIndexedEntries()` + `renderEntryAsMarkdown()`. Pass Astro's
+ * The starter route reads the prepared full-document artifact. A site that wants
+ * a different policy (per-version, filtered, chunked) should prepare its own
+ * artifact at build time rather than compose runtime entry renderers, which do
+ * not carry build-only partial or API rendering context. Pass Astro's
  * `import.meta.env.BASE_URL` as `base` when the site supports sub-path deploys.
  */
-export async function renderCorpusMarkdown(options?: {
+export async function renderLlmsFullMarkdown(options?: {
   base?: string;
 }): Promise<string> {
   const config = await loadNimbusConfig();
@@ -565,7 +564,7 @@ export async function renderCorpusMarkdown(options?: {
     })),
   );
 
-  return buildCorpusMarkdown(blocks, {
+  return buildLlmsFullMarkdown(blocks, {
     title: config.title,
     description: config.description,
     site: config.site,
@@ -1099,11 +1098,6 @@ type ProsePageProps<C extends string> = {
   headings: { depth: number; text: string; slug: string }[];
 };
 
-interface LegacyPartialHeadingRouteOptions {
-  /** @deprecated Configure `twins.partialResolver` on the Nimbus integration. */
-  partialHeadings?: PartialHeadingOptions;
-}
-
 function proseResolutionResponse(
   astro: AstroGlobal,
   result: Exclude<PageResolution<ProsePage>, { status: "found" }>,
@@ -1120,7 +1114,6 @@ function proseResolutionResponse(
 async function resolveProseRoute<C extends string>(
   astro: AstroGlobal,
   collection: string | undefined,
-  partialHeadings: PartialHeadingOptions | undefined,
   missingPropsMessage: string,
 ): Promise<ProsePageProps<C> | Response> {
   const entry = (
@@ -1130,11 +1123,6 @@ async function resolveProseRoute<C extends string>(
   ).entry;
   if (!entry && astro.isPrerendered !== false) {
     throw new Error(missingPropsMessage);
-  }
-  if (partialHeadings) {
-    throw new Error(
-      "nimbus-docs: route-level partialHeadings moved to nimbus(config, { twins: { partialResolver: { revision, resolve } } }).",
-    );
   }
   const result = await resolveAstroProsePage(astro, collection);
   if (result.status !== "found") return proseResolutionResponse(astro, result);
@@ -1196,13 +1184,10 @@ export const getDocsStaticPaths: GetStaticPaths = async () => {
  *
  *   const { entry, Content, headings } = await getDocsPageProps(Astro);
  *
- * Configure custom partial ids through `twins.partialResolver` on the Nimbus
+ * Configure custom partial IDs through `markdown.partialResolver` on the Nimbus
  * integration so the resolver stays out of request-time Worker bundles.
  */
-export async function getDocsPageProps(
-  astro: AstroGlobal,
-  options?: LegacyPartialHeadingRouteOptions,
-): Promise<{
+export async function getDocsPageProps(astro: AstroGlobal): Promise<{
   entry: import("astro:content").CollectionEntry<"docs">;
   Content: import("astro/runtime/server/index.js").AstroComponentFactory;
   headings: { depth: number; text: string; slug: string }[];
@@ -1210,7 +1195,6 @@ export async function getDocsPageProps(
   const page = await resolveProseRoute<"docs">(
     astro,
     PRIMARY_COLLECTION,
-    options?.partialHeadings,
     "getDocsPageProps(): expected `entry` in Astro.props. " +
       "Ensure your route uses `getStaticPaths = getDocsStaticPaths` " +
       "(or passes an entry via custom getStaticPaths).",
@@ -1226,12 +1210,10 @@ export async function getDocsPageProps(
 
 export function getDocsPage(
   astro: AstroGlobal,
-  options?: LegacyPartialHeadingRouteOptions,
 ): Promise<ProsePageProps<"docs"> | Response> {
   return resolveProseRoute(
     astro,
     PRIMARY_COLLECTION,
-    options?.partialHeadings,
     "getDocsPageProps(): expected `entry` in Astro.props. " +
       "Ensure your route uses `getStaticPaths = getDocsStaticPaths` " +
       "(or passes an entry via custom getStaticPaths).",
@@ -1313,7 +1295,6 @@ export function getCollectionStaticPaths(collection: string): GetStaticPaths {
  */
 export async function getCollectionPageProps<C extends string>(
   astro: AstroGlobal,
-  options?: LegacyPartialHeadingRouteOptions,
 ): Promise<{
   entry: import("astro:content").CollectionEntry<C>;
   Content: import("astro/runtime/server/index.js").AstroComponentFactory;
@@ -1322,7 +1303,6 @@ export async function getCollectionPageProps<C extends string>(
   const page = await resolveProseRoute<C>(
     astro,
     undefined,
-    options?.partialHeadings,
     "getCollectionPageProps(): expected `entry` in Astro.props. " +
       "Ensure your route uses `getStaticPaths = getCollectionStaticPaths(<collection>)`.",
   );
@@ -1337,12 +1317,10 @@ export async function getCollectionPageProps<C extends string>(
 
 export function getCollectionPage<C extends string>(
   astro: AstroGlobal,
-  options?: LegacyPartialHeadingRouteOptions,
 ): Promise<ProsePageProps<C> | Response> {
   return resolveProseRoute(
     astro,
     undefined,
-    options?.partialHeadings,
     "getCollectionPageProps(): expected `entry` in Astro.props. " +
       "Ensure your route uses `getStaticPaths = getCollectionStaticPaths(<collection>)`.",
   );

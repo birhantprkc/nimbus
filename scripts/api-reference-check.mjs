@@ -849,7 +849,7 @@ async function assertArtifactsAndSmoke(dist) {
     "root llms.txt must link /api/llms.txt exactly once",
   );
   const apiIndex = await readFile(join(dist, "api", "llms.txt"), "utf8");
-  const corpus = await readFile(join(dist, "llms-full.txt"), "utf8");
+  const llmsFull = await readFile(join(dist, "llms-full.txt"), "utf8");
   const expectedMarkdownUrls = expectedRoutes
     .map((route) => absoluteUrl(`${route}/index.md`))
     .sort();
@@ -860,7 +860,7 @@ async function assertArtifactsAndSmoke(dist) {
       `api/llms.txt must contain ${markdownUrl} exactly once`,
     );
     assert(
-      occurrences(corpus, markdownUrl) === 1,
+      occurrences(llmsFull, markdownUrl) === 1,
       `llms-full.txt must contain ${markdownUrl} exactly once`,
     );
   }
@@ -870,7 +870,7 @@ async function assertArtifactsAndSmoke(dist) {
     "api/llms.txt API Markdown URL set differs from expected.json",
   );
   assert(
-    JSON.stringify(extractApiMarkdownUrls(corpus)) ===
+    JSON.stringify(extractApiMarkdownUrls(llmsFull)) ===
       JSON.stringify(expectedMarkdownUrls),
     "llms-full.txt API Markdown URL set differs from expected.json",
   );
@@ -1245,7 +1245,7 @@ async function assertBasePathMetadata() {
       await readFile(join(site, "dist-base", "api", "llms.txt"), "utf8"),
       [absoluteUrl("/docs/api/charges/create/index.md")],
     ],
-    "full corpus": [
+    "full documentation": [
       await readFile(join(site, "dist-base", "llms-full.txt"), "utf8"),
       [
         absoluteUrl("/docs/llms.txt"),

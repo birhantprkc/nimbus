@@ -149,7 +149,7 @@ describe("deriveResourceActionV1 — the two grammars and the action table", () 
     assert.equal(deriveResourceActionV1("GET", "/v1//charges", ["/v1"]), null);
     assert.equal(deriveResourceActionV1("GET", "//charges", undefined), null);
     assert.equal(deriveResourceActionV1("GET", "/", undefined), null);
-    // The clean twin still derives — proving the malformed variants aliased it.
+    // The clean counterpart still derives, proving the malformed variants aliased it.
     assert.equal(deriveResourceActionV1("GET", "/v1/charges", ["/v1"]), "charges/list");
   });
 
@@ -620,7 +620,7 @@ describe("resource-action-v1 keeps coordinate (citation) constraints on the oper
     );
   });
 
-  test("case-only-twin operationIds still warn under resource-action-v1", async () => {
+  test("case-only operationIds still warn under resource-action-v1", async () => {
     const { diagnostics } = await parseWith("rp-case-id", {
       "/v1/charges": { get: { operationId: "listCharge", ...OK } },
       "/v1/refunds": { get: { operationId: "listcharge", ...OK } },

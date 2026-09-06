@@ -11,7 +11,7 @@
 
 You are helping the user write a **concept** page for their Nimbus docs site — an understanding page for a reader who can already operate the product (or is about to) and wants the mental model: what a thing *is*, why it's designed this way, where its boundaries are ("What is X, really?"). Read this entire file before writing.
 
-The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/concept> — and its agent-readable twin at <https://nimbus-docs.com/writing/recipes/concept/index.md>. Fetch it if you need more depth than this handoff carries.
+The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/concept> — and its Markdown version at <https://nimbus-docs.com/writing/recipes/concept/index.md>. Fetch it if you need more depth than this handoff carries.
 
 ## 1. Discovery
 

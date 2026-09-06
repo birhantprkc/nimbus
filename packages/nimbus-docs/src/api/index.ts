@@ -66,7 +66,7 @@ export { renderApiPageMarkdown } from "../_internal/api/markdown.js";
 const modelStore = new WeakMap<object, DocsModel>();
 const handleCache = new Map<string, Promise<ApiModel>>();
 // Per-collection resolved-source cache, so repeated render-time `getApiModel`
-// calls (one per page, across the twin + HTML routes + corpus) don't re-read
+// calls across Markdown, HTML, and llms-full.txt routes don't re-read
 // and re-hash the whole spec file. Distinct from `handleCache` (content-keyed).
 const sourceCache = new Map<string, Promise<SpecSource>>();
 

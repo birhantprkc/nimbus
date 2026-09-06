@@ -22,16 +22,16 @@ import {
 } from "../src/_internal/prepared-markdown-registry.ts";
 import {
   bakePreparedHeadings,
-  bakePreparedTwins,
-  configureTwinArtifactRoot,
-  ensurePreparedTwins,
-  invalidatePreparedTwins,
-  isTwinArtifactRequested,
+  bakePreparedArtifacts,
+  configurePreparedArtifactRoot,
+  ensurePreparedArtifacts,
+  invalidatePreparedArtifacts,
+  isPreparedArtifactRequested,
   preparedHeadingsPlugin,
-  readPreparedCorpusArtifact,
-  readPreparedTwinArtifact,
-  registerTwinArtifactDemand,
-} from "../src/_internal/twin-artifacts.ts";
+  readPreparedLlmsArtifact,
+  readPreparedMarkdownArtifact,
+  registerPreparedArtifactDemand,
+} from "../src/_internal/prepared-artifacts.ts";
 
 const roots: string[] = [];
 const capability = { generation: 1, base: "/docs" };
@@ -44,7 +44,7 @@ afterEach(async () => {
 });
 
 async function root(): Promise<string> {
-  const value = await mkdtemp(path.join(os.tmpdir(), "nimbus-twins-"));
+  const value = await mkdtemp(path.join(os.tmpdir(), "nimbus-prepared-artifacts-"));
   roots.push(value);
   beginPreparedMarkdownSession(value);
   return value;
@@ -52,10 +52,10 @@ async function root(): Promise<string> {
 
 function configure(
   projectRoot: string,
-  options: Parameters<typeof bakePreparedTwins>[0],
+  options: Parameters<typeof bakePreparedArtifacts>[0],
 ): void {
-  configureTwinArtifactRoot(projectRoot, "build", () =>
-    bakePreparedTwins(options),
+  configurePreparedArtifactRoot(projectRoot, "build", () =>
+    bakePreparedArtifacts(options),
   );
 }
 
@@ -142,7 +142,7 @@ test("bakes compact headings with a revisioned partial resolver", async () => {
     },
   };
   configure(projectRoot, options);
-  const manifest = await bakePreparedTwins(options);
+  const manifest = await bakePreparedArtifacts(options);
   assert.deepEqual(manifest.headings, [
     {
       collection: "docs",
@@ -156,7 +156,7 @@ test("bakes compact headings with a revisioned partial resolver", async () => {
   ]);
   assert.match(
     (
-      await readPreparedTwinArtifact(projectRoot, {
+      await readPreparedMarkdownArtifact(projectRoot, {
         collection: "docs",
         id: "guide",
         surface: "source",
@@ -215,13 +215,13 @@ test("bakes expanded source and transformed Markdown artifacts deterministically
     },
   };
   configure(projectRoot, options);
-  const first = await bakePreparedTwins(options);
-  const second = await bakePreparedTwins(options);
+  const first = await bakePreparedArtifacts(options);
+  const second = await bakePreparedArtifacts(options);
   assert.deepEqual(second, first);
-  assert.equal(first.artifacts.length, 2);
-  assert.equal(first.corpora.length, 2);
+  assert.equal(first.markdownArtifacts.length, 2);
+  assert.equal(first.llmsArtifacts.length, 2);
 
-  const source = await readPreparedTwinArtifact(projectRoot, {
+  const source = await readPreparedMarkdownArtifact(projectRoot, {
     collection: "docs",
     id: "guide",
     surface: "source",
@@ -230,7 +230,7 @@ test("bakes expanded source and transformed Markdown artifacts deterministically
   assert.match(source.body, /## 😀/);
   assert.doesNotMatch(source.body, /<Render/);
 
-  const markdown = await readPreparedTwinArtifact(projectRoot, {
+  const markdown = await readPreparedMarkdownArtifact(projectRoot, {
     collection: "docs",
     id: "guide",
     surface: "markdown",
@@ -252,13 +252,13 @@ test("bakes expanded source and transformed Markdown artifacts deterministically
   assert.doesNotMatch(markdown.content, /Documentation Index|Source:|^---/m);
 
   const manifest = await readFile(
-    path.join(projectRoot, ".astro/nimbus/twins/manifest.json"),
+    path.join(projectRoot, ".astro/nimbus/prepared-artifacts/manifest.json"),
     "utf8",
   );
   assert.equal(manifest, `${JSON.stringify(first, null, 2)}\n`);
 });
 
-test("bakes site and section corpora from public discoverable prose and API pages", async () => {
+test("bakes site and section llms.txt artifacts from public discoverable prose and API pages", async () => {
   const projectRoot = await root();
   commit(projectRoot, "docs", [
     { id: "guide/a", body: "Guide A", data: { title: "Guide A" } },
@@ -330,9 +330,9 @@ test("bakes site and section corpora from public discoverable prose and API page
     ],
   };
   configure(projectRoot, options);
-  const manifest = await bakePreparedTwins(options);
+  const manifest = await bakePreparedArtifacts(options);
   assert.deepEqual(
-    manifest.corpora.map((artifact) =>
+    manifest.llmsArtifacts.map((artifact) =>
       artifact.scope === "site"
         ? `${artifact.scope}:${artifact.surface}`
         : `${artifact.scope}:${artifact.section}`,
@@ -340,7 +340,7 @@ test("bakes site and section corpora from public discoverable prose and API page
     ["section:api", "section:blog", "section:guide", "site:full", "site:index"],
   );
 
-  const index = await readPreparedCorpusArtifact(projectRoot, {
+  const index = await readPreparedLlmsArtifact(projectRoot, {
     scope: "site",
     surface: "index",
   });
@@ -358,7 +358,7 @@ test("bakes site and section corpora from public discoverable prose and API page
   );
   assert.doesNotMatch(index.body, /v1|Hidden/);
 
-  const guide = await readPreparedCorpusArtifact(projectRoot, {
+  const guide = await readPreparedLlmsArtifact(projectRoot, {
     scope: "section",
     surface: "index",
     section: "guide",
@@ -367,7 +367,7 @@ test("bakes site and section corpora from public discoverable prose and API page
   assert.match(guide.body, /Guide B.*Second guide/);
   assert.doesNotMatch(guide.body, /Hidden/);
 
-  const full = await readPreparedCorpusArtifact(projectRoot, {
+  const full = await readPreparedLlmsArtifact(projectRoot, {
     scope: "site",
     surface: "full",
   });
@@ -379,16 +379,16 @@ test("bakes site and section corpora from public discoverable prose and API page
   assert.doesNotMatch(full.body, /# Old|# Hidden|Secret API/);
 
   assert.ok(
-    manifest.artifacts.some(
+    manifest.markdownArtifacts.some(
       (artifact) => artifact.collection === "docs" && artifact.id === "hidden",
     ),
   );
   assert.ok(
-    manifest.artifacts.every((artifact) => artifact.collection !== "docs-v1"),
+    manifest.markdownArtifacts.every((artifact) => artifact.collection !== "docs-v1"),
   );
 });
 
-test("waits for API index transactions before caching corpus output", async () => {
+test("waits for API index transactions before caching llms.txt output", async () => {
   const projectRoot = await root();
   commit(projectRoot, "docs", [
     { id: "guide", body: "Guide", data: { title: "Guide" } },
@@ -404,8 +404,8 @@ test("waits for API index transactions before caching corpus output", async () =
   };
   let firstRead = true;
   let update: Promise<void> | undefined;
-  configureTwinArtifactRoot(projectRoot, "dev", () => {
-    return bakePreparedTwins({
+  configurePreparedArtifactRoot(projectRoot, "dev", () => {
+    return bakePreparedArtifacts({
       ...options,
       loadApiEntries: async () => {
         const captured = apiEntries;
@@ -425,9 +425,9 @@ test("waits for API index transactions before caching corpus output", async () =
     });
   });
 
-  await ensurePreparedTwins(projectRoot);
+  await ensurePreparedArtifacts(projectRoot);
   await update;
-  const full = await readPreparedCorpusArtifact(projectRoot, {
+  const full = await readPreparedLlmsArtifact(projectRoot, {
     scope: "site",
     surface: "full",
   });
@@ -449,25 +449,25 @@ test("rebakes when invalidated during API input loading", async () => {
   };
   let bakes = 0;
   let reads = 0;
-  configureTwinArtifactRoot(projectRoot, "dev", () => {
+  configurePreparedArtifactRoot(projectRoot, "dev", () => {
     bakes += 1;
-    return bakePreparedTwins({
+    return bakePreparedArtifacts({
       ...options,
       loadApiEntries: async () => {
         reads += 1;
-        if (reads === 1) invalidatePreparedTwins(projectRoot);
+        if (reads === 1) invalidatePreparedArtifacts(projectRoot);
         return [apiPage(reads === 1 ? "Old API" : "New API")];
       },
     });
   });
 
-  const manifest = await ensurePreparedTwins(projectRoot);
+  const manifest = await ensurePreparedArtifacts(projectRoot);
   assert.equal(bakes, 2);
   assert.deepEqual(
     (
-      await readdir(path.join(projectRoot, ".astro/nimbus/twins/artifacts"))
+      await readdir(path.join(projectRoot, ".astro/nimbus/prepared-artifacts/artifacts"))
     ).sort(),
-    [...manifest.artifacts, ...manifest.corpora]
+    [...manifest.markdownArtifacts, ...manifest.llmsArtifacts]
       .map((artifact) => path.basename(artifact.path))
       .sort(),
   );
@@ -491,8 +491,8 @@ test("rejects page collisions and unsafe section route parameters", async () => 
     indexedCollections: ["docs"],
   };
   await assert.rejects(
-    bakePreparedTwins(options),
-    /guide\/llms\.txt.*collides with the generated corpus route/s,
+    bakePreparedArtifacts(options),
+    /guide\/llms\.txt.*collides with the generated llms.txt route/s,
   );
 
   commit(projectRoot, "docs", [
@@ -500,14 +500,14 @@ test("rejects page collisions and unsafe section route parameters", async () => 
     { id: "guide/index", body: "Index", data: { title: "Index" } },
   ]);
   await assert.rejects(
-    bakePreparedTwins(options),
-    /guide\/index.*collides with.*docs:guide.*generated twin route/s,
+    bakePreparedArtifacts(options),
+    /guide\/index.*collides with.*docs:guide.*generated Markdown route/s,
   );
 
   commit(projectRoot, "docs", [
     { id: "../secret", body: "Secret", data: { title: "Secret" } },
   ]);
-  await assert.rejects(bakePreparedTwins(options), /section slug is unsafe/);
+  await assert.rejects(bakePreparedArtifacts(options), /section slug is unsafe/);
 
   commit(projectRoot, "docs", [
     {
@@ -516,7 +516,7 @@ test("rejects page collisions and unsafe section route parameters", async () => 
       data: { title: "Secret" },
     },
   ]);
-  await assert.rejects(bakePreparedTwins(options), /unsafe entry ID/);
+  await assert.rejects(bakePreparedArtifacts(options), /unsafe entry ID/);
 
   commit(projectRoot, "docs", [
     { id: "%67uide/a", body: "A", data: { title: "A" } },
@@ -528,12 +528,12 @@ test("rejects page collisions and unsafe section route parameters", async () => 
     },
   ]);
   await assert.rejects(
-    bakePreparedTwins(options),
-    /guide\/llms\.txt.*collides with the generated corpus route/s,
+    bakePreparedArtifacts(options),
+    /guide\/llms\.txt.*collides with the generated llms.txt route/s,
   );
 });
 
-test("uses locale-independent ordering in corpus indexes", async () => {
+test("uses locale-independent ordering in llms.txt indexes", async () => {
   const projectRoot = await root();
   const ids = ["zulu", "Alpha", "äther"];
   commit(
@@ -549,8 +549,8 @@ test("uses locale-independent ordering in corpus indexes", async () => {
     indexedCollections: ["docs"],
   };
   configure(projectRoot, options);
-  await bakePreparedTwins(options);
-  const index = await readPreparedCorpusArtifact(projectRoot, {
+  await bakePreparedArtifacts(options);
+  const index = await readPreparedLlmsArtifact(projectRoot, {
     scope: "site",
     surface: "index",
   });
@@ -575,8 +575,8 @@ test("preserves protocol-relative social images", async () => {
     indexedCollections: ["docs"],
   };
   configure(projectRoot, options);
-  await bakePreparedTwins(options);
-  const markdown = await readPreparedTwinArtifact(projectRoot, {
+  await bakePreparedArtifacts(options);
+  const markdown = await readPreparedMarkdownArtifact(projectRoot, {
     collection: "docs",
     id: "guide",
     surface: "markdown",
@@ -595,7 +595,7 @@ test("resolves the complete audience before touching partials", async () => {
     { id: "public", body: "Public", data: { title: "Public" } },
   ]);
 
-  const manifest = await bakePreparedTwins({
+  const manifest = await bakePreparedArtifacts({
     root: projectRoot,
     base: "/docs",
     site: "https://example.test",
@@ -603,7 +603,7 @@ test("resolves the complete audience before touching partials", async () => {
     indexedCollections: ["docs"],
   });
   assert.deepEqual(
-    manifest.artifacts.map(({ id, surface }) => [id, surface]),
+    manifest.markdownArtifacts.map(({ id, surface }) => [id, surface]),
     [
       ["public", "markdown"],
       ["public", "source"],
@@ -631,7 +631,7 @@ test("fails closed for unknown audiences and invalid transitive partials", async
     indexedCollections: ["docs"],
   };
   await assert.rejects(
-    bakePreparedTwins(options),
+    bakePreparedArtifacts(options),
     /exclude.*partials:hidden|excluded partial/s,
   );
 
@@ -643,7 +643,7 @@ test("fails closed for unknown audiences and invalid transitive partials", async
     },
   ]);
   await assert.rejects(
-    bakePreparedTwins(options),
+    bakePreparedArtifacts(options),
     /visibility is unknown.*docs:guide/s,
   );
 });
@@ -651,7 +651,7 @@ test("fails closed for unknown audiences and invalid transitive partials", async
 test("rejects unprepared collections and stale collection capabilities", async () => {
   const projectRoot = await root();
   await assert.rejects(
-    bakePreparedTwins({
+    bakePreparedArtifacts({
       root: projectRoot,
       base: "/docs",
       site: "https://example.test",
@@ -674,7 +674,7 @@ test("rejects unprepared collections and stale collection capabilities", async (
     [{ id: "guide", body: "Guide", data: { title: "Guide" } }] as never,
   );
   await assert.rejects(
-    bakePreparedTwins({
+    bakePreparedArtifacts({
       root: projectRoot,
       base: "/docs",
       site: "https://example.test",
@@ -685,7 +685,7 @@ test("rejects unprepared collections and stale collection capabilities", async (
   );
 });
 
-test("prepares headings without requiring every indexed collection to support twins", async () => {
+test("prepares headings without requiring every indexed collection to support prepared Markdown", async () => {
   const projectRoot = await root();
   commit(projectRoot, "docs", [
     {
@@ -713,13 +713,13 @@ test("prepares headings without requiring every indexed collection to support tw
     ["docs:guide"],
   );
 
-  let twinBakes = 0;
-  configureTwinArtifactRoot(
+  let artifactBakes = 0;
+  configurePreparedArtifactRoot(
     projectRoot,
     "build",
     async () => {
-      twinBakes += 1;
-      throw new Error("strict twin bake should not run");
+      artifactBakes += 1;
+      throw new Error("strict artifact bake should not run");
     },
     () =>
       bakePreparedHeadings({
@@ -732,7 +732,7 @@ test("prepares headings without requiring every indexed collection to support tw
   const plugin = preparedHeadingsPlugin(projectRoot);
   const resolved = plugin.resolveId("virtual:nimbus/headings")!;
   const source = await plugin.load(resolved);
-  assert.equal(twinBakes, 0);
+  assert.equal(artifactBakes, 0);
   assert.match(source ?? "", /export const base = "\/docs"/u);
   assert.match(source ?? "", /"collection":"docs","id":"guide"/u);
   assert.doesNotMatch(source ?? "", /bodyless|unwrapped/u);
@@ -764,14 +764,14 @@ test("joins concurrent rebakes and rejects symlinked artifact roots", async () =
     indexedCollections: ["docs"],
   };
   let calls = 0;
-  configureTwinArtifactRoot(projectRoot, "dev", async () => {
+  configurePreparedArtifactRoot(projectRoot, "dev", async () => {
     calls += 1;
     await new Promise((resolve) => setTimeout(resolve, 10));
-    return bakePreparedTwins(options);
+    return bakePreparedArtifacts(options);
   });
   const [first, second] = await Promise.all([
-    ensurePreparedTwins(projectRoot),
-    ensurePreparedTwins(projectRoot),
+    ensurePreparedArtifacts(projectRoot),
+    ensurePreparedArtifacts(projectRoot),
   ]);
   assert.deepEqual(second, first);
   assert.equal(calls, 1);
@@ -782,9 +782,9 @@ test("joins concurrent rebakes and rejects symlinked artifact roots", async () =
   ]);
   const outside = await root();
   await mkdir(path.join(escapedRoot, ".astro/nimbus"), { recursive: true });
-  await symlink(outside, path.join(escapedRoot, ".astro/nimbus/twins"), "dir");
+  await symlink(outside, path.join(escapedRoot, ".astro/nimbus/prepared-artifacts"), "dir");
   await assert.rejects(
-    bakePreparedTwins({ ...options, root: escapedRoot }),
+    bakePreparedArtifacts({ ...options, root: escapedRoot }),
     /symbolic link/,
   );
 });
@@ -810,9 +810,9 @@ test("queues a follow-up bake when invalidated during in-flight work", async () 
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  configureTwinArtifactRoot(projectRoot, "dev", async () => {
+  configurePreparedArtifactRoot(projectRoot, "dev", async () => {
     calls += 1;
-    const manifest = await bakePreparedTwins(options);
+    const manifest = await bakePreparedArtifacts(options);
     if (calls === 1) {
       entered?.();
       await gate;
@@ -820,9 +820,9 @@ test("queues a follow-up bake when invalidated during in-flight work", async () 
     return manifest;
   });
 
-  const read = ensurePreparedTwins(projectRoot);
+  const read = ensurePreparedArtifacts(projectRoot);
   await started;
-  invalidatePreparedTwins(projectRoot);
+  invalidatePreparedArtifacts(projectRoot);
   release?.();
   await read;
   assert.equal(calls, 2);
@@ -842,20 +842,20 @@ test("removes artifacts made obsolete by edits and deletions", async () => {
     indexedCollections: ["docs"],
   };
   configure(projectRoot, options);
-  await bakePreparedTwins(options);
+  await bakePreparedArtifacts(options);
 
   configure(projectRoot, options);
 
   commit(projectRoot, "docs", [
     { id: "guide", body: "New guide", data: { title: "Guide" } },
   ]);
-  const manifest = await bakePreparedTwins(options);
+  const manifest = await bakePreparedArtifacts(options);
   const files = await readdir(
-    path.join(projectRoot, ".astro/nimbus/twins/artifacts"),
+    path.join(projectRoot, ".astro/nimbus/prepared-artifacts/artifacts"),
   );
   assert.deepEqual(
     files.sort(),
-    [...manifest.artifacts, ...manifest.corpora]
+    [...manifest.markdownArtifacts, ...manifest.llmsArtifacts]
       .map((artifact) => path.basename(artifact.path))
       .sort(),
   );
@@ -871,9 +871,9 @@ test("scopes artifact demand to the current configuration session", async () => 
     indexedCollections: ["docs"],
   };
   configure(projectRoot, options);
-  registerTwinArtifactDemand(projectRoot);
-  assert.equal(isTwinArtifactRequested(projectRoot), true);
+  registerPreparedArtifactDemand(projectRoot);
+  assert.equal(isPreparedArtifactRequested(projectRoot), true);
 
   configure(projectRoot, options);
-  assert.equal(isTwinArtifactRequested(projectRoot), false);
+  assert.equal(isPreparedArtifactRequested(projectRoot), false);
 });

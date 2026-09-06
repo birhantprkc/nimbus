@@ -1,4 +1,4 @@
-// Tests the pure corpus collation behind `renderCorpusMarkdown()` /
+// Tests the pure full-documentation collation behind `renderLlmsFullMarkdown()` /
 // `llms-full.txt`: deterministic ordering, `#`-level block shape, header
 // cross-reference, and URL absolutization.
 
@@ -6,9 +6,9 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  buildCorpusMarkdown,
-  type CorpusBlock,
-} from "../src/_internal/corpus.ts";
+  buildLlmsFullMarkdown,
+  type LlmsFullBlock,
+} from "../src/_internal/llms-full.ts";
 
 const HEADER = {
   title: "Acme Docs",
@@ -16,7 +16,7 @@ const HEADER = {
   site: "https://docs.acme.dev",
 };
 
-function block(overrides: Partial<CorpusBlock>): CorpusBlock {
+function block(overrides: Partial<LlmsFullBlock>): LlmsFullBlock {
   return {
     title: "Page",
     description: undefined,
@@ -27,9 +27,9 @@ function block(overrides: Partial<CorpusBlock>): CorpusBlock {
   };
 }
 
-describe("buildCorpusMarkdown", () => {
+describe("buildLlmsFullMarkdown", () => {
   test("sorts blocks by url regardless of input order", () => {
-    const out = buildCorpusMarkdown(
+    const out = buildLlmsFullMarkdown(
       [
         block({ title: "Zulu", url: "/zulu/" }),
         block({ title: "Alpha", url: "/alpha/" }),
@@ -45,7 +45,7 @@ describe("buildCorpusMarkdown", () => {
   });
 
   test("sorts non-ASCII URLs without locale-dependent collation", () => {
-    const out = buildCorpusMarkdown(
+    const out = buildLlmsFullMarkdown(
       [
         block({ title: "Aether", url: "/äther/" }),
         block({ title: "Zulu", url: "/zulu/" }),
@@ -62,13 +62,13 @@ describe("buildCorpusMarkdown", () => {
       block({ title: "B", url: "/b/" }),
       block({ title: "A", url: "/a/" }),
     ];
-    const a = buildCorpusMarkdown(blocks, HEADER);
-    const b = buildCorpusMarkdown([...blocks].reverse(), HEADER);
+    const a = buildLlmsFullMarkdown(blocks, HEADER);
+    const b = buildLlmsFullMarkdown([...blocks].reverse(), HEADER);
     assert.equal(a, b);
   });
 
   test("header opens with the site title and cross-references /llms.txt", () => {
-    const out = buildCorpusMarkdown([], HEADER);
+    const out = buildLlmsFullMarkdown([], HEADER);
     assert.ok(out.startsWith("# Acme Docs\n"));
     assert.ok(out.includes("> Documentation for Acme."));
     assert.ok(out.includes("Index: https://docs.acme.dev/llms.txt"));
@@ -76,19 +76,19 @@ describe("buildCorpusMarkdown", () => {
 
   test("absolutizes URLs against site; stays relative without one", () => {
     const blocks = [block({ url: "/guide/", markdownUrl: "/guide/index.md" })];
-    const abs = buildCorpusMarkdown(blocks, HEADER);
+    const abs = buildLlmsFullMarkdown(blocks, HEADER);
     assert.ok(
       abs.includes(
         "Source: https://docs.acme.dev/guide/ · Markdown: https://docs.acme.dev/guide/index.md",
       ),
     );
-    const rel = buildCorpusMarkdown(blocks, { title: "Acme Docs" });
+    const rel = buildLlmsFullMarkdown(blocks, { title: "Acme Docs" });
     assert.ok(rel.includes("Source: /guide/ · Markdown: /guide/index.md"));
     assert.ok(rel.includes("Index: /llms.txt"));
   });
 
-  test("prefixes absolute corpus URLs with the deployment base", () => {
-    const out = buildCorpusMarkdown(
+  test("prefixes absolute full-documentation URLs with the deployment base", () => {
+    const out = buildLlmsFullMarkdown(
       [block({ url: "/guide/", markdownUrl: "/guide/index.md" })],
       { ...HEADER, base: "/docs/" },
     );
@@ -98,7 +98,7 @@ describe("buildCorpusMarkdown", () => {
         "Source: https://docs.acme.dev/docs/guide/ · Markdown: https://docs.acme.dev/docs/guide/index.md",
       ),
     );
-    const relative = buildCorpusMarkdown([], {
+    const relative = buildLlmsFullMarkdown([], {
       title: "Acme Docs",
       base: "/docs/",
     });
@@ -106,7 +106,7 @@ describe("buildCorpusMarkdown", () => {
   });
 
   test("applies the base to logical paths that share its first segment", () => {
-    const out = buildCorpusMarkdown(
+    const out = buildLlmsFullMarkdown(
       [block({ url: "/docs/guide/", markdownUrl: "/docs/guide/index.md" })],
       { ...HEADER, base: "/docs" },
     );
@@ -118,12 +118,12 @@ describe("buildCorpusMarkdown", () => {
   });
 
   test("omits the description blockquote when absent — no empty lines", () => {
-    const out = buildCorpusMarkdown(
+    const out = buildLlmsFullMarkdown(
       [block({ title: "NoDesc", description: undefined })],
       { title: "T" },
     );
     assert.ok(out.includes("# NoDesc\n\nSource: "));
-    const withDesc = buildCorpusMarkdown(
+    const withDesc = buildLlmsFullMarkdown(
       [block({ title: "HasDesc", description: "About this." })],
       { title: "T" },
     );
@@ -131,7 +131,7 @@ describe("buildCorpusMarkdown", () => {
   });
 
   test("every block appears exactly once", () => {
-    const out = buildCorpusMarkdown(
+    const out = buildLlmsFullMarkdown(
       [
         block({ title: "One", url: "/one/" }),
         block({ title: "Two", url: "/two/" }),

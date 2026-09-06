@@ -1,0 +1,53 @@
+---
+title: Docs for agents
+description: Make documentation available to AI tools through Markdown versions, llms.txt indexes, and structured metadata.
+aiGenerated: true
+sidebar:
+  order: 1
+---
+
+Nimbus publishes documentation in formats that AI tools can read without parsing the HTML site.
+
+## What ships
+
+- **Two Markdown versions for every discoverable authored page** — `/<slug>/index.md` contains clean Markdown with components converted to text, while `/<slug>/index.mdx` retains imports, JSX, and directives. Nimbus resolves links and reusable snippets during the build. The `.md` version links to its `.mdx` source. Hidden documentation versions do not emit either file.
+- **A site index at `/llms.txt`** — names top-level pages and section indexes. Each section index links its discoverable pages to their Markdown versions.
+- **The full documentation at `/llms-full.txt`** — discoverable pages in one Markdown file, excluding non-current prose versions. AI tools and indexing systems can fetch the current site in one request. Nimbus generates it during the build so rebuilds are byte-identical.
+- **Per-section indexes at `/<section>/llms.txt`** — each top-level group and collection (e.g. a `blog` or a docs version) gets its own index.
+- **Version labels** — on versioned sites, every Markdown version's frontmatter carries a `version:` key (resolved from your `versions` manifest) so agents can pin a version. Unversioned sites emit nothing.
+- **JSON-LD in every page head** — structured data so search and agent tools recognize what they're looking at.
+- **`/robots.txt` and a sitemap** — wired automatically when `site` is set.
+
+```text title="/llms.txt"
+# Nimbus
+
+A way to build documentation sites on top of Astro.
+
+## Pages
+- [Get started](https://nimbus-docs.com/get-started/index.md)
+- [Installation](https://nimbus-docs.com/installation/index.md)
+```
+
+## How pages are indexed
+
+Indexing is multi-collection by default and schema-tolerant — every prepared collection registered in `src/content.config.ts` (except `partials` and reserved names) is walked, reading `title` and `description` when present. There is no per-page opt-in; all discoverable pages are listed. Hidden versions are excluded, and `/llms-full.txt` omits non-current prose versions.
+
+Markdown versions and `llms.txt` files are public build outputs. Request-time authorization cannot protect them. Keep private material outside public content collections. Nimbus omits excluded entries and fails the build when it cannot determine whether content is public.
+
+To keep a page **out** of the `llms.txt` indexes, set `draft: true` (excluded entirely) or `noindex: true`. A page that should never be agent-readable belongs outside the content collection altogether.
+
+### Custom content loaders
+
+Nimbus's collection factories prepare Markdown automatically. If a custom loader retains Markdown bodies for per-page Markdown versions or `llms-full.txt`, wrap it with `withNimbusMarkdown()` from `@cloudflare/nimbus-docs/content`. See [Other collections](/writing/pages-and-routing#other-collections) for a complete example.
+
+## Route setup
+
+New projects include these routes. To add or update them in an existing project, follow [Publish Markdown](/ai/publish-markdown).
+
+## AGENT.md
+
+The scaffolder writes an `AGENT.md` at the project root — the same context a coding agent reads when working in your repo. It's a real file you maintain; keep it in sync with your project's conventions.
+
+## Why it matters
+
+The cost of being a dead end on the agent web is real and growing. Because these files and metadata are defaults, a Nimbus site is legible to agents the day it ships — see [Metadata and SEO](/ai/metadata-and-seo) for the human-search side.

@@ -2,7 +2,7 @@
  * The spine model: the persisted docs model every API output consumes.
  *
  * One producer (the protocol front-end), one shared model, five consumers
- * (HTML, markdown twin, JSON twin, search index, changelog). Facts are written
+ * (HTML, Markdown, JSON, search index, changelog). Facts are written
  * only at parse/diff time by the front-end; annotations are written only by the
  * spine from verified overlay patches. The two shapes are deliberately separate
  * so a renderer cannot merge a type override into facts.
@@ -46,7 +46,7 @@ export interface Node {
 export interface Annotations {
   /** Markdown. */
   description?: string;
-  /** Authored extras — twins label them "authored". */
+  /** Authored extras — generated representations label them "authored". */
   examples?: Example[];
   /** The escape valve: one mechanism with per-field entries. */
   overrides?: AuditedOverride[];

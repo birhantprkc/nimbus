@@ -122,7 +122,7 @@ export interface MediaExample {
 }
 
 // A resolved example is capped so a hostile multi-MB authored example cannot
-// bloat every page and the agent-facing markdown twin. Over-budget values are
+// bloat every page and its generated Markdown. Over-budget values are
 // dropped (never truncated to invalid JSON); sampler output is depth-bounded and
 // effectively never hits this.
 const EXAMPLE_BYTE_BUDGET = 24_576;

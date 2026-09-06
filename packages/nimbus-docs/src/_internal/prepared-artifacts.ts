@@ -20,7 +20,7 @@ import {
   collectionMountPrefix,
   PRIMARY_COLLECTION,
 } from "./collection-mount.js";
-import { buildCorpusMarkdown, type CorpusBlock } from "./corpus.js";
+import { buildLlmsFullMarkdown, type LlmsFullBlock } from "./llms-full.js";
 import { isDiscoverable } from "./discoverability.js";
 import { mergePartialHeadings } from "./partial-headings.js";
 import {
@@ -38,29 +38,21 @@ import {
 } from "./prepared-markdown-registry.js";
 import {
   renderEntryAsMarkdown,
-  type MarkdownComponentRenderer,
 } from "./transform.js";
 import { toBrowserHref, toRouteKey, withBase } from "./url.js";
+import type {
+  GeneratedMarkdownComponentTransform,
+  GeneratedMarkdownPartialResolver,
+  PreparedLlmsArtifact,
+  PreparedLlmsReference,
+  PreparedMarkdownArtifact,
+  PreparedMarkdownReference,
+} from "../types.js";
 
-export const TWIN_MANIFEST_VERSION = 3;
-export const TWIN_NORMALIZER_GENERATION = 1;
+export const PREPARED_ARTIFACT_MANIFEST_VERSION = 4;
+export const PREPARED_ARTIFACT_GENERATION = 1;
 
-export type TwinSurface = "markdown" | "source";
-
-export interface PreparedTwinReference {
-  collection: string;
-  id: string;
-  surface: TwinSurface;
-}
-
-export interface PreparedTwinArtifact extends PreparedTwinReference {
-  digest: string;
-  mediaType: string;
-  body: string;
-  content: string;
-}
-
-export interface TwinManifestArtifact extends PreparedTwinReference {
+export interface PreparedMarkdownManifestArtifact extends PreparedMarkdownReference {
   digest: string;
   mediaType: string;
   path: string;
@@ -68,48 +60,28 @@ export interface TwinManifestArtifact extends PreparedTwinReference {
   contentEnd: number;
 }
 
-export type PreparedCorpusReference =
-  | { scope: "site"; surface: "index" | "full" }
-  | { scope: "section"; surface: "index"; section: string };
-
-export type CorpusManifestArtifact = PreparedCorpusReference & {
+export type PreparedLlmsManifestArtifact = PreparedLlmsReference & {
   digest: string;
   mediaType: string;
   path: string;
 };
 
-export type PreparedCorpusArtifact = PreparedCorpusReference & {
-  digest: string;
-  mediaType: string;
-  body: string;
-};
-
-export interface TwinManifest {
-  version: 3;
+export interface PreparedArtifactManifest {
+  version: 4;
   generation: number;
   base: string;
   audience: "public";
-  artifacts: TwinManifestArtifact[];
-  corpora: CorpusManifestArtifact[];
+  markdownArtifacts: PreparedMarkdownManifestArtifact[];
+  llmsArtifacts: PreparedLlmsManifestArtifact[];
   headings: PreparedHeadingRecord[];
 }
 
-export type PublicTwinDecision =
+export type PreparedArtifactPublicationDecision =
   | { status: "include" }
   | { status: "exclude"; reason: string }
   | { status: "unknown"; reason: string };
 
-export interface TwinComponentTransform {
-  revision: string;
-  render: MarkdownComponentRenderer;
-}
-
-export interface TwinPartialResolver {
-  revision: string;
-  resolve: (attrs: { file: string; product: string | undefined }) => string;
-}
-
-export interface BakePreparedTwinsOptions {
+export interface BakePreparedArtifactsOptions {
   root: URL | string;
   base: string;
   site: string;
@@ -124,21 +96,21 @@ export interface BakePreparedTwinsOptions {
     hidden?: readonly string[];
   };
   citationIndex?: ReadonlyMap<string, string>;
-  componentMap?: Record<string, TwinComponentTransform>;
-  partialResolver?: TwinPartialResolver;
-  decidePublic?: (entry: PreparedMarkdownEntry) => PublicTwinDecision;
-  apiEntries?: readonly PreparedApiCorpusEntry[];
-  loadApiEntries?: () => Promise<readonly PreparedApiCorpusEntry[]>;
+  componentMap?: Record<string, GeneratedMarkdownComponentTransform>;
+  partialResolver?: GeneratedMarkdownPartialResolver;
+  decidePublic?: (entry: PreparedMarkdownEntry) => PreparedArtifactPublicationDecision;
+  apiEntries?: readonly PreparedLlmsApiEntry[];
+  loadApiEntries?: () => Promise<readonly PreparedLlmsApiEntry[]>;
 }
 
 export interface BakePreparedHeadingsOptions {
   root: URL | string;
   base: string;
   indexedCollections: readonly string[];
-  partialResolver?: TwinPartialResolver;
+  partialResolver?: GeneratedMarkdownPartialResolver;
 }
 
-export interface PreparedApiCorpusEntry {
+export interface PreparedLlmsApiEntry {
   collection: string;
   id: string;
   data: Record<string, unknown>;
@@ -157,22 +129,24 @@ interface ArtifactState {
     string,
     {
       mode: "build" | "dev";
-      bake: () => Promise<TwinManifest>;
+      bake: () => Promise<PreparedArtifactManifest>;
       bakeHeadings?: () => Promise<PreparedHeadingRecord[]>;
       headingsBase?: string;
       bakedRevision?: number;
       invalidation: number;
       bakedInvalidation?: number;
-      inFlight?: Promise<TwinManifest>;
-      manifest?: TwinManifest;
-      artifacts?: Map<string, TwinManifestArtifact>;
-      corpora?: Map<string, CorpusManifestArtifact>;
+      inFlight?: Promise<PreparedArtifactManifest>;
+      manifest?: PreparedArtifactManifest;
+      markdownArtifacts?: Map<string, PreparedMarkdownManifestArtifact>;
+      llmsArtifacts?: Map<string, PreparedLlmsManifestArtifact>;
       headings?: Map<string, PreparedHeadingRecord>;
     }
   >;
 }
 
-const STATE_KEY = Symbol.for("@cloudflare/nimbus-docs/twin-artifacts/v1");
+const STATE_KEY = Symbol.for(
+  "@cloudflare/nimbus-docs/prepared-artifacts/v1",
+);
 const stateGlobal = globalThis as typeof globalThis & {
   [STATE_KEY]?: ArtifactState;
 };
@@ -194,15 +168,11 @@ function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function compareCorpus(a: string, b: string): number {
-  return compare(a, b);
-}
-
-function artifactKey(reference: PreparedTwinReference): string {
+function artifactKey(reference: PreparedMarkdownReference): string {
   return `${reference.collection}\0${reference.id}\0${reference.surface}`;
 }
 
-function corpusKey(reference: PreparedCorpusReference): string {
+function preparedLlmsKey(reference: PreparedLlmsReference): string {
   return reference.scope === "site"
     ? `${reference.scope}\0${reference.surface}`
     : `${reference.scope}\0${reference.section}\0${reference.surface}`;
@@ -213,7 +183,7 @@ function headingKey(collection: string, id: string): string {
 }
 
 function artifactRoot(root: URL | string): string {
-  return path.join(preparedMarkdownRootKey(root), ".astro", "nimbus", "twins");
+  return path.join(preparedMarkdownRootKey(root), ".astro", "nimbus", "prepared-artifacts");
 }
 
 async function assertNoSymlink(root: string, target: string): Promise<void> {
@@ -224,7 +194,7 @@ async function assertNoSymlink(root: string, target: string): Promise<void> {
     try {
       if ((await lstat(current)).isSymbolicLink()) {
         throw new Error(
-          `nimbus-docs: twin artifact path contains a symbolic link: ${current}.`,
+          `nimbus-docs: prepared artifact path contains a symbolic link: ${current}.`,
         );
       }
     } catch (error) {
@@ -253,12 +223,12 @@ async function writeArtifact(file: string, body: string): Promise<boolean> {
     const info = await lstat(file);
     if (!info.isFile() || info.isSymbolicLink()) {
       throw new Error(
-        `nimbus-docs: twin artifact is not a regular file: ${file}.`,
+        `nimbus-docs: prepared artifact is not a regular file: ${file}.`,
       );
     }
     if ((await readFile(file, "utf8")) !== body) {
       throw new Error(
-        `nimbus-docs: content-addressed twin artifact collision at ${file}.`,
+        `nimbus-docs: content-addressed prepared artifact collision at ${file}.`,
       );
     }
     return false;
@@ -267,7 +237,7 @@ async function writeArtifact(file: string, body: string): Promise<boolean> {
 
 async function writeManifest(
   directory: string,
-  manifest: TwinManifest,
+  manifest: PreparedArtifactManifest,
 ): Promise<void> {
   const temporary = path.join(
     directory,
@@ -303,12 +273,12 @@ function beginArtifactRead(root: string): () => void {
 async function cleanupArtifacts(
   root: string,
   directory: string,
-  manifest: TwinManifest,
+  manifest: PreparedArtifactManifest,
 ): Promise<void> {
   const pendingReaders = artifactState.readers.get(root)?.idle;
   if (pendingReaders) await pendingReaders;
   const retained = new Set(
-    [...manifest.artifacts, ...manifest.corpora].map(
+    [...manifest.markdownArtifacts, ...manifest.llmsArtifacts].map(
       (artifact) => artifact.path,
     ),
   );
@@ -329,10 +299,10 @@ async function cleanupArtifacts(
 async function publishManifest(
   root: string,
   directory: string,
-  manifest: TwinManifest,
-  previous: TwinManifest | undefined,
+  manifest: PreparedArtifactManifest,
+  previous: PreparedArtifactManifest | undefined,
   isFresh: () => boolean,
-  artifacts: ReadonlyArray<{ path: string; body: string }>,
+  preparedArtifacts: ReadonlyArray<{ path: string; body: string }>,
   onPublished: () => void | Promise<void>,
 ): Promise<boolean> {
   const prior = artifactState.publications.get(root) ?? Promise.resolve();
@@ -343,7 +313,7 @@ async function publishManifest(
     const removeCreated = async () => {
       const retained = new Set(
         previous
-          ? [...previous.artifacts, ...previous.corpora].map(
+          ? [...previous.markdownArtifacts, ...previous.llmsArtifacts].map(
               (artifact) => artifact.path,
             )
           : [],
@@ -358,7 +328,7 @@ async function publishManifest(
     };
     try {
       const writes = await Promise.allSettled(
-        artifacts.map(async (artifact) => {
+        preparedArtifacts.map(async (artifact) => {
           if (
             await writeArtifact(
               path.join(directory, artifact.path),
@@ -417,7 +387,7 @@ function assertPreparedCollection(
   const expected = preparedMarkdownCollectionCapability(
     name,
     collection.entries.values(),
-    { generation: TWIN_NORMALIZER_GENERATION, base },
+    { generation: PREPARED_ARTIFACT_GENERATION, base },
   );
   if (
     collection.capability.generation !== expected.generation ||
@@ -426,13 +396,13 @@ function assertPreparedCollection(
   ) {
     throw new Error(
       `nimbus-docs: cannot bake collection "${name}" because its bodies were not prepared ` +
-        `for generation ${TWIN_NORMALIZER_GENERATION} and base ${JSON.stringify(base)}. ` +
+        `for generation ${PREPARED_ARTIFACT_GENERATION} and base ${JSON.stringify(base)}. ` +
         "Use withNimbusMarkdown(loader) for custom body-retaining loaders.",
     );
   }
 }
 
-function defaultDecision(entry: PreparedMarkdownEntry): PublicTwinDecision {
+function defaultDecision(entry: PreparedMarkdownEntry): PreparedArtifactPublicationDecision {
   if (entry.data.draft === true) return { status: "exclude", reason: "draft" };
   if (
     entry.data.visibility === undefined ||
@@ -469,7 +439,7 @@ function withArtifactBase(base: string, pathname: string): string {
 
 function entryVersion(
   entry: PreparedMarkdownEntry,
-  versions: BakePreparedTwinsOptions["versions"],
+  versions: BakePreparedArtifactsOptions["versions"],
 ): string | undefined {
   if (typeof entry.data.version === "string") return entry.data.version;
   if (!versions) return undefined;
@@ -481,9 +451,9 @@ function entryVersion(
   return undefined;
 }
 
-function twinUrls(
+function preparedMarkdownUrls(
   entry: PreparedMarkdownEntry,
-  options: BakePreparedTwinsOptions,
+  options: BakePreparedArtifactsOptions,
 ) {
   const route = entryRouteUrl(
     collectionMountPrefix(entry.collection, options.versions),
@@ -497,7 +467,7 @@ function twinUrls(
 
 function frontmatter(
   entry: PreparedMarkdownEntry,
-  options: BakePreparedTwinsOptions,
+  options: BakePreparedArtifactsOptions,
 ): string[] {
   const title =
     typeof entry.data.title === "string" && entry.data.title.length > 0
@@ -528,7 +498,7 @@ function frontmatter(
   ];
 }
 
-interface TwinArtifactBody {
+interface PreparedMarkdownArtifactBody {
   body: string;
   contentStart: number;
   contentEnd: number;
@@ -539,19 +509,19 @@ function envelopedArtifact(prefix: string, content: string, suffix = "") {
     body: `${prefix}${content}${suffix}`,
     contentStart: prefix.length,
     contentEnd: prefix.length + content.length,
-  } satisfies TwinArtifactBody;
+  } satisfies PreparedMarkdownArtifactBody;
 }
 
 function markdownArtifact(
   entry: PreparedMarkdownEntry,
   markdown: string,
-  options: BakePreparedTwinsOptions,
-): TwinArtifactBody {
+  options: BakePreparedArtifactsOptions,
+): PreparedMarkdownArtifactBody {
   const title =
     typeof entry.data.title === "string" && entry.data.title.length > 0
       ? entry.data.title
       : entry.id;
-  const urls = twinUrls(entry, options);
+  const urls = preparedMarkdownUrls(entry, options);
   const prefix = [
     ...frontmatter(entry, options),
     "",
@@ -573,15 +543,15 @@ function markdownArtifact(
 function sourceArtifact(
   entry: PreparedMarkdownEntry,
   expanded: string,
-  options: BakePreparedTwinsOptions,
-): TwinArtifactBody {
+  options: BakePreparedArtifactsOptions,
+): PreparedMarkdownArtifactBody {
   return envelopedArtifact(
     `${[...frontmatter(entry, options), ""].join("\n")}\n`,
     expanded,
   );
 }
 
-interface PreparedCorpusPage {
+interface PreparedLlmsPage {
   collection: string;
   id: string;
   title: string;
@@ -591,18 +561,18 @@ interface PreparedCorpusPage {
   markdown: string;
 }
 
-interface PreparedCorpusGroup {
+interface PreparedLlmsGroup {
   slug: string;
   label: string;
   kind: "primary" | "secondary" | "version";
-  members: PreparedCorpusPage[];
+  members: PreparedLlmsPage[];
 }
 
-function corpusPage(
+function preparedLlmsPage(
   entry: Pick<PreparedMarkdownEntry, "collection" | "id" | "data">,
   markdown: string,
-  options: BakePreparedTwinsOptions,
-): PreparedCorpusPage {
+  options: BakePreparedArtifactsOptions,
+): PreparedLlmsPage {
   const route = entryRouteUrl(
     collectionMountPrefix(entry.collection, options.versions),
     entry.id,
@@ -625,12 +595,12 @@ function corpusPage(
   };
 }
 
-function groupCorpusPages(
-  pages: readonly PreparedCorpusPage[],
-  options: BakePreparedTwinsOptions,
-): { leaves: PreparedCorpusPage[]; groups: PreparedCorpusGroup[] } {
-  const primary = new Map<string, PreparedCorpusPage[]>();
-  const secondary = new Map<string, PreparedCorpusPage[]>();
+function groupPreparedLlmsPages(
+  pages: readonly PreparedLlmsPage[],
+  options: BakePreparedArtifactsOptions,
+): { leaves: PreparedLlmsPage[]; groups: PreparedLlmsGroup[] } {
+  const primary = new Map<string, PreparedLlmsPage[]>();
+  const secondary = new Map<string, PreparedLlmsPage[]>();
   const versionSlugs = new Set(options.versions?.others ?? []);
   for (const page of pages) {
     const slug =
@@ -644,8 +614,8 @@ function groupCorpusPages(
     else buckets.set(slug, [page]);
   }
 
-  const leaves: PreparedCorpusPage[] = [];
-  const groups: PreparedCorpusGroup[] = [];
+  const leaves: PreparedLlmsPage[] = [];
+  const groups: PreparedLlmsGroup[] = [];
   for (const [slug, members] of primary) {
     if (members.length === 1 && members[0]!.id === slug) {
       leaves.push(members[0]!);
@@ -661,18 +631,18 @@ function groupCorpusPages(
       members,
     });
   }
-  leaves.sort((a, b) => compareCorpus(a.url, b.url));
-  groups.sort((a, b) => compareCorpus(a.slug, b.slug));
+  leaves.sort((a, b) => compare(a.url, b.url));
+  groups.sort((a, b) => compare(a.slug, b.slug));
   for (const group of groups) {
-    group.members.sort((a, b) => compareCorpus(a.url, b.url));
+    group.members.sort((a, b) => compare(a.url, b.url));
   }
   return { leaves, groups };
 }
 
 function siteIndexArtifact(
-  leaves: readonly PreparedCorpusPage[],
-  groups: readonly PreparedCorpusGroup[],
-  options: BakePreparedTwinsOptions,
+  leaves: readonly PreparedLlmsPage[],
+  groups: readonly PreparedLlmsGroup[],
+  options: BakePreparedArtifactsOptions,
 ): string {
   const rows = [
     ...leaves.map((page) => ({
@@ -685,13 +655,13 @@ function siteIndexArtifact(
         key: `/${group.slug}`,
         line: `- [${group.label}](${absoluteUrl(options.site, options.base, `/${group.slug}/llms.txt`)})`,
       })),
-  ].sort((a, b) => compareCorpus(a.key, b.key));
+  ].sort((a, b) => compare(a.key, b.key));
   return [
     `# ${options.title}`,
     "",
     options.description ?? "Documentation index for AI agents.",
     "",
-    `Full corpus (all pages, one document): ${absoluteUrl(options.site, options.base, "/llms-full.txt")}`,
+    `Full documentation (discoverable current pages, one document): ${absoluteUrl(options.site, options.base, "/llms-full.txt")}`,
     "",
     "## Pages",
     "",
@@ -701,8 +671,8 @@ function siteIndexArtifact(
 }
 
 function sectionIndexArtifact(
-  group: PreparedCorpusGroup,
-  options: BakePreparedTwinsOptions,
+  group: PreparedLlmsGroup,
+  options: BakePreparedArtifactsOptions,
 ): string {
   return [
     `# ${group.label}`,
@@ -717,9 +687,9 @@ function sectionIndexArtifact(
   ].join("\n");
 }
 
-function assertCorpusRouteSafety(
-  pages: readonly PreparedCorpusPage[],
-  groups: readonly PreparedCorpusGroup[],
+function assertLlmsRouteSafety(
+  pages: readonly PreparedLlmsPage[],
+  groups: readonly PreparedLlmsGroup[],
 ): void {
   const routes = new Set(["/llms.txt", "/llms-full.txt"]);
   for (const group of groups) {
@@ -730,7 +700,7 @@ function assertCorpusRouteSafety(
         next = decodeURIComponent(decoded);
       } catch {
         throw new Error(
-          `nimbus-docs: corpus section slug is malformed: ${JSON.stringify(group.slug)}.`,
+          `nimbus-docs: llms.txt section slug is malformed: ${JSON.stringify(group.slug)}.`,
         );
       }
       if (next === decoded) break;
@@ -743,18 +713,18 @@ function assertCorpusRouteSafety(
       decoded.includes("\\")
     ) {
       throw new Error(
-        `nimbus-docs: corpus section slug is unsafe: ${JSON.stringify(group.slug)}.`,
+        `nimbus-docs: llms.txt section slug is unsafe: ${JSON.stringify(group.slug)}.`,
       );
     }
     const route = toRouteKey(`/${decoded}/llms.txt`);
     if (routes.has(route)) {
       throw new Error(
-        `nimbus-docs: duplicate corpus route identity "${route}".`,
+        `nimbus-docs: duplicate llms.txt route identity "${route}".`,
       );
     }
     routes.add(route);
   }
-  const pageRoutes = new Map<string, PreparedCorpusPage>();
+  const pageRoutes = new Map<string, PreparedLlmsPage>();
   for (const page of pages) {
     for (const segment of page.id.split("/")) {
       let decoded = segment;
@@ -786,20 +756,20 @@ function assertCorpusRouteSafety(
     if (existing) {
       throw new Error(
         `nimbus-docs: page "${page.collection}:${page.id}" collides with ` +
-          `page "${existing.collection}:${existing.id}" at generated twin route "${route}".`,
+          `page "${existing.collection}:${existing.id}" at generated Markdown route "${route}".`,
       );
     }
     pageRoutes.set(route, page);
     if (routes.has(route)) {
       throw new Error(
-        `nimbus-docs: page "${page.collection}:${page.id}" collides with the generated corpus route "${route}".`,
+        `nimbus-docs: page "${page.collection}:${page.id}" collides with the generated llms.txt route "${route}".`,
       );
     }
   }
 }
 
 function componentFingerprint(
-  componentMap: BakePreparedTwinsOptions["componentMap"],
+  componentMap: BakePreparedArtifactsOptions["componentMap"],
 ): string {
   return JSON.stringify(
     Object.entries(componentMap ?? {})
@@ -844,7 +814,7 @@ export function preparedHeadingsPlugin(
       }
       const records = configured.bakeHeadings
         ? await configured.bakeHeadings()
-        : (await ensurePreparedTwins(root)).headings;
+        : (await ensurePreparedArtifacts(root)).headings;
       return (
         `export const generation = ${PREPARED_HEADINGS_GENERATION};\n` +
         `export const base = ${JSON.stringify(configured.headingsBase ?? records[0]?.base ?? "/")};\n` +
@@ -859,10 +829,10 @@ export function preparedHeadingsPlugin(
   };
 }
 
-export function configureTwinArtifactRoot(
+export function configurePreparedArtifactRoot(
   root: URL | string,
   mode: "build" | "dev",
-  bake: () => Promise<TwinManifest>,
+  bake: () => Promise<PreparedArtifactManifest>,
   bakeHeadings?: () => Promise<PreparedHeadingRecord[]>,
   headingsBase?: string,
 ): void {
@@ -881,7 +851,7 @@ async function preparedHeadingRecord(
   entry: PreparedMarkdownEntry,
   base: string,
   partials: PreparedMarkdownCollection | undefined,
-  partialResolver: TwinPartialResolver | undefined,
+  partialResolver: GeneratedMarkdownPartialResolver | undefined,
 ): Promise<PreparedHeadingRecord | null> {
   if (typeof entry.body !== "string" || !entry.headings) return null;
   const headings = await mergePartialHeadings(
@@ -946,22 +916,22 @@ export async function bakePreparedHeadings(
   }
 }
 
-export function registerTwinArtifactDemand(root: URL | string): void {
+export function registerPreparedArtifactDemand(root: URL | string): void {
   artifactState.demands.add(preparedMarkdownRootKey(root));
 }
 
-export function isTwinArtifactRequested(root: URL | string): boolean {
+export function isPreparedArtifactRequested(root: URL | string): boolean {
   return artifactState.demands.has(preparedMarkdownRootKey(root));
 }
 
-export async function ensurePreparedTwins(
+export async function ensurePreparedArtifacts(
   root: URL | string,
-): Promise<TwinManifest> {
+): Promise<PreparedArtifactManifest> {
   const key = preparedMarkdownRootKey(root);
   const configured = artifactState.roots.get(key);
   if (!configured) {
     throw new Error(
-      "nimbus-docs: prepared twin helpers are available only during a configured Astro build or dev server.",
+      "nimbus-docs: prepared artifact helpers are available only during a configured Astro build or dev server.",
     );
   }
   while (true) {
@@ -994,22 +964,22 @@ export async function ensurePreparedTwins(
         configured.bakedRevision = revision;
         configured.bakedInvalidation = invalidation;
         configured.manifest = manifest;
-        configured.artifacts = new Map(
-          manifest.artifacts.map(
+        configured.markdownArtifacts = new Map(
+          manifest.markdownArtifacts.map(
             (
-              artifact: TwinManifestArtifact,
-            ): [string, TwinManifestArtifact] => [
+              artifact: PreparedMarkdownManifestArtifact,
+            ): [string, PreparedMarkdownManifestArtifact] => [
               artifactKey(artifact),
               artifact,
             ],
           ),
         );
-        configured.corpora = new Map(
-          manifest.corpora.map(
+        configured.llmsArtifacts = new Map(
+          manifest.llmsArtifacts.map(
             (
-              artifact: CorpusManifestArtifact,
-            ): [string, CorpusManifestArtifact] => [
-              corpusKey(artifact),
+              artifact: PreparedLlmsManifestArtifact,
+            ): [string, PreparedLlmsManifestArtifact] => [
+              preparedLlmsKey(artifact),
               artifact,
             ],
           ),
@@ -1031,20 +1001,20 @@ export async function ensurePreparedTwins(
   }
 }
 
-export function invalidatePreparedTwins(root: URL | string): void {
+export function invalidatePreparedArtifacts(root: URL | string): void {
   const configured = artifactState.roots.get(preparedMarkdownRootKey(root));
   if (configured) configured.invalidation += 1;
 }
 
-export async function bakePreparedTwins(
-  options: BakePreparedTwinsOptions,
-): Promise<TwinManifest> {
+export async function bakePreparedArtifacts(
+  options: BakePreparedArtifactsOptions,
+): Promise<PreparedArtifactManifest> {
   const root = preparedMarkdownRootKey(options.root);
   const configuredAtStart = artifactState.roots.get(root);
   const previousManifest = configuredAtStart?.manifest;
   const invalidationAtStart = configuredAtStart?.invalidation;
   let snapshot: NonNullable<ReturnType<typeof getPreparedMarkdownSnapshot>>;
-  let apiEntries: PreparedApiCorpusEntry[];
+  let apiEntries: PreparedLlmsApiEntry[];
   while (true) {
     await waitForPreparedMarkdownTransactions(root);
     const candidateSnapshot = getPreparedMarkdownSnapshot(root);
@@ -1081,7 +1051,7 @@ export async function bakePreparedTwins(
   }
 
   const decide = options.decidePublic ?? defaultDecision;
-  const decisions = new Map<string, PublicTwinDecision>();
+  const decisions = new Map<string, PreparedArtifactPublicationDecision>();
   const hiddenVersions = new Set(options.versions?.hidden ?? []);
   const decideEntry = (entry: PreparedMarkdownEntry) => {
     const version = entry.collection.startsWith("docs-")
@@ -1094,7 +1064,7 @@ export async function bakePreparedTwins(
     decisions.set(`${entry.collection}\0${entry.id}`, decision);
     if (decision.status === "unknown") {
       throw new Error(
-        `nimbus-docs: public twin visibility is unknown for "${entry.collection}:${entry.id}": ${decision.reason}.`,
+        `nimbus-docs: public Markdown visibility is unknown for "${entry.collection}:${entry.id}": ${decision.reason}.`,
       );
     }
   };
@@ -1128,7 +1098,7 @@ export async function bakePreparedTwins(
     const decision = decide(partial);
     if (decision.status !== "include") {
       throw new Error(
-        `nimbus-docs: public twin depends on ${decision.status} partial "partials:${id}"${
+        `nimbus-docs: public Markdown depends on ${decision.status} partial "partials:${id}"${
           "reason" in decision ? `: ${decision.reason}` : ""
         }.`,
       );
@@ -1136,10 +1106,10 @@ export async function bakePreparedTwins(
     return partial;
   };
 
-  const records: Array<TwinManifestArtifact & { body: string }> = [];
+  const records: Array<PreparedMarkdownManifestArtifact & { body: string }> = [];
   const headingRecords: PreparedHeadingRecord[] = [];
-  const corpusPages: PreparedCorpusPage[] = [];
-  const corpusRoutePages: PreparedCorpusPage[] = [];
+  const preparedLlmsPages: PreparedLlmsPage[] = [];
+  const llmsRoutePages: PreparedLlmsPage[] = [];
   const componentRevisions = componentFingerprint(options.componentMap);
   const partialResolverRevision = options.partialResolver?.revision ?? "";
   const citationFingerprint = digest(
@@ -1182,9 +1152,9 @@ export async function bakePreparedTwins(
         base,
       },
     );
-    const page = corpusPage(entry, markdown, options);
-    corpusRoutePages.push(page);
-    if (isDiscoverable(entry)) corpusPages.push(page);
+    const page = preparedLlmsPage(entry, markdown, options);
+    llmsRoutePages.push(page);
+    if (isDiscoverable(entry)) preparedLlmsPages.push(page);
     if (entry.headings) {
       const headings = await mergePartialHeadings(
         entry.body,
@@ -1227,7 +1197,7 @@ export async function bakePreparedTwins(
       const { body, contentStart, contentEnd } = artifact;
       const fingerprint = digest(
         JSON.stringify({
-          generation: TWIN_NORMALIZER_GENERATION,
+          generation: PREPARED_ARTIFACT_GENERATION,
           base,
           audience: "public",
           collection: entry.collection,
@@ -1256,8 +1226,8 @@ export async function bakePreparedTwins(
   for (const entry of apiEntries) {
     const decision = decisions.get(`${entry.collection}\0${entry.id}`)!;
     if (decision.status === "exclude") continue;
-    const routePage = corpusPage(entry, "", options);
-    corpusRoutePages.push(routePage);
+    const routePage = preparedLlmsPage(entry, "", options);
+    llmsRoutePages.push(routePage);
     if (!isDiscoverable(entry)) continue;
     const coordinate = entry.data.coordinate;
     if (typeof coordinate !== "string") {
@@ -1271,8 +1241,8 @@ export async function bakePreparedTwins(
         `nimbus-docs: API entry "${entry.id}" in collection "${entry.collection}" is missing its prepared page data — rebuild the apiCollection() index.`,
       );
     }
-    corpusPages.push(
-      corpusPage(entry, renderApiPageMarkdown(prepared.page, { base }), options),
+    preparedLlmsPages.push(
+      preparedLlmsPage(entry, renderApiPageMarkdown(prepared.page, { base }), options),
     );
   }
   records.sort(
@@ -1286,23 +1256,23 @@ export async function bakePreparedTwins(
   for (const record of records) {
     const identity = `${record.collection}\0${record.id}\0${record.surface}`;
     if (identities.has(identity))
-      throw new Error(`nimbus-docs: duplicate twin identity ${identity}.`);
+      throw new Error(`nimbus-docs: duplicate Markdown identity ${identity}.`);
     if (hashes.has(record.digest))
-      throw new Error(`nimbus-docs: duplicate twin digest ${record.digest}.`);
+      throw new Error(`nimbus-docs: duplicate Markdown digest ${record.digest}.`);
     identities.add(identity);
     hashes.add(record.digest);
   }
 
-  const { leaves, groups } = groupCorpusPages(corpusPages, options);
-  assertCorpusRouteSafety(corpusRoutePages, groups);
+  const { leaves, groups } = groupPreparedLlmsPages(preparedLlmsPages, options);
+  assertLlmsRouteSafety(llmsRoutePages, groups);
   const versionSlugs = new Set(options.versions?.others ?? []);
-  const fullCorpusPages = corpusPages.filter(
+  const llmsFullPages = preparedLlmsPages.filter(
     (page) =>
       page.collection === PRIMARY_COLLECTION ||
       !versionSlugs.has(collectionLabel(page.collection, options.versions)),
   );
-  const corpusBodies: Array<{
-    reference: PreparedCorpusReference;
+  const llmsBodies: Array<{
+    reference: PreparedLlmsReference;
     body: string;
   }> = [
     {
@@ -1311,8 +1281,8 @@ export async function bakePreparedTwins(
     },
     {
       reference: { scope: "site", surface: "full" },
-      body: buildCorpusMarkdown(
-        fullCorpusPages.map((page): CorpusBlock => ({
+      body: buildLlmsFullMarkdown(
+        llmsFullPages.map((page): LlmsFullBlock => ({
           title: page.title,
           description: page.description,
           url: page.url,
@@ -1336,11 +1306,11 @@ export async function bakePreparedTwins(
       body: sectionIndexArtifact(group, options),
     })),
   ];
-  const corpusRecords: Array<CorpusManifestArtifact & { body: string }> =
-    corpusBodies.map(({ reference, body }) => {
+  const llmsRecords: Array<PreparedLlmsManifestArtifact & { body: string }> =
+    llmsBodies.map(({ reference, body }) => {
       const fingerprint = digest(
         JSON.stringify({
-          generation: TWIN_NORMALIZER_GENERATION,
+          generation: PREPARED_ARTIFACT_GENERATION,
           base,
           audience: "public",
           reference,
@@ -1358,7 +1328,7 @@ export async function bakePreparedTwins(
         body,
       };
     });
-  corpusRecords.sort((a, b) => compare(corpusKey(a), corpusKey(b)));
+  llmsRecords.sort((a, b) => compare(preparedLlmsKey(a), preparedLlmsKey(b)));
   headingRecords.sort(
     (a, b) => compare(a.collection, b.collection) || compare(a.id, b.id),
   );
@@ -1374,18 +1344,18 @@ export async function bakePreparedTwins(
       );
     }
   }
-  const corpusIdentities = new Set<string>();
-  for (const record of corpusRecords) {
-    const identity = corpusKey(record);
-    if (corpusIdentities.has(identity)) {
-      throw new Error(`nimbus-docs: duplicate corpus identity ${identity}.`);
+  const llmsIdentities = new Set<string>();
+  for (const record of llmsRecords) {
+    const identity = preparedLlmsKey(record);
+    if (llmsIdentities.has(identity)) {
+      throw new Error(`nimbus-docs: duplicate llms.txt identity ${identity}.`);
     }
     if (hashes.has(record.digest)) {
       throw new Error(
         `nimbus-docs: duplicate artifact digest ${record.digest}.`,
       );
     }
-    corpusIdentities.add(identity);
+    llmsIdentities.add(identity);
     hashes.add(record.digest);
   }
 
@@ -1393,13 +1363,13 @@ export async function bakePreparedTwins(
   await assertNoSymlink(root, directory);
   await mkdir(path.join(directory, "artifacts"), { recursive: true });
   await assertNoSymlink(root, path.join(directory, "artifacts"));
-  const manifest: TwinManifest = {
-    version: TWIN_MANIFEST_VERSION,
-    generation: TWIN_NORMALIZER_GENERATION,
+  const manifest: PreparedArtifactManifest = {
+    version: PREPARED_ARTIFACT_MANIFEST_VERSION,
+    generation: PREPARED_ARTIFACT_GENERATION,
     base,
     audience: "public",
-    artifacts: records.map(({ body: _body, ...record }) => record),
-    corpora: corpusRecords.map(({ body: _body, ...record }) => record),
+    markdownArtifacts: records.map(({ body: _body, ...record }) => record),
+    llmsArtifacts: llmsRecords.map(({ body: _body, ...record }) => record),
     headings: headingRecords,
   };
   const isFresh = () => {
@@ -1417,7 +1387,7 @@ export async function bakePreparedTwins(
       manifest,
       previousManifest,
       isFresh,
-      [...records, ...corpusRecords],
+      [...records, ...llmsRecords],
       async () => {
         const configured = artifactState.roots.get(root);
         let installed = !configuredAtStart;
@@ -1431,14 +1401,14 @@ export async function bakePreparedTwins(
           configured.bakedRevision = snapshot.revision;
           configured.bakedInvalidation = configured.invalidation;
           configured.manifest = manifest;
-          configured.artifacts = new Map(
-            manifest.artifacts.map((artifact) => [
+          configured.markdownArtifacts = new Map(
+            manifest.markdownArtifacts.map((artifact) => [
               artifactKey(artifact),
               artifact,
             ]),
           );
-          configured.corpora = new Map(
-            manifest.corpora.map((artifact) => [corpusKey(artifact), artifact]),
+          configured.llmsArtifacts = new Map(
+            manifest.llmsArtifacts.map((artifact) => [preparedLlmsKey(artifact), artifact]),
           );
           configured.headings = new Map(
             manifest.headings.map((record): [string, PreparedHeadingRecord] => [
@@ -1458,25 +1428,25 @@ export async function bakePreparedTwins(
   return manifest;
 }
 
-export async function getTwinManifest(
+export async function getPreparedArtifactManifest(
   root: URL | string,
-): Promise<TwinManifest> {
-  return ensurePreparedTwins(root);
+): Promise<PreparedArtifactManifest> {
+  return ensurePreparedArtifacts(root);
 }
 
-export async function readPreparedTwinArtifact(
+export async function readPreparedMarkdownArtifact(
   root: URL | string,
-  reference: PreparedTwinReference,
-): Promise<PreparedTwinArtifact> {
+  reference: PreparedMarkdownReference,
+): Promise<PreparedMarkdownArtifact> {
   const key = preparedMarkdownRootKey(root);
-  await ensurePreparedTwins(key);
+  await ensurePreparedArtifacts(key);
   const endRead = beginArtifactRead(key);
   try {
     const configured = artifactState.roots.get(key);
-    const record = configured?.artifacts?.get(artifactKey(reference));
+    const record = configured?.markdownArtifacts?.get(artifactKey(reference));
     if (!record) {
       throw new Error(
-        `nimbus-docs: no prepared ${reference.surface} twin for "${reference.collection}:${reference.id}".`,
+        `nimbus-docs: no prepared ${reference.surface} artifact for "${reference.collection}:${reference.id}".`,
       );
     }
     const body = await readArtifactBody(key, record);
@@ -1488,7 +1458,7 @@ export async function readPreparedTwinArtifact(
       record.contentEnd > body.length
     ) {
       throw new Error(
-        `nimbus-docs: prepared ${reference.surface} twin for "${reference.collection}:${reference.id}" has invalid content bounds.`,
+        `nimbus-docs: prepared ${reference.surface} artifact for "${reference.collection}:${reference.id}" has invalid content bounds.`,
       );
     }
     return {
@@ -1512,7 +1482,7 @@ async function readArtifactBody(
   const relative = path.relative(directory, resolved);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(
-      `nimbus-docs: twin artifact path escapes its root: ${record.path}.`,
+      `nimbus-docs: prepared artifact path escapes its root: ${record.path}.`,
     );
   }
   await assertNoSymlink(root, resolved);
@@ -1524,29 +1494,29 @@ async function readArtifactBody(
     path.isAbsolute(canonicalRelative)
   ) {
     throw new Error(
-      `nimbus-docs: twin artifact path escapes its root: ${record.path}.`,
+      `nimbus-docs: prepared artifact path escapes its root: ${record.path}.`,
     );
   }
   return readFile(resolved, "utf8");
 }
 
-export async function readPreparedCorpusArtifact(
+export async function readPreparedLlmsArtifact(
   root: URL | string,
-  reference: PreparedCorpusReference,
-): Promise<PreparedCorpusArtifact> {
+  reference: PreparedLlmsReference,
+): Promise<PreparedLlmsArtifact> {
   const key = preparedMarkdownRootKey(root);
-  await ensurePreparedTwins(key);
+  await ensurePreparedArtifacts(key);
   const endRead = beginArtifactRead(key);
   try {
     const configured = artifactState.roots.get(key);
-    const record = configured?.corpora?.get(corpusKey(reference));
+    const record = configured?.llmsArtifacts?.get(preparedLlmsKey(reference));
     if (!record) {
       const identity =
         reference.scope === "site"
           ? `${reference.scope} ${reference.surface}`
           : `${reference.scope} ${reference.section} ${reference.surface}`;
       throw new Error(
-        `nimbus-docs: no prepared corpus artifact for ${identity}.`,
+        `nimbus-docs: no prepared llms.txt artifact for ${identity}.`,
       );
     }
     const body = await readArtifactBody(key, record);

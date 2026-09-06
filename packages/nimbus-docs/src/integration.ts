@@ -129,10 +129,11 @@ import {
   getPreparedMarkdownSnapshot,
 } from "./_internal/prepared-markdown-registry.js";
 import type {
-  TwinComponentTransform,
-  TwinPartialResolver,
-} from "./_internal/twin-artifacts.js";
-import type { NimbusConfig, RenderingMode } from "./types.js";
+  GeneratedMarkdownComponentTransform,
+  GeneratedMarkdownPartialResolver,
+  NimbusConfig,
+  RenderingMode,
+} from "./types.js";
 
 /**
  * Common shorthand fences that Shiki doesn't recognise out of the box.
@@ -152,14 +153,18 @@ const REQUEST_ROUTE_INVENTORY_ENTRYPOINT = new URL(
   import.meta.url,
 );
 
-type TwinArtifactsModule = typeof import("./_internal/twin-artifacts.js");
+type PreparedArtifactsModule = typeof import("./_internal/prepared-artifacts.js");
 
-function loadTwinArtifacts(): Promise<TwinArtifactsModule> {
+function loadPreparedArtifacts(): Promise<PreparedArtifactsModule> {
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js";
-  const specifier = ["./_internal/", "twin-artifacts.", extension].join("");
+  const specifier = [
+    "./_internal/",
+    "prepared-artifacts.",
+    extension,
+  ].join("");
   return import(
     new URL(specifier, import.meta.url).href
-  ) as Promise<TwinArtifactsModule>;
+  ) as Promise<PreparedArtifactsModule>;
 }
 
 export interface SitemapOptions {
@@ -168,11 +173,6 @@ export interface SitemapOptions {
 }
 
 export interface NimbusIntegrationOptions {
-  /** Build-time transforms for clean Markdown twins. */
-  twins?: {
-    componentMap?: Record<string, TwinComponentTransform>;
-    partialResolver?: TwinPartialResolver;
-  };
   /** MDX options forwarded to `@astrojs/mdx`. */
   mdx?: Parameters<typeof mdx>[0];
   /**
@@ -187,8 +187,10 @@ export interface NimbusIntegrationOptions {
    */
   sitemap?: boolean | SitemapOptions;
   /**
-   * Override the markdown processor Nimbus wires into Astro's
-   * `markdown.processor`. Default is Sätteri (Rust-based, fast).
+   * Configure authored Markdown processing and generated Markdown output.
+   * `processor`, `hastPlugins`, and `mdastPlugins` control how authored
+   * Markdown is compiled. `componentMap` and `partialResolver` customize the
+   * Markdown versions Nimbus generates during the build.
    *
    * Pass a different processor when you need remark/rehype plugin
    * extensibility — Sätteri disables `mdx({ remarkPlugins })` because it
@@ -232,6 +234,10 @@ export interface NimbusIntegrationOptions {
     hastPlugins?: HastPluginInput[];
     /** Sätteri mdast plugins appended to the default processor's user mdast stage, in array order. Ignored when a custom `processor` is supplied. */
     mdastPlugins?: MdastPluginInput[];
+    /** Build-time transforms for project-specific MDX components in generated Markdown. */
+    componentMap?: Record<string, GeneratedMarkdownComponentTransform>;
+    /** Build-time mapping from static `<Render>` attributes to partial IDs. */
+    partialResolver?: GeneratedMarkdownPartialResolver;
   };
   /**
    * Build-time MDX PascalCase tag validation.
@@ -334,11 +340,11 @@ export function nimbus(
 ): AstroIntegration {
   const config = validateNimbusConfig(rawConfig);
   for (const [name, transform] of Object.entries(
-    options.twins?.componentMap ?? {},
+    options.markdown?.componentMap ?? {},
   )) {
     if (!name || !transform || typeof transform.render !== "function") {
       throw new TypeError(
-        `nimbus-docs: twins.componentMap.${name || "<empty>"} must define a render function.`,
+        `nimbus-docs: markdown.componentMap.${name || "<empty>"} must define a render function.`,
       );
     }
     if (
@@ -346,15 +352,15 @@ export function nimbus(
       transform.revision.trim().length === 0
     ) {
       throw new TypeError(
-        `nimbus-docs: twins.componentMap.${name}.revision must be a non-empty string.`,
+        `nimbus-docs: markdown.componentMap.${name}.revision must be a non-empty string.`,
       );
     }
   }
-  const partialResolver = options.twins?.partialResolver;
+  const partialResolver = options.markdown?.partialResolver;
   if (partialResolver) {
     if (typeof partialResolver.resolve !== "function") {
       throw new TypeError(
-        "nimbus-docs: twins.partialResolver must define a resolve function.",
+        "nimbus-docs: markdown.partialResolver must define a resolve function.",
       );
     }
     if (
@@ -362,7 +368,7 @@ export function nimbus(
       partialResolver.revision.trim().length === 0
     ) {
       throw new TypeError(
-        "nimbus-docs: twins.partialResolver.revision must be a non-empty string.",
+        "nimbus-docs: markdown.partialResolver.revision must be a non-empty string.",
       );
     }
   }
@@ -422,8 +428,8 @@ export function nimbus(
         const srcDir = fileURLToPath(astroConfig.srcDir);
         const projectRoot = fileURLToPath(astroConfig.root);
         beginPreparedMarkdownSession(astroConfig.root);
-        const twinArtifacts = await loadTwinArtifacts();
-        twinArtifacts.configureTwinArtifactRoot(
+        const preparedArtifacts = await loadPreparedArtifacts();
+        preparedArtifacts.configurePreparedArtifactRoot(
           astroConfig.root,
           command === "build" ? "build" : "dev",
           async () => {
@@ -437,7 +443,7 @@ export function nimbus(
                 ),
               ]),
             );
-            return twinArtifacts.bakePreparedTwins({
+            return preparedArtifacts.bakePreparedArtifacts({
               root: projectRoot,
               base: astroConfig.base || "/",
               site: config.site,
@@ -448,7 +454,7 @@ export function nimbus(
               apiCollections: apiCollectionsForBuild,
               versions: config.versions,
               citationIndex,
-              componentMap: options.twins?.componentMap,
+              componentMap: options.markdown?.componentMap,
               partialResolver,
               loadApiEntries: async () => {
                 const apiEntries: Array<{
@@ -486,7 +492,7 @@ export function nimbus(
             });
           },
           () =>
-            twinArtifacts.bakePreparedHeadings({
+            preparedArtifacts.bakePreparedHeadings({
               root: projectRoot,
               base: astroConfig.base || "/",
               indexedCollections: indexedCollectionsForBuild,
@@ -516,7 +522,7 @@ export function nimbus(
             ),
           )
         ) {
-          twinArtifacts.registerTwinArtifactDemand(astroConfig.root);
+          preparedArtifacts.registerPreparedArtifactDemand(astroConfig.root);
         }
         const publicDir = astroConfig.publicDir
           ? fileURLToPath(astroConfig.publicDir)
@@ -670,8 +676,8 @@ export function nimbus(
         const rawCollections = parsedCollections?.names ?? null;
         const collectionBases = await parseCollectionBases(contentConfigPath);
         // API collections carry no MDX body, but they DO reach the agent index:
-        // their `.md` twins are served by `renderApiPageMarkdown` (dispatched in
-        // `renderIndexedEntryMarkdown`), so llms.txt/corpus links resolve. The
+        // their `.md` versions are served by `renderApiPageMarkdown` (dispatched in
+        // `renderIndexedEntryMarkdown`), so llms.txt links resolve. The
         // reserved-name filter still applies; `null` (no parseable config) falls
         // back to `["docs"]`, matching `getIndexedEntries()`.
         // Which of those are API collections — render-time dispatch (prose vs
@@ -1161,7 +1167,7 @@ export function nimbus(
                 coordinates: Object.fromEntries(citationIndex),
                 manifest: coordinatesManifest,
               })),
-              twinArtifacts.preparedHeadingsPlugin(astroConfig.root),
+              preparedArtifacts.preparedHeadingsPlugin(astroConfig.root),
               virtualApiBuildConfigPlugin(config.api, projectRoot),
               virtualLastUpdatedPlugin(lastUpdatedByPath),
               virtualConfigPlugin(config, {
@@ -1324,7 +1330,7 @@ export function nimbus(
           if (!isContentFile(file)) return;
           const { clearNavCaches } = await import("./index.js");
           clearNavCaches();
-          (await loadTwinArtifacts()).invalidatePreparedTwins(
+          (await loadPreparedArtifacts()).invalidatePreparedArtifacts(
             projectRootForBuild,
           );
           server.moduleGraph.invalidateAll();
@@ -1359,7 +1365,7 @@ export function nimbus(
               );
               citationIndex = index;
               coordinatesManifest = manifest;
-              (await loadTwinArtifacts()).invalidatePreparedTwins(
+              (await loadPreparedArtifacts()).invalidatePreparedArtifacts(
                 projectRootForBuild,
               );
               server.moduleGraph.invalidateAll();
@@ -1377,12 +1383,12 @@ export function nimbus(
       "astro:build:start": async () => {
         const { clearNavCaches } = await import("./index.js");
         clearNavCaches();
-        const twinArtifacts = await loadTwinArtifacts();
+        const preparedArtifacts = await loadPreparedArtifacts();
         if (requestRenderingConfigured) {
-          twinArtifacts.registerTwinArtifactDemand(projectRootForBuild);
+          preparedArtifacts.registerPreparedArtifactDemand(projectRootForBuild);
         }
-        if (twinArtifacts.isTwinArtifactRequested(projectRootForBuild)) {
-          await twinArtifacts.ensurePreparedTwins(projectRootForBuild);
+        if (preparedArtifacts.isPreparedArtifactRequested(projectRootForBuild)) {
+          await preparedArtifacts.ensurePreparedArtifacts(projectRootForBuild);
         }
       },
       "astro:routes:resolved": ({ routes }) => {

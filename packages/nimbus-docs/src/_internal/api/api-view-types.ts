@@ -113,7 +113,7 @@ export interface ApiParamGroup {
   fields: ApiFieldView[];
   /** Set only when the field list hit `FIELD_INLINE_CEILING`; `total` is the
    *  true count so a renderer can note how many were omitted. Never fires on the
-   *  measured corpus — a safety net for a pathological spec. */
+   *  measured documentation set — a safety net for a pathological spec. */
   truncated?: { total: number };
 }
 

@@ -415,7 +415,7 @@ describe("CoordinateRegistry: the `collection:` colon-prefix reservation (rule 2
   });
 });
 
-describe("CoordinateRegistry: case-only twins warn, never fail (rule 3)", () => {
+describe("CoordinateRegistry: case-only identifiers warn, never fail (rule 3)", () => {
   test("`createResponse` + `CreateResponse` both register with a single warning", () => {
     // OpenAI's real spec pairs these; a hard error would fail it.
     const reg = new CoordinateRegistry("api");
@@ -429,10 +429,10 @@ describe("CoordinateRegistry: case-only twins warn, never fail (rule 3)", () => 
     assert.match(warns[0].message, /differ only by case/i);
   });
 
-  test("the real parser mints case-only twins as distinct coordinates", async () => {
+  test("the real parser mints case-only names as distinct coordinates", async () => {
     const spec = JSON.stringify({
       openapi: "3.0.0",
-      info: { title: "Twins", version: "1.0.0" },
+      info: { title: "Case collisions", version: "1.0.0" },
       paths: {
         "/responses": {
           post: { operationId: "createResponse", responses: { "200": { description: "ok" } } },
@@ -440,7 +440,7 @@ describe("CoordinateRegistry: case-only twins warn, never fail (rule 3)", () => 
         },
       },
     });
-    const model = await buildApiModel({ collection: "twins", spec });
+    const model = await buildApiModel({ collection: "case-collisions", spec });
     const coords = new Set(getApiPageSlugs(model).map((s) => s.coordinate));
     assert.ok(coords.has("createResponse"));
     assert.ok(coords.has("CreateResponse"));
