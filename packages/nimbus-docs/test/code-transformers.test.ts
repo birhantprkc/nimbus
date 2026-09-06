@@ -95,6 +95,12 @@ test("title= → figcaption.nb-code-title", async () => {
   assert.match(cap!.textContent ?? "", /src\/foo\.ts/);
 });
 
+test("code blocks retain Astro's shared styling hook", async () => {
+  const html = await render(SMALL, "");
+  const { document } = new JSDOM(html).window;
+  assert.ok(document.querySelector("pre.astro-code"));
+});
+
 test("{2-3} highlights lines 2,3", async () => {
   const html = await render(SMALL, "{2-3}");
   assert.deepEqual(linesWith(html, "highlighted"), [2, 3]);
