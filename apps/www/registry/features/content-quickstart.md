@@ -11,7 +11,7 @@
 
 You are helping the user write a **quickstart** for their Nimbus docs site — a first-success page whose reader is evaluating or just signed up and wants proof the product works: one real result, fast ("How quickly can I see this do something?"). The metric is time-to-first-success, and it's priced — longer quickstarts measurably lose readers. Read this entire file before writing.
 
-The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/quickstart> — and its agent-readable twin at <https://nimbus-docs.com/writing/recipes/quickstart/index.md>. Fetch it if you need more depth than this handoff carries.
+The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/quickstart> — and its Markdown version at <https://nimbus-docs.com/writing/recipes/quickstart/index.md>. Fetch it if you need more depth than this handoff carries.
 
 ## 1. Discovery
 
@@ -82,7 +82,7 @@ lastVerified: 2026-07-06
 
 ## 6. Write the page
 
-Create `src/content/docs/<section>/<slug>.mdx` following the skeleton, adapted to the user's product and the site's registered components. Every command must be copy-runnable: placeholders in `<angle-brackets>` (`hl_test_<your-key>`), never a bare ellipsis inside a command. Mark run-varying output fields (timings, generated IDs) as placeholders (`<n>ms`) so an agent diffing its output against yours doesn't read normal variance as failure — everything else in the output block stays verbatim. Model test-mode credentials. In the `.md` twin, language tabs flatten into labeled sequential blocks, so the expected output must appear once per path, never only in the default tab.
+Create `src/content/docs/<section>/<slug>.mdx` following the skeleton, adapted to the user's product and the site's registered components. Every command must be copy-runnable: placeholders in `<angle-brackets>` (`hl_test_<your-key>`), never a bare ellipsis inside a command. Mark run-varying output fields (timings, generated IDs) as placeholders (`<n>ms`) so an agent diffing its output against yours doesn't read normal variance as failure — everything else in the output block stays verbatim. Model test-mode credentials. In the `.md` version, language tabs flatten into labeled sequential blocks, so the expected output must appear once per path, never only in the default tab.
 
 ## 7. Verify
 

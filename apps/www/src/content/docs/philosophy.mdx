@@ -78,9 +78,9 @@ Action bars, tabs, and play/pause controls install on demand into `src/component
 
 ## Human and agent first
 
-Documentation is no longer read only by people, and as a result every Nimbus site ships several surfaces alongside the HTML:
+Documentation is no longer read only by people, and as a result every Nimbus site ships several machine-readable formats alongside the HTML:
 
-- A Markdown alternate for every page at `/<slug>/index.md`
+- A Markdown version of every page at `/<slug>/index.md`
 - A site-level index at `/llms.txt`, naming every page
 - JSON-LD in every page's head, giving search and agent tools enough structured data to recognise what they're looking at
 
@@ -95,7 +95,7 @@ A way to build documentation sites on top of Astro.
 - [CLI](https://nimbus-docs.com/cli/index.md)
 ```
 
-These surfaces are defaults, not add-ons. The cost of being a dead end on the agent web is real, and it grows.
+These formats are defaults, not add-ons. The cost of being a dead end on the agent web is real, and it grows.
 
 ## Agentic authoring
 
@@ -137,15 +137,15 @@ Component-prop validation against TypeScript signatures lands post-v1.
 
 ## Readable is the floor
 
-Every Nimbus site already ships the surfaces agents read — a Markdown twin per page, an `llms.txt` index, structured data in the head. A year ago that set a docs tool apart; today it's table stakes. The interesting line sits further out.
+Every Nimbus site already ships the formats agents read — a Markdown version of each page, an `llms.txt` index, and structured data in the head. A year ago that set a docs tool apart; today it's table stakes. The interesting line sits further out.
 
 *Everyone made docs readable by agents. Nimbus makes docs writable, maintainable, and operable by them — end to end, on a codebase you fully own.*
 
 The precondition is the first principle on this page. When every file lives in your repo and nothing important hides behind an import boundary, an agent can do more than read your docs — it can change them safely, because it can see the whole of what it's touching. A vendor's themed runtime can be scraped by an agent; it can't be rewritten by one.
 
-That's why features arrive as runbooks rather than code you wire up by hand. `nimbus-docs add` detects when it's running inside a coding agent and pipes it a structured playbook — discover the project, confirm a plan, execute, then *verify the build still passes* and check whether the feature was already installed before touching a file. Installation stops being a copy-paste chore and becomes a conversation your agent owns from start to finish.
+That's why features arrive as recipes rather than code you wire up by hand. `nimbus-docs add` detects when it's running inside a coding agent and pipes it a structured recipe — discover the project, confirm a plan, execute, then *verify the build still passes* and check whether the feature was already installed before touching a file. Installation stops being a copy-paste chore and becomes a conversation your agent owns from start to finish.
 
-<PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add new-version" comment="inside a coding agent, the runbook pipes straight in" />
+<PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add new-version" comment="inside a coding agent, the recipe pipes straight in" />
 <PackageManagers pkg="@cloudflare/nimbus-docs" type="dlx" args="add new-version --print | claude" comment="from a human shell, hand it to the agent of your choice" />
 
 ## Provenance is a primitive
@@ -174,7 +174,7 @@ aiGenerated: true   # drafted by an agent — shows "awaiting review" until a hu
 ---
 ```
 
-Provenance only pays off if drift gets caught. The lint engine emits versioned JSON carrying character-precise fixes that `--fix` applies in place, and the scaffolded `AGENT.md` ships an audit runbook with a fixed diagnostic format — so an agent can sweep the whole site and report back in a shape another tool can parse:
+Provenance only pays off if drift gets caught. The lint engine emits versioned JSON carrying character-precise fixes that `--fix` applies in place, and the scaffolded `AGENT.md` ships an audit recipe with a fixed diagnostic format — so an agent can sweep the whole site and report back in a shape another tool can parse:
 
 ```text
 - [error] src/content/docs/cli.mdx:42 — broken internal link "/instal" — did you mean "/installation"?

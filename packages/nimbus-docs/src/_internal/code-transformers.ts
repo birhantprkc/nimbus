@@ -346,6 +346,7 @@ export function titleAndLangTransformer(): ShikiTransformer {
 
       // Always tag the pre with its language for CSS.
       preNode.properties = preNode.properties ?? {};
+      this.addClassToHast(preNode, "astro-code");
       preNode.properties["data-nb-lang"] = lang;
 
       // Carry the wrap/frame hooks up onto the figure too, so CSS can target

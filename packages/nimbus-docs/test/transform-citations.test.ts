@@ -1,4 +1,4 @@
-// The `.md`-twin/corpus half of citation resolution: `renderEntryAsMarkdown`
+// The generated-Markdown half of citation resolution: `renderEntryAsMarkdown`
 // resolves `api.ref:` citations against a supplied citation index (derived mode,
 // never build-fails), and fails loud when a body carries citations but no
 // citation index was passed — the alternative is a raw sentinel leaking into the served
@@ -49,5 +49,15 @@ describe("renderEntryAsMarkdown: coordinate citations", () => {
       { citationIndex: index },
     );
     assert.match(out, /api\.ref:zones:createZone/);
+  });
+
+  test("rejects runtime partial expansion with migration guidance", () => {
+    assert.throws(
+      () => renderEntryAsMarkdown({ body: '<Render file="shared" />' }),
+      /prepared artifact helpers/,
+    );
+    assert.doesNotThrow(() =>
+      renderEntryAsMarkdown({ body: '```mdx\n<Render file="example" />\n```' }),
+    );
   });
 });

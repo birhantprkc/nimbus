@@ -10,7 +10,7 @@ import {
   getRouteFlags,
   getSidebar,
   getTOC,
-  withBase,
+  stripBase,
 } from "@cloudflare/nimbus-docs/runtime";
 import { components } from "../components";
 
@@ -20,7 +20,7 @@ export const getStaticPaths = getDocsStaticPaths;
 const page = await getDocsPage(Astro);
 if (page instanceof Response) return page;
 const { entry, Content, headings } = page;
-const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
+const currentSlug = stripBase(Astro.url.pathname, import.meta.env.BASE_URL).replace(/\/$/, "") || "/";
 const { sidebar: sidebarOn, tableOfContents: tocOn } =
   await getRouteFlags(entry);
 const sidebar = sidebarOn
@@ -38,10 +38,7 @@ const lastUpdated = entry.data.lastUpdated ?? await getLastUpdated(entry);
 const tocConfig = entry.data.tableOfContents;
 const toc = tocOn && tocConfig !== false ? getTOC(headings, tocConfig) : false;
 const markdownPath = entry.id === "index" ? "/index.md" : `/${entry.id}/index.md`;
-const basedMarkdownPath = withBase(markdownPath, import.meta.env.BASE_URL);
-const markdownUrl = Astro.site
-  ? new URL(basedMarkdownPath, Astro.site).href
-  : basedMarkdownPath;
+const markdownUrl = markdownPath;
 const socialImage = entry.data.socialImage;
 const requestProbe = Astro.request.headers.get("x-nimbus-probe") ?? "";
 ---

@@ -11,7 +11,7 @@
 
 You are helping the user write a **troubleshooting** page for their Nimbus docs site — a failure page whose reader has an error string or a symptom and will paste it into search ("Why am I seeing this, and how do I make it stop?"). Errors are content, not exceptions. Read this entire file before writing.
 
-The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/troubleshooting> — and its agent-readable twin at <https://nimbus-docs.com/writing/recipes/troubleshooting/index.md>. Fetch it if you need more depth than this handoff carries.
+The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/troubleshooting> — and its Markdown version at <https://nimbus-docs.com/writing/recipes/troubleshooting/index.md>. Fetch it if you need more depth than this handoff carries.
 
 ## 1. Discovery
 

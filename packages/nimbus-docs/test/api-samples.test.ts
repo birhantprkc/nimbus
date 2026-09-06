@@ -1,6 +1,6 @@
 // Derived request example + curl/TypeScript/Python code samples.
 // Confirms the sampler skips readOnly, fills path/query/auth, that a spec's own
-// x-codeSamples win over generated ones, and that the .md twin carries both.
+// x-codeSamples win over generated ones, and that the .md version carries both.
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
@@ -91,7 +91,7 @@ describe("derived example + code samples", () => {
     assert.doesNotMatch(curl.source, /secret/);
   });
 
-  test("markdown twin carries the example and each sample", async () => {
+  test("Markdown version carries the example and each sample", async () => {
     const page = await operationPage(createWidget, "createWidget");
     const md = renderApiPageMarkdown(page);
 
@@ -331,7 +331,7 @@ describe("resilience — best-effort, never fatal", () => {
     assert.match(curl.source, /X-Api-Key: <value>/, "required apiKey still injected");
   });
 
-  test("the markdown twin neutralizes a hostile x-codeSamples lang", async () => {
+  test("the Markdown version neutralizes a hostile x-codeSamples lang", async () => {
     const spec = {
       ...baseSpec,
       paths: {
@@ -390,7 +390,7 @@ describe("derived response examples", () => {
     assert.deepEqual(r200.example.value, { id: "wgt_123", name: "gadget" });
   });
 
-  test("the markdown twin emits a per-status response example", async () => {
+  test("the Markdown version emits a per-status response example", async () => {
     const page = await operationPage(getWidget, "getWidget");
     const md = renderApiPageMarkdown(page);
     assert.match(md, /#### Example/);

@@ -1,8 +1,8 @@
 // Inline-field ceiling + depth bound. These are last-resort safety nets
-// derived from the Cloudflare corpus (max 848 fields/page, p99.9 = 694; nesting
+// derived from the Cloudflare fixture set (max 848 fields/page, p99.9 = 694; nesting
 // p99 = 5, max = 9), so neither fires on any real spec measured here. The suite
 // pins the fire path with synthetic pathological specs so a future edit cannot
-// silently break the guard or its determinism (load-bearing for the twin).
+// silently break the guard or its determinism (load-bearing for the Markdown version).
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";

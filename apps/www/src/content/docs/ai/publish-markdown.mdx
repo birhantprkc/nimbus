@@ -1,0 +1,165 @@
+---
+title: Publish Markdown
+description: Add per-page Markdown versions, llms.txt indexes, and the full documentation file.
+aiGenerated: true
+sidebar:
+  order: 2
+---
+
+Add the five routes that publish Markdown versions of each page, site and section indexes, and the full documentation in one file. The Nimbus integration must already be present in `astro.config.ts`.
+
+## 1. Publish per-page Markdown
+
+Create the clean Markdown version:
+
+```ts title="src/pages/[...slug]/index.md.ts"
+import {
+  getPreparedMarkdownArtifact,
+  getPreparedMarkdownStaticPaths,
+  type PreparedMarkdownReference,
+} from "@cloudflare/nimbus-docs/build";
+
+export const prerender = true;
+
+interface SlugProps {
+  artifact: PreparedMarkdownReference;
+}
+
+export const getStaticPaths = () =>
+  getPreparedMarkdownStaticPaths({ collection: "docs", surface: "markdown" });
+
+export async function GET({ props }: { props: SlugProps }) {
+  const artifact = await getPreparedMarkdownArtifact(props.artifact);
+  return new Response(artifact.body, {
+    headers: { "Content-Type": artifact.mediaType },
+  });
+}
+```
+
+Create the MDX source version:
+
+```ts title="src/pages/[...slug]/index.mdx.ts"
+import {
+  getPreparedMarkdownArtifact,
+  getPreparedMarkdownStaticPaths,
+  type PreparedMarkdownReference,
+} from "@cloudflare/nimbus-docs/build";
+
+export const prerender = true;
+
+interface SlugProps {
+  artifact: PreparedMarkdownReference;
+}
+
+export const getStaticPaths = () =>
+  getPreparedMarkdownStaticPaths({ collection: "docs", surface: "source" });
+
+export async function GET({ props }: { props: SlugProps }) {
+  const artifact = await getPreparedMarkdownArtifact(props.artifact);
+  return new Response(artifact.body, {
+    headers: { "Content-Type": artifact.mediaType },
+  });
+}
+```
+
+These root catch-all routes publish only the `docs` collection. For every additional authored collection, create the same `.md.ts` and `.mdx.ts` routes below its URL prefix and change `collection` to its literal collection key. For example, a `blog` collection at `/blog` uses `src/pages/blog/[...slug]/index.md.ts`; a `docs-v1` collection at `/v1` uses `src/pages/v1/[...slug]/index.md.ts`. Mirror each Markdown route with an MDX source route.
+
+## 2. Publish the site index
+
+Create the site-wide discovery index:
+
+```ts title="src/pages/llms.txt.ts"
+import { getPreparedLlmsArtifact } from "@cloudflare/nimbus-docs/build";
+
+export const prerender = true;
+
+export async function GET() {
+  const artifact = await getPreparedLlmsArtifact({
+    scope: "site",
+    surface: "index",
+  });
+  return new Response(artifact.body, {
+    headers: { "Content-Type": artifact.mediaType },
+  });
+}
+```
+
+## 3. Publish the full documentation
+
+Create the file containing all discoverable documentation:
+
+```ts title="src/pages/llms-full.txt.ts"
+import { getPreparedLlmsArtifact } from "@cloudflare/nimbus-docs/build";
+
+export const prerender = true;
+
+export async function GET() {
+  const artifact = await getPreparedLlmsArtifact({
+    scope: "site",
+    surface: "full",
+  });
+  return new Response(artifact.body, {
+    headers: { "Content-Type": artifact.mediaType },
+  });
+}
+```
+
+## 4. Publish section indexes
+
+Create the route for paths such as `/writing/llms.txt`:
+
+```ts title="src/pages/[section]/llms.txt.ts"
+import {
+  getPreparedLlmsArtifact,
+  getPreparedLlmsStaticPaths,
+  type PreparedLlmsReference,
+} from "@cloudflare/nimbus-docs/build";
+
+export const prerender = true;
+
+interface SectionProps {
+  artifact: PreparedLlmsReference;
+}
+
+export const getStaticPaths = () => getPreparedLlmsStaticPaths();
+
+export async function GET({ props }: { props: SectionProps }) {
+  const artifact = await getPreparedLlmsArtifact(props.artifact);
+  return new Response(artifact.body, {
+    headers: { "Content-Type": artifact.mediaType },
+  });
+}
+```
+
+Keep all five routes prerendered, including when HTML pages render on request. The `/build` helpers require the Nimbus Astro integration and must not enter a Worker bundle.
+
+## Verify
+
+Run a production build, then start Astro's production preview:
+
+```sh
+pnpm build
+pnpm preview
+```
+
+In another terminal, replace `get-started` and `writing` with routes that exist in the project. If Astro has a deployment base, prefix each path with it:
+
+```sh
+curl --fail http://localhost:4321/get-started/index.md
+curl --fail http://localhost:4321/get-started/index.mdx
+curl --fail http://localhost:4321/llms.txt
+curl --fail http://localhost:4321/llms-full.txt
+curl --fail http://localhost:4321/writing/llms.txt
+```
+
+Each command must return content with a successful status. A `404` means the corresponding route file or collection-specific mount is missing. If the build reports an unprepared collection, wrap its Markdown loader with `withNimbusMarkdown()` as described in [Other collections](/writing/pages-and-routing#other-collections). If a section index is absent, confirm that the section has discoverable pages and appears in `/llms.txt`.
+
+## Direct rendering
+
+`renderEntryAsMarkdown()` and `getEntryMarkdown()` remain available for entry bodies that do not contain `<Render>`. Passing a body with `<Render>` throws. Use the routes above for authored Markdown versions and `llms.txt` files. `getEntryMarkdown()` also loads API citation data and is intended for prerendered routes.
+
+## Next steps
+
+- [Understand docs for agents](/ai/docs-for-agents)
+- [Customize generated Markdown](/configuration#customize-generated-markdown)
+- [Configure custom content loaders](/writing/pages-and-routing#other-collections)

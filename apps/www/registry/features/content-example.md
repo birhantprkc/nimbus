@@ -11,7 +11,7 @@
 
 You are helping the user write an **example** page for their Nimbus docs site — a cookbook page where the code *is* the content, a pattern or integration worth copying whole ("Show me working code for X."). Read this entire file before writing.
 
-The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/example> — and its agent-readable twin at <https://nimbus-docs.com/writing/recipes/example/index.md>. Fetch it if you need more depth than this handoff carries.
+The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/example> — and its Markdown version at <https://nimbus-docs.com/writing/recipes/example/index.md>. Fetch it if you need more depth than this handoff carries.
 
 ## 1. Discovery
 

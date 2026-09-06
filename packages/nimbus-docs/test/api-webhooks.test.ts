@@ -101,7 +101,7 @@ describe("a webhook assembles the full request/response contract", () => {
     assert.equal(page.samples.length, 0, "no curl for a server-to-client delivery");
   });
 
-  test("the payload survives into the rendered markdown twin", () => {
+  test("the payload survives into the rendered Markdown version", () => {
     const md = renderApiPageMarkdown(hook());
     assert.ok(md.includes("orderCreated.id"), "the body field row is emitted");
   });

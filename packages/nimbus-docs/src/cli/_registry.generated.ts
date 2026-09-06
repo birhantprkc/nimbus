@@ -254,14 +254,14 @@ export const BUNDLED_INDEX: BundledIndex = {
     "ai-native": {
       "name": "ai-native",
       "type": "registry:feature",
-      "title": "AI-native static surface",
-      "description": "Add llms.txt, markdown variants, robots.txt, and an AgentDirective to a Nimbus docs site."
+      "title": "Publish Markdown",
+      "description": "Add per-page Markdown versions, llms.txt indexes, llms-full.txt, robots.txt, and an AgentDirective to a Nimbus docs site."
     },
     "api-reference": {
       "name": "api-reference",
       "type": "registry:feature",
       "title": "OpenAPI reference",
-      "description": "Mount an OpenAPI (Swagger) spec as a routed reference collection — generated pages, per-page `.md` twins, and llms.txt/corpus coverage, all from one spec file. For hand-authored API docs written as MDX, use `new-collection` instead."
+      "description": "Mount an OpenAPI (Swagger) spec as a routed reference collection with generated pages, per-page Markdown versions, and llms.txt coverage from one spec file. For hand-authored API docs written as MDX, use `new-collection` instead."
     },
     "changelog": {
       "name": "changelog",

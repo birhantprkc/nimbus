@@ -31,12 +31,12 @@ plain doc tree.
 **For an OpenAPI spec, this is also the wrong recipe.** This recipe makes a
 tree of hand-authored MDX pages. If the user wants their API reference
 *generated from an OpenAPI/Swagger document* — pages per operation and schema,
-`.md` twins, llms coverage — use `nimbus-docs add api-reference`. Use this
+Markdown versions and `llms.txt` coverage — use `nimbus-docs add api-reference`. Use this
 recipe for `api` only when they're writing the API docs by hand.
 
 **This recipe owns the whole setup of a non-version collection.** You
 will create the content directory, register the collection in
-`content.config.ts`, scaffold the page + `.md` alternate routes, and
+`content.config.ts`, scaffold the page and Markdown routes, and
 optionally seed a starter entry. The user does not pre-create files or
 edit configs — you do.
 
@@ -62,7 +62,7 @@ conventions:
 - `src/pages/[...slug].astro` — read it. The new route will mirror this
   shape exactly except for the helper names (`getCollectionStaticPaths` /
   `getCollectionPage` instead of the `Docs` variants).
-- `src/pages/[...slug]/index.md.ts` — read it. The new `.md` alternate
+- `src/pages/[...slug]/index.md.ts` — read it. The new Markdown route
   will mirror it.
 - `src/layouts/DocsLayout.astro` — confirm it exists. The new route uses
   it.
@@ -102,8 +102,7 @@ The collection name **must**:
 If the user picks a `docs-<slug>` name, note that — see step 5 about
 versioning.
 
-### Q3. Confirm the URL prefix (default: same as the collection name, or the
-version slug if the collection is `docs-<slug>` and versioning is configured).
+### Q3. Confirm the URL prefix.
 
 The URL prefix is the path segment the collection mounts under. For a `blog`
 collection with prefix `/blog`, pages at `src/content/blog/foo.mdx` render at
@@ -114,6 +113,9 @@ collection with prefix `/blog`, pages at `src/content/blog/foo.mdx` render at
 URL prefix defaults to the part after `docs-`. This matches the versioning
 URL convention — a `docs-v1` collection always mounts at `/v1/`, never at
 `/docs-v1/`.
+
+For every other collection, the URL prefix must match the collection name.
+Per-page Markdown versions and the collection's `llms.txt` index use that identity as their mount prefix.
 
 ### Q4. Add a starter entry?
 
@@ -198,7 +200,8 @@ import {
   getEditUrl,
   getLastUpdated,
   getTOC,
-  withBase,
+  entryRouteKey,
+  stripBase,
 } from "@cloudflare/nimbus-docs";
 import { components } from "../../components";
 
@@ -209,7 +212,7 @@ const page = await getCollectionPage<"<collection>">(Astro);
 if (page instanceof Response) return page;
 const { entry, Content, headings } = page;
 
-const currentSlug = Astro.url.pathname.replace(/\/$/, "") || "/";
+const currentSlug = stripBase(Astro.url.pathname, import.meta.env.BASE_URL).replace(/\/$/, "") || "/";
 // Pass collection so the sidebar/prev-next resolve against the current
 // collection's tree. Critical for version pages — without this, version
 // pages render the current docs sidebar with wrong prev/next.
@@ -218,14 +221,16 @@ const prevNext = await getPrevNext(currentSlug, {
   sidebarTree: sidebar,
   overrides: { prev: entry.data.prev, next: entry.data.next },
 });
-const breadcrumbs = await getBreadcrumbs(currentSlug);
+const breadcrumbs = await getBreadcrumbs(currentSlug, { collection: entry.collection });
 const editUrl = await getEditUrl(entry);
 const lastUpdated = entry.data.lastUpdated ??
   await getLastUpdated(entry);
 const toc = getTOC(headings, entry.data.tableOfContents);
-const markdownPath = `/<prefix>/${entry.id}/index.md`;
-const basedMarkdownPath = withBase(markdownPath, import.meta.env.BASE_URL);
-const markdownUrl = Astro.site ? new URL(basedMarkdownPath, Astro.site).href : basedMarkdownPath;
+const routeKey = entryRouteKey(entry.id);
+const markdownPath = routeKey
+  ? `/<prefix>/${routeKey}/index.md`
+  : "/<prefix>/index.md";
+const markdownUrl = markdownPath;
 const socialImage = entry.data.socialImage ?? `/og/<prefix>/${entry.id}.png`;
 ---
 
@@ -268,85 +273,47 @@ If the user's primary `DocsLayout` accepts an `audience` prop or any other
 field not listed above, mirror it. If it drops one of the props above, drop
 that prop here too.
 
-### 4d. Scaffold the `.md` alternate
+### 4d. Scaffold the Markdown version
 
 Write `src/pages/<prefix>/[...slug]/index.md.ts`:
 
 ```ts
 /**
- * Per-page /<prefix>/<slug>/index.md — clean markdown alternate for every
+ * Per-page /<prefix>/<slug>/index.md — clean Markdown version of every
  * indexable entry of the `<collection>` collection. Mirrors the primary
- * .md alternate at src/pages/[...slug]/index.md.ts.
+ * Markdown route at src/pages/[...slug]/index.md.ts.
  */
 
 import {
-  getIndexedEntries,
-  renderEntryAsMarkdown,
-  type IndexedEntry,
-  withBase,
-} from "@cloudflare/nimbus-docs";
-import { config } from "virtual:nimbus/config";
+  getPreparedMarkdownArtifact,
+  getPreparedMarkdownStaticPaths,
+  type PreparedMarkdownReference,
+} from "@cloudflare/nimbus-docs/build";
 
 export const prerender = true;
 
 const COLLECTION = "<collection>";
-const absoluteUrl = (path: string) =>
-  new URL(withBase(path, import.meta.env.BASE_URL), config.site).href;
 
 interface SlugProps {
-  item: IndexedEntry;
+  artifact: PreparedMarkdownReference;
 }
 
-export async function getStaticPaths() {
-  const indexed = await getIndexedEntries();
-  return indexed
-    .filter((item) => item.collection === COLLECTION)
-    .map((item) => ({
-      params: { slug: item.entry.id },
-      props: { item } as SlugProps,
-    }));
-}
+export const getStaticPaths = () =>
+  getPreparedMarkdownStaticPaths({ collection: COLLECTION, surface: "markdown" });
 
 export async function GET({ props }: { props: SlugProps }) {
-  const { item } = props;
-  const { entry, title, description, url } = item;
-  const data = (entry.data ?? {}) as Record<string, unknown>;
-  const rawImage = data.socialImage;
-  const socialImage =
-    typeof rawImage === "string" && rawImage.length > 0
-      ? rawImage
-      : config.socialImage;
-
-  const markdown = renderEntryAsMarkdown(entry);
-
-  const body = [
-    "---",
-    `title: ${JSON.stringify(title)}`,
-    ...(description ? [`description: ${JSON.stringify(description)}`] : []),
-    ...(socialImage
-      ? [`image: ${JSON.stringify(absoluteUrl(socialImage))}`]
-      : []),
-    "---",
-    "",
-    "> Documentation Index",
-    `> Fetch the complete documentation index at: ${absoluteUrl("/llms.txt")}`,
-    "> Use this file to discover all available pages before exploring further.",
-    "",
-    `# ${title}`,
-    "",
-    markdown,
-    "",
-    `Source: ${absoluteUrl(`${url}/index.md`)}`,
-    "",
-  ].join("\n");
-
-  return new Response(body, {
-    headers: { "Content-Type": "text/markdown; charset=utf-8" },
+  const artifact = await getPreparedMarkdownArtifact(props.artifact);
+  return new Response(artifact.body, {
+    headers: { "Content-Type": artifact.mediaType },
   });
 }
 ```
 
 Substitute `<collection>` in the `COLLECTION` constant.
+
+To serve the expanded source URL referenced by the prepared markdown,
+mirror this route at `src/pages/<prefix>/[...slug]/index.mdx.ts` with
+`surface: "source"`.
 
 ## 5. Adding a docs version? Stop and use `nimbus-docs add new-version`
 

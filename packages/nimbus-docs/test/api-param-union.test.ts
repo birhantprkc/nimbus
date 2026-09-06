@@ -160,7 +160,7 @@ components:
     );
   });
 
-  test("the agent-facing markdown twin carries the union branch links", () => {
+  test("the generated Markdown carries the union branch links", () => {
     const md = renderApiPageMarkdown(getApiPageProps(refModel, "search"));
     assert.match(md, /one of:/);
     assert.match(md, /\[ById\]\(\/rpu\/schemas\/ById\)/);
@@ -168,7 +168,7 @@ components:
   });
 });
 
-describe("a top-level oneOf request/response body surfaces branch links in the twin", () => {
+describe("a top-level oneOf request/response body surfaces branch links in generated Markdown", () => {
   let bodyModel: ApiModel;
   before(async () => {
     bodyModel = await buildApiModel({
@@ -207,7 +207,7 @@ components:
     });
   });
 
-  test("both bodies expose their branch links in the markdown twin", () => {
+  test("both bodies expose their branch links in the Markdown version", () => {
     const md = renderApiPageMarkdown(getApiPageProps(bodyModel, "pay"));
     assert.match(md, /## Request body/);
     assert.match(md, /\[ByCard\]\(\/bpu\/schemas\/ByCard\)/);

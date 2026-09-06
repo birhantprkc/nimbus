@@ -11,7 +11,7 @@
 
 You are helping the user write an **overview** for their Nimbus docs site — the product-area landing page a reader lands on first and asks "What is this, and where do I start?" It orients in one paragraph, then routes. Read this entire file before writing.
 
-The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/overview> — and its agent-readable twin at <https://nimbus-docs.com/writing/recipes/overview/index.md>. Fetch it if you need more depth than this handoff carries.
+The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/overview> — and its Markdown version at <https://nimbus-docs.com/writing/recipes/overview/index.md>. Fetch it if you need more depth than this handoff carries.
 
 ## 1. Discovery
 
@@ -73,7 +73,7 @@ type: overview
 
 ## 5. Structure & components
 
-- **Cards / CardGrid** are the signature components — this is the one type where cards *are* the body, because routing is the body. Keep each card to a name plus one line; a card that explains is a concept paragraph in a box. In the `.md` twin cards flatten to link-plus-description lists, so write one-liners that work in both forms.
+- **Cards / CardGrid** are the signature components — this is the one type where cards *are* the body, because routing is the body. Keep each card to a name plus one line; a card that explains is a concept paragraph in a box. In the `.md` version cards flatten to link-plus-description lists, so write one-liners that work in both forms.
 - **Link lists** (`LinkCard` or prose lists) beat cards when the grid forces padded copy, or when a group must run past the ~5-link cap — prose scans better at volume.
 - **Doesn't fit:** Steps (nothing is performed here), code blocks (nothing is looked up — inline code in the orientation line is fine), accordions (an overview hiding content is hiding its own map).
 - **Ending:** end with **Related** when adjacent areas are genuinely confusable, each a one-line disambiguation; otherwise the last capability group ends the page. Either way, no "next steps" section — the entire page is next steps.

@@ -8,6 +8,22 @@ sidebar:
 
 Content is Markdown (`.md`) or MDX (`.mdx`). MDX lets you drop components straight into prose — cards, tabs, steps, asides, and anything you build.
 
+## Links under a deployment base
+
+Write site links as logical root paths without Astro's deployment base. If the site is deployed with `base: "/docs"`, write `[Installation](/installation)`, not `[Installation](/docs/installation)`. Nimbus adds `/docs` during the build.
+
+This applies to Markdown links, reference definitions, native `<a href>` attributes, and static component `href` strings. Relative links, external URLs, fragments, query strings, code, and dynamic JSX expressions are left unchanged.
+
+For a link computed in component or route code, import `withBase` from `@cloudflare/nimbus-docs/runtime` and apply it once:
+
+```ts
+import { withBase } from "@cloudflare/nimbus-docs/runtime";
+
+const href = withBase("/installation", import.meta.env.BASE_URL);
+```
+
+Do not pass an already based path to `withBase`; with a `/docs` base, `withBase("/docs/installation", "/docs")` intentionally produces `/docs/docs/installation`.
+
 ## The components registry
 
 Components listed in `src/components.ts` are available in every MDX file **without an import**:

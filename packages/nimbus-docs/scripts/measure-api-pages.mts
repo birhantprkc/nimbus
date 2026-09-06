@@ -1,4 +1,4 @@
-// Measures rendered field count, nesting depth, twin-markdown bytes, and ref
+// Measures rendered field count, nesting depth, generated-Markdown bytes, and ref
 // "reducibility" across every page of the Cloudflare fixture — the derivation
 // behind the inline-field ceiling and depth bound. Run:
 //   node --max-old-space-size=6144 --import tsx scripts/measure-api-pages.mts

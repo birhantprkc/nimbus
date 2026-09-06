@@ -28,6 +28,11 @@ import {
 import { getCodeStyleCSS } from "../src/_internal/code-style-registry.js";
 import { parseContentCollections } from "../src/_internal/parse-content-collections.js";
 import {
+  beginPreparedMarkdownLoad,
+  commitPreparedMarkdownCollection,
+  preparedMarkdownRootKey,
+} from "../src/_internal/prepared-markdown-registry.js";
+import {
   requestInventoryEntryUrl,
   requestInventoryVersionStatusKey,
 } from "../src/_internal/request-route-url.js";
@@ -47,23 +52,26 @@ test("request inventory preserves prose ids and only collapses the API root", ()
     requestInventoryEntryUrl("", "guides/index", false),
     "/guides/index",
   );
-  assert.equal(requestInventoryEntryUrl("/blog", "index", false), "/blog/index");
+  assert.equal(
+    requestInventoryEntryUrl("/blog", "index", false),
+    "/blog/index",
+  );
   assert.equal(requestInventoryEntryUrl("/api", "index", true), "/api");
   assert.equal(
     requestInventoryEntryUrl("/api", "guides/index", true),
     "/api/guides/index",
   );
-  assert.equal(requestInventoryVersionStatusKey("docs-v1", false, "v1"), "docs-v1");
+  assert.equal(
+    requestInventoryVersionStatusKey("docs-v1", false, "v1"),
+    "docs-v1",
+  );
   assert.equal(requestInventoryVersionStatusKey("api", true, "v1"), "api@v1");
 });
 
 test("request inventory reader removes root and base-prefixed candidates", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "nimbus-request-inventory-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const rootInventory = path.join(
-    root,
-    "_nimbus/request-route-inventory.json",
-  );
+  const rootInventory = path.join(root, "_nimbus/request-route-inventory.json");
   const basedInventory = path.join(
     root,
     "docs/_nimbus/request-route-inventory.json",
@@ -259,6 +267,8 @@ async function setupIntegration(
   contentConfig = 'export const collections = { docs: {}, blog: {}, "docs-v1": {} };\n',
   api?: NimbusConfig["api"],
   integrationOptions: Partial<NimbusIntegrationOptions> = {},
+  base = "",
+  trailingSlash: "always" | "never" | "ignore" = "ignore",
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "nimbus-rendering-policy-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -307,7 +317,8 @@ async function setupIntegration(
       root: pathToFileURL(`${root}${path.sep}`),
       srcDir: pathToFileURL(`${path.join(root, "src")}${path.sep}`),
       cacheDir: pathToFileURL(`${path.join(root, ".cache")}${path.sep}`),
-      base: "",
+      base,
+      trailingSlash,
     },
     logger: {
       info: () => {},
@@ -361,6 +372,8 @@ async function generateRequestSitemap(
   entries: readonly Record<string, unknown>[],
   pages: readonly { pathname: string }[],
   sitemapOptions: NonNullable<NimbusIntegrationOptions["sitemap"]> = {},
+  base = "/",
+  trailingSlash: "always" | "never" | "ignore" = "ignore",
 ) {
   const integration = await setupIntegration(
     t,
@@ -369,6 +382,8 @@ async function generateRequestSitemap(
     undefined,
     undefined,
     { sitemap: sitemapOptions },
+    base,
+    trailingSlash,
   );
   await integration.routeSetup({
     route: { component: "src/pages/[...slug].astro", prerender: true },
@@ -392,18 +407,20 @@ async function generateRequestSitemap(
   const sitemapIntegration = integration.configUpdates
     .flatMap(
       (update) =>
-        (update.integrations as Array<{
-          name: string;
-          hooks: Record<string, (...args: never[]) => unknown>;
-        }> | undefined) ?? [],
+        (update.integrations as
+          | Array<{
+              name: string;
+              hooks: Record<string, (...args: never[]) => unknown>;
+            }>
+          | undefined) ?? [],
     )
     .find((candidate) => candidate.name === "@astrojs/sitemap");
   assert.ok(sitemapIntegration);
   await sitemapIntegration.hooks["astro:config:done"]?.({
     config: {
       site: "https://example.test",
-      base: "/",
-      trailingSlash: "ignore",
+      base,
+      trailingSlash,
       build: { format: "directory" },
     },
   } as never);
@@ -474,6 +491,113 @@ test("mixed sitemap includes prerendered and request-rendered pages", async (t) 
   assert.match(xml, /<loc>https:\/\/example\.test\/runtime\/<\/loc>/);
 });
 
+test("sitemap deduplicates the deployment root across trailing slash forms", async (t) => {
+  const xml = await generateRequestSitemap(
+    t,
+    [{ collection: "docs", url: "/", request: true, discoverable: true }],
+    [{ pathname: "" }],
+    {},
+    "/docs",
+  );
+
+  assert.equal(
+    xml.match(/<loc>https:\/\/example\.test\/docs\/?<\/loc>/g)?.length,
+    1,
+  );
+});
+
+test("sitemap deduplicates mixed routes for every trailing slash policy", async (t) => {
+  for (const trailingSlash of ["always", "never", "ignore"] as const) {
+    const xml = await generateRequestSitemap(
+      t,
+      [
+        {
+          collection: "docs",
+          url: "/guide/",
+          request: true,
+          discoverable: true,
+        },
+      ],
+      [{ pathname: "guide" }],
+      {},
+      "/docs",
+      trailingSlash,
+    );
+
+    assert.equal(
+      xml.match(/<loc>https:\/\/example\.test\/docs\/guide\/?<\/loc>/g)
+        ?.length,
+      1,
+    );
+
+    const requestOnlyXml = await generateRequestSitemap(
+      t,
+      [
+        {
+          collection: "docs",
+          url: "/request-only/",
+          request: true,
+          discoverable: true,
+        },
+      ],
+      [],
+      {},
+      "/docs",
+      trailingSlash,
+    );
+    const suffix = trailingSlash === "never" ? "" : "/";
+    assert.match(
+      requestOnlyXml,
+      new RegExp(
+        `<loc>https://example\\.test/docs/request-only${suffix}</loc>`,
+      ),
+    );
+  }
+});
+
+test("sitemap compares encoded and decoded route identities symmetrically", async (t) => {
+  const xml = await generateRequestSitemap(
+    t,
+    [
+      {
+        collection: "docs",
+        url: "/café",
+        request: true,
+        discoverable: true,
+      },
+    ],
+    [{ pathname: "caf%C3%A9" }],
+    {},
+    "/docs",
+  );
+
+  assert.equal(
+    xml.match(/<loc>https:\/\/example\.test\/docs\/caf%C3%A9\/?<\/loc>/g)
+      ?.length,
+    1,
+  );
+});
+
+test("sitemap keeps logical routes that begin with the deployment base", async (t) => {
+  const xml = await generateRequestSitemap(
+    t,
+    [
+      {
+        collection: "docs",
+        url: "/guide",
+        request: true,
+        discoverable: true,
+      },
+    ],
+    [{ pathname: "docs/guide" }],
+    {},
+    "/docs",
+  );
+
+  assert.match(xml, /<loc>https:\/\/example\.test\/docs\/guide\/<\/loc>/);
+  assert.match(xml, /<loc>https:\/\/example\.test\/docs\/docs\/guide<\/loc>/);
+});
+
 test("sitemap accepts custom page inventories above the argument limit", async (t) => {
   const customPages = Array.from(
     { length: 130_000 },
@@ -530,7 +654,10 @@ test("upstream sitemap chunks request pages read from a mutable customPages arra
     5,
   );
   assert.ok(chunks.every((xml) => (xml.match(/<url>/g)?.length ?? 0) <= 2));
-  assert.match(await readFile(path.join(root, "sitemap-index.xml"), "utf8"), /sitemap-2\.xml/);
+  assert.match(
+    await readFile(path.join(root, "sitemap-index.xml"), "utf8"),
+    /sitemap-2\.xml/,
+  );
 });
 
 test("request inventory is removed before downstream build failures", async (t) => {
@@ -791,6 +918,30 @@ test("configured request routes are explained to the build invariant", async (t)
       },
     ],
   } as never);
+  const preparedRoot = preparedMarkdownRootKey(integration.root);
+  for (const [collection, entries] of [
+    [
+      "docs",
+      [
+        {
+          id: "index",
+          body: "# Docs\n\n```js\nconst requestRendered = true;\n```\n",
+          data: { title: "Docs" },
+        },
+      ],
+    ],
+    ["blog", []],
+    ["docs-v1", []],
+  ] as const) {
+    const epoch = beginPreparedMarkdownLoad(preparedRoot, collection, true);
+    commitPreparedMarkdownCollection(
+      preparedRoot,
+      collection,
+      epoch,
+      { generation: 1, base: "/" },
+      entries,
+    );
+  }
   await integration.buildStart({} as never);
 
   const dist = path.join(integration.root, "dist");

@@ -1,7 +1,7 @@
 /**
  * OpenAPI 3.x → `DocsModel`. The OpenAPI protocol front-end: it owns parsing,
  * coordinate + fingerprint minting, and fact extraction; the shared spine owns
- * everything downstream (twins, search, rendering shell).
+ * everything downstream (generated representations, search, rendering shell).
  *
  * v1 (this file) implements the walking-skeleton depth: api root, sections,
  * operations, parameters, body fields, responses, schemas, and webhooks, each

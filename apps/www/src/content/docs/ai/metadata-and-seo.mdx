@@ -3,14 +3,14 @@ title: Metadata and SEO
 description: Titles, descriptions, Open Graph images, sitemaps, and per-page head control.
 aiGenerated: true
 sidebar:
-  order: 2
+  order: 3
 ---
 
 Nimbus handles the metadata baseline automatically and gives you per-page and site-wide control where you need it.
 
 ## Titles and descriptions
 
-`title` and `description` frontmatter populate `<title>` and `<meta name="description">`, and feed the search snippet and agent index. Site-wide fallbacks come from the Nimbus config:
+`title` and `description` frontmatter populate `<title>` and `<meta name="description">`, and feed the search snippet and `llms.txt` indexes. Site-wide fallbacks come from the Nimbus config:
 
 ```ts title="astro.config.ts"
 nimbus({
@@ -40,6 +40,8 @@ socialImage: /og/pricing.png
 ```
 
 Nimbus also ships an OG image route, so pages without an explicit image get a generated card.
+
+Image paths are logical paths without Astro's deployment base. For a site deployed at `/docs`, keep `socialImage: "/og.png"`; Nimbus produces `/docs/og.png`. Absolute and protocol-relative image URLs are preserved.
 
 ## Sitemap and robots
 

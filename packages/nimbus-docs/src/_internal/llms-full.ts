@@ -1,15 +1,15 @@
 /**
- * Pure collation for the full-corpus markdown document (`llms-full.txt`).
+ * Pure collation for the full-documentation Markdown file (`llms-full.txt`).
  *
  * Kept astro-free so the collation contract — ordering, separators, header
- * shape — is unit-testable without a build. `renderCorpusMarkdown()` in the
+ * shape — is unit-testable without a build. `renderLlmsFullMarkdown()` in the
  * public entry maps `IndexedEntry[]` onto these blocks and applies the
  * version/hidden filtering; this module only formats.
  */
 
-import { withBase } from "./url.js";
+import { isAbsoluteUrl } from "./url.js";
 
-export interface CorpusBlock {
+export interface LlmsFullBlock {
   /** Display title — becomes the block's `#`-level heading. */
   title: string;
   /** Optional description — rendered as a blockquote under the heading. */
@@ -22,7 +22,7 @@ export interface CorpusBlock {
   markdown: string;
 }
 
-export interface CorpusHeader {
+export interface LlmsFullHeader {
   /** Site title — the document's opening `#` heading. */
   title: string;
   /** Optional site description — blockquote under the opening heading. */
@@ -37,7 +37,7 @@ export interface CorpusHeader {
 }
 
 /**
- * Collate corpus blocks into one markdown document.
+ * Collate prepared page blocks into one Markdown document.
  *
  * Contract:
  *   - Blocks are sorted by `url` — output is deterministic for a given
@@ -45,15 +45,22 @@ export interface CorpusHeader {
  *   - Each block opens with a `#`-level heading. Page bodies render at
  *     `##` and below, so top-level headings unambiguously delimit entries.
  *   - The header cross-references the sitewide index (`/llms.txt`), making
- *     the index ↔ corpus pair mutually discoverable.
+ *     the index and full documentation mutually discoverable.
  *   - No timestamps, no build metadata — byte-identical across rebuilds.
  */
-export function buildCorpusMarkdown(
-  blocks: CorpusBlock[],
-  header: CorpusHeader,
+export function buildLlmsFullMarkdown(
+  blocks: LlmsFullBlock[],
+  header: LlmsFullHeader,
 ): string {
   const abs = (p: string): string => {
-    const based = withBase(p, header.base ?? "/");
+    const base = header.base ?? "/";
+    let end = base.length;
+    while (end > 0 && base[end - 1] === "/") end--;
+    const prefix = base.slice(0, end);
+    const based =
+      isAbsoluteUrl(p) || p.startsWith("#") || p.startsWith("?") || !prefix
+        ? p
+        : `${prefix}${p.startsWith("/") ? p : `/${p}`}`;
     return header.site ? new URL(based, header.site).href : based;
   };
 
@@ -61,7 +68,9 @@ export function buildCorpusMarkdown(
   if (header.description) lines.push(`> ${header.description}`, "");
   lines.push(`Index: ${abs("/llms.txt")}`, "");
 
-  const sorted = [...blocks].sort((a, b) => a.url.localeCompare(b.url));
+  const sorted = [...blocks].sort((a, b) =>
+    a.url < b.url ? -1 : a.url > b.url ? 1 : 0,
+  );
   for (const block of sorted) {
     lines.push(`# ${block.title}`, "");
     if (block.description) lines.push(`> ${block.description}`, "");

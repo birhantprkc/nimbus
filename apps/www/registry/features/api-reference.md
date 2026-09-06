@@ -3,7 +3,7 @@
   "name": "api-reference",
   "type": "registry:feature",
   "title": "OpenAPI reference",
-  "description": "Mount an OpenAPI (Swagger) spec as a routed reference collection — generated pages, per-page `.md` twins, and llms.txt/corpus coverage, all from one spec file. For hand-authored API docs written as MDX, use `new-collection` instead.",
+  "description": "Mount an OpenAPI (Swagger) spec as a routed reference collection with generated pages, per-page Markdown versions, and llms.txt coverage from one spec file. For hand-authored API docs written as MDX, use `new-collection` instead.",
   "markers": ["src/pages/api/[...slug].astro"]
 }
 ---
@@ -12,9 +12,8 @@
 
 You are helping the user mount an **OpenAPI (Swagger) spec** as a first-class
 reference collection on a Nimbus docs site. One spec file in, and the user
-gets: a routed page per operation/schema/tag under `/api`, a clean-markdown
-`.md` twin for every page, and automatic llms.txt + corpus coverage so agents
-can read the whole API surface.
+gets: a routed page per operation/schema/tag under `/api`, a clean Markdown
+version of every page, and automatic `llms.txt` and `llms-full.txt` coverage.
 
 The render is Nimbus's own — the spec is parsed once per build and projected
 into a stable view-model. There is no third-party reference renderer.
@@ -39,9 +38,12 @@ Before prompting the user or writing anything, inspect the project:
 - The Nimbus config — inline in `astro.config.ts` for most projects, or split
   into a `nimbus.config.ts`. Read it; you'll add an `api` entry and, if it's
   still inline, extract it so `content.config.ts` can share the same list.
-- `src/pages/[...slug].astro` and `src/pages/[...slug]/index.md.ts` — the
-  primary docs page + `.md` twin. The API routes are siblings that mirror the
-  twin's frontmatter/headers, so match their style.
+- `src/pages/[...slug].astro`, `src/pages/[...slug]/index.md.ts`,
+  `src/pages/llms.txt.ts`, `src/pages/llms-full.txt.ts`, and
+  `src/pages/[section]/llms.txt.ts` — the primary docs page, Markdown version,
+  and index routes. The API routes are siblings that mirror the Markdown
+  route's frontmatter and headers, so match their style.
+  If any are missing, stop and install `nimbus-docs add ai-native` first.
 - Locate the OpenAPI spec. Ask the user for its path if it isn't obvious
   (common: `src/api/openapi.yaml`, `openapi.json`, `api/spec.yaml`).
 
@@ -50,7 +52,8 @@ Before prompting the user or writing anything, inspect the project:
 ### Q1. Where is the OpenAPI spec?
 
 A local file path relative to the project root (e.g. `./src/api/openapi.yaml`).
-YAML or JSON, OpenAPI 3.x or Swagger 2.0. Remote URLs are not supported in v1 —
+YAML or JSON in OpenAPI 3.x format. Convert Swagger 2.0 documents to OpenAPI
+3.x first. Remote URLs are not supported in v1 —
 if the user only has a URL, have them save it into the repo first.
 
 ### Q2. Confirm the collection name + URL prefix (default: `api`).
@@ -78,7 +81,7 @@ Print a short, exact plan to the user **before** writing anything:
   second spec declaration.
 - Create `src/pages/api/[...slug].astro` and `src/pages/api/[...slug]/index.md.ts`.
 - Resulting URLs: `/api` (overview), `/api/<slug>` (each page), the matching
-  `/api/<slug>/index.md` twins, and `/api/llms.txt`.
+  `/api/<slug>/index.md` versions, and `/api/llms.txt`.
 
 Wait for confirmation before executing.
 
@@ -164,7 +167,7 @@ spec, add more entries to the array and explicitly register each one in 4c.
 In `src/content.config.ts`, import the config, find the entry selected in 4b,
 and register it under an explicitly visible collection key. This keeps the spec
 declaration in one place while allowing Nimbus's static collection-name parser
-to include the API reference in agent indexes:
+  to include the API reference in `llms.txt` indexes:
 
 ```ts
 import { apiCollection } from "@cloudflare/nimbus-docs/content";
@@ -185,19 +188,19 @@ lookup and the object key (quote the key if it contains a dash). For multiple
 specs, add one explicit lookup and literal collection key per `api[]` entry;
 Nimbus does not discover collection names hidden behind a dynamic spread.
 
-### 4d. Scaffold the `.md` twin route
+### 4d. Scaffold the Markdown route
 
-Write `src/pages/api/[...slug]/index.md.ts`. This is the clean-markdown
-alternate for every API page — the render comes from Nimbus's emitter via
+Write `src/pages/api/[...slug]/index.md.ts`. This is the clean Markdown
+version of every API page — the render comes from Nimbus's emitter via
 `renderIndexedEntryMarkdown` (which handles both prose and API collections), so
 do **not** prepend a `# title`; the emitter already renders the page heading.
 
 <!-- api-reference-fixture:src/pages/api/[...slug]/index.md.ts -->
 ```ts
 /**
- * Per-page `/api/<slug>/index.md` - the clean-markdown alternate for every
+ * Per-page `/api/<slug>/index.md` - the clean Markdown version of every
  * entry of the `api` reference collection. Sibling to the primary-collection
- * twin at `pages/[...slug]/index.md.ts`; filtering to `api` keeps the two
+ * Markdown route at `pages/[...slug]/index.md.ts`; filtering to `api` keeps the two
  * rest routes from generating conflicting paths.
  */
 
@@ -238,7 +241,9 @@ export async function GET({ props }: { props: SlugProps }) {
   const { item } = props;
   const { title, description, markdownUrl, sourceUrl, version } = item;
 
-  const markdown = await renderIndexedEntryMarkdown(item);
+  const markdown = await renderIndexedEntryMarkdown(item, {
+    base: import.meta.env.BASE_URL,
+  });
 
   const body = [
     "---",
@@ -257,7 +262,7 @@ export async function GET({ props }: { props: SlugProps }) {
     markdown,
     "",
     // API pages have no authored `.mdx` source, so `sourceUrl` is undefined -
-    // fall back to the `.md` twin's own URL.
+    // fall back to the Markdown version's own URL.
     `Source: ${absoluteUrl(sourceUrl ?? markdownUrl)}`,
     "",
   ].join("\n");
@@ -349,11 +354,11 @@ After writing all files, run the user's build command and confirm:
 
 1. The build logs `Indexed N API pages for "api".`
 2. `dist/api/index.html` (overview) and `dist/api/<slug>/index.html` exist.
-3. `dist/api/index.md` and `dist/api/<slug>/index.md` twins exist and contain
+3. `dist/api/index.md` and `dist/api/<slug>/index.md` exist and contain
    the rendered reference (operation method/path, request body, responses).
 4. `dist/api/llms.txt` lists every API page, and the root `dist/llms.txt`
    includes `api` as a top-level section.
-5. `dist/llms-full.txt` (if the site emits a corpus) embeds the API markdown.
+5. `dist/llms-full.txt` embeds the generated API Markdown.
 
 Then tell the user the URLs to visit: `/api`, `/api/<slug>`,
 `/api/<slug>/index.md`, `/api/llms.txt`.

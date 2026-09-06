@@ -64,7 +64,7 @@ function defaultVersionOf(versions: ApiVersionSpec[]): ApiVersionSpec {
 }
 
 // The content loader (store id) and getApiStaticPaths (route param) MUST agree
-// here or a page's HTML route, .md twin, and sitemap URL diverge — so both
+// here or a page's HTML route, Markdown version, and sitemap URL diverge — so both
 // derive from this one function.
 export function apiPageRoute(
   target: Pick<ResolvedApiVersion, "isDefault" | "version">,

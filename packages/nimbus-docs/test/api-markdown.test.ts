@@ -1,4 +1,4 @@
-// The API-page Markdown emitter: pure view-model → Markdown. Asserts corpus
+// The API-page Markdown emitter: pure view-model → Markdown. Asserts embedding
 // safety (no `#` H1), determinism, per-kind completeness, nesting/truncation,
 // OR-of-AND auth, and a full-sweep resilience pass over the smallco model.
 
@@ -83,7 +83,7 @@ before(async () => {
 });
 
 describe("api markdown emitter", () => {
-  test("output is corpus-safe: no single-hash H1 lines", () => {
+  test("output is safe to embed: no single-hash H1 lines", () => {
     for (const { coordinate } of getApiPageSlugs(smallco)) {
       const md = renderApiPageMarkdown(getApiPageProps(smallco, coordinate));
       for (const line of md.split("\n")) {
@@ -109,6 +109,20 @@ describe("api markdown emitter", () => {
       assert.ok(md.trim().length > 0, `empty markdown for ${coordinate}`);
       assert.ok(md.endsWith("\n"), `missing trailing newline for ${coordinate}`);
     }
+  });
+
+  test("applies the configured base to generated internal links", () => {
+    let links = 0;
+    for (const { coordinate } of getApiPageSlugs(smallco)) {
+      const md = renderApiPageMarkdown(getApiPageProps(smallco, coordinate), {
+        base: "/docs",
+      });
+      for (const match of md.matchAll(/\]\((\/[^)]*)\)/g)) {
+        links++;
+        assert.match(match[1] ?? "", /^\/docs(?:\/|$)/);
+      }
+    }
+    assert.ok(links > 0);
   });
 
   test("operation page carries method + path and its facts", () => {

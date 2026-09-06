@@ -7,7 +7,7 @@ import { markdownToHtml } from "satteri";
  * Render a CommonMark string to a SANITIZED HTML fragment.
  *
  * One-correct-answer plumbing: OpenAPI `description` fields are CommonMark, and
- * the view-model deliberately carries them RAW (the `.md` twin re-emits them as
+ * the view-model deliberately carries them RAW (the `.md` version re-emits them as
  * markdown). The HTML page therefore renders them here, at the taste layer, via
  * `set:html`. This lives in the framework because turning CommonMark into HTML —
  * safely — has exactly one right answer; where and how the result is styled does

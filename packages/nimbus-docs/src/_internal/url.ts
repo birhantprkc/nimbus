@@ -20,8 +20,8 @@
  * document routes and adding a slash would break them.
  *
  * `withBase` is public because starter-owned layouts and routes must apply the
- * same sub-path rule as framework-owned metadata. The route-shape helpers stay
- * internal: starter components consume hrefs the framework already shaped.
+ * same sub-path rule as framework-owned metadata. Site-relative inputs are
+ * logical routes and must reach this helper exactly once.
  */
 
 /**
@@ -36,8 +36,8 @@ export function isAbsoluteUrl(href: string): boolean {
 }
 
 /**
- * Prefix a site-root-relative path with Astro's configured base path.
- * External URLs and paths that already include the base pass through.
+ * Prefix a logical site-relative path with Astro's configured base path.
+ * External URLs pass through.
  *
  * Pass `import.meta.env.BASE_URL` as `base` from an Astro component or route.
  */
@@ -49,14 +49,19 @@ export function withBase(path: string, base: string): string {
   let end = base.length;
   while (end > 0 && base[end - 1] === "/") end--;
   const prefix = base.slice(0, end);
-  if (!prefix) return path;
   const [pathname, suffix] = splitSuffix(path);
   const normalized = pathname.startsWith("/") ? pathname : `/${pathname}`;
-  const based =
-    normalized === prefix || normalized.startsWith(`${prefix}/`)
-      ? normalized
-      : `${prefix}${normalized}`;
-  return `${based}${suffix}`;
+  return `${prefix}${normalized}${suffix}`;
+}
+
+export function stripBase(path: string, base: string): string {
+  let end = base.length;
+  while (end > 0 && base[end - 1] === "/") end--;
+  const prefix = base.slice(0, end);
+  if (!prefix) return path;
+  const [pathname, suffix] = splitSuffix(path);
+  if (pathname !== prefix && !pathname.startsWith(`${prefix}/`)) return path;
+  return `${pathname.slice(prefix.length) || "/"}${suffix}`;
 }
 
 /**

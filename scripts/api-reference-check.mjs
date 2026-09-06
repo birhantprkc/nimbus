@@ -670,6 +670,10 @@ async function applyOverlay() {
   }
   await mkdir(join(site, "src", "api"), { recursive: true });
   await cp(SPEC, join(site, "src", "api", "smallco.yaml"));
+  await writeFile(
+    join(site, "src", "content", "docs", "guide.mdx"),
+    "---\ntitle: Guide\n---\n\n# Guide\n",
+  );
 }
 
 async function assertProvenance(registryItems, registryUrl, initialNimbus) {
@@ -845,7 +849,7 @@ async function assertArtifactsAndSmoke(dist) {
     "root llms.txt must link /api/llms.txt exactly once",
   );
   const apiIndex = await readFile(join(dist, "api", "llms.txt"), "utf8");
-  const corpus = await readFile(join(dist, "llms-full.txt"), "utf8");
+  const llmsFull = await readFile(join(dist, "llms-full.txt"), "utf8");
   const expectedMarkdownUrls = expectedRoutes
     .map((route) => absoluteUrl(`${route}/index.md`))
     .sort();
@@ -856,7 +860,7 @@ async function assertArtifactsAndSmoke(dist) {
       `api/llms.txt must contain ${markdownUrl} exactly once`,
     );
     assert(
-      occurrences(corpus, markdownUrl) === 1,
+      occurrences(llmsFull, markdownUrl) === 1,
       `llms-full.txt must contain ${markdownUrl} exactly once`,
     );
   }
@@ -866,7 +870,7 @@ async function assertArtifactsAndSmoke(dist) {
     "api/llms.txt API Markdown URL set differs from expected.json",
   );
   assert(
-    JSON.stringify(extractApiMarkdownUrls(corpus)) ===
+    JSON.stringify(extractApiMarkdownUrls(llmsFull)) ===
       JSON.stringify(expectedMarkdownUrls),
     "llms-full.txt API Markdown URL set differs from expected.json",
   );
@@ -1173,13 +1177,20 @@ async function assertBasePathMetadata() {
       `non-root base Markdown body is missing ${url}`,
     );
   }
+  for (const match of operationMarkdown.matchAll(/\]\((\/[^)]*)\)/g)) {
+    assert(
+      /^\/docs(?:\/|$)/.test(match[1] ?? ""),
+      `non-root API Markdown contains an unbased link: ${match[1]}`,
+    );
+  }
   const ordinaryHtml = await readFile(
-    join(site, "dist-base", "index", "index.html"),
+    join(site, "dist-base", "guide", "index.html"),
     "utf8",
   );
-  const ordinaryMarkdownUrl = absoluteUrl("/docs/index.md");
+  const ordinaryMarkdownPath = "/docs/guide/index.md";
+  const ordinaryMarkdownUrl = absoluteUrl(ordinaryMarkdownPath);
   assert(
-    ordinaryHtml.includes(`data-md-url="${ordinaryMarkdownUrl}"`),
+    ordinaryHtml.includes(`data-md-url="${ordinaryMarkdownPath}"`),
     "non-root ordinary page actions use an unbased Markdown URL",
   );
   assert(
@@ -1198,6 +1209,33 @@ async function assertBasePathMetadata() {
     ordinaryDirective?.includes(`href="${ordinaryMarkdownUrl}"`),
     "non-root ordinary agent directive uses an unbased Markdown URL",
   );
+  const homeHtml = await readFile(join(site, "dist-base", "index.html"), "utf8");
+  const notFoundHtml = await readFile(join(site, "dist-base", "404.html"), "utf8");
+  for (const [surface, html] of Object.entries({
+    operation: operationHtml,
+    ordinary: ordinaryHtml,
+    home: homeHtml,
+    "not found": notFoundHtml,
+  })) {
+    for (const match of html.matchAll(/\shref="(\/(?!\/)[^"]*)"/g)) {
+      assert(
+        /^\/docs(?:\/|$)/.test(match[1] ?? ""),
+        `non-root ${surface} HTML contains an unbased href: ${match[1]}`,
+      );
+    }
+  }
+  assert(
+    homeHtml.includes('<meta property="og:type" content="website">'),
+    "non-root homepage is not classified as a website",
+  );
+  assert(
+    ordinaryHtml.includes('href="/docs/favicon.ico"'),
+    "non-root favicon URL is malformed",
+  );
+  assert(
+    ordinaryHtml.includes('rel="stylesheet" href="/docs/_nimbus/shiki.css"'),
+    "non-root Shiki stylesheet URL is malformed",
+  );
   const basedArtifacts = {
     "root agent index": [
       await readFile(join(site, "dist-base", "llms.txt"), "utf8"),
@@ -1207,7 +1245,7 @@ async function assertBasePathMetadata() {
       await readFile(join(site, "dist-base", "api", "llms.txt"), "utf8"),
       [absoluteUrl("/docs/api/charges/create/index.md")],
     ],
-    "full corpus": [
+    "full documentation": [
       await readFile(join(site, "dist-base", "llms-full.txt"), "utf8"),
       [
         absoluteUrl("/docs/llms.txt"),
@@ -1215,8 +1253,8 @@ async function assertBasePathMetadata() {
       ],
     ],
     "ordinary Markdown": [
-      await readFile(join(site, "dist-base", "index.md"), "utf8"),
-      [absoluteUrl("/docs/llms.txt"), absoluteUrl("/docs/index.mdx")],
+      await readFile(join(site, "dist-base", "guide", "index.md"), "utf8"),
+      [absoluteUrl("/docs/llms.txt"), absoluteUrl("/docs/guide/index.mdx")],
     ],
     robots: [
       await readFile(join(site, "dist-base", "robots.txt"), "utf8"),
@@ -1228,7 +1266,59 @@ async function assertBasePathMetadata() {
       assert(contents.includes(url), `non-root ${artifact} is missing ${url}`);
     }
   }
-  ok("non-root base is preserved in metadata, directives, and Markdown bodies");
+
+  phase("building generated consumer with a colliding base segment");
+  await run(
+    "pnpm",
+    [
+      "exec",
+      "astro",
+      "build",
+      "--base",
+      "/api",
+      "--outDir",
+      "dist-base-collision",
+    ],
+    { cwd: site, timeoutMs: 15 * 60_000 },
+  );
+  const collisionHtml = await readFile(
+    join(
+      site,
+      "dist-base-collision",
+      "api",
+      "charges",
+      "create",
+      "index.html",
+    ),
+    "utf8",
+  );
+  const collisionMarkdown = await readFile(
+    join(
+      site,
+      "dist-base-collision",
+      "api",
+      "charges",
+      "create",
+      "index.md",
+    ),
+    "utf8",
+  );
+  for (const url of [
+    absoluteUrl("/api/api/charges/create/index.md"),
+    absoluteUrl("/api/api/llms.txt"),
+  ]) {
+    assert(
+      collisionHtml.includes(`href="${url}"`),
+      `colliding base metadata or agent surface is missing ${url}`,
+    );
+  }
+  assert(
+    collisionMarkdown.includes(
+      absoluteUrl("/api/api/charges/create/index.md"),
+    ),
+    "colliding base Markdown source URL dropped a route segment",
+  );
+  ok("non-root base is preserved across metadata, navigation, and agent surfaces");
 }
 
 async function execute() {

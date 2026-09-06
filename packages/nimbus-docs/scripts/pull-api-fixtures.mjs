@@ -1,4 +1,4 @@
-// Downloads the opt-in API gauntlet corpus described in
+// Downloads the opt-in API gauntlet fixture set described in
 // test/fixtures/api/production/sources.json. The specs (~45 MB) are gitignored;
 // this is how you fetch them locally to run:
 //   NIMBUS_API_GAUNTLET=1 node --max-old-space-size=6144 --import tsx --test test/api-production-gauntlet.test.ts

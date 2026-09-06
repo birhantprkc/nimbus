@@ -70,7 +70,7 @@ export function collectSecuritySchemes(
   const out: Record<string, SecuritySchemeFacts> = {};
   for (const [name, scheme] of Object.entries(schemes)) {
     if (!scheme || typeof scheme !== "object") continue;
-    // String-only: a non-string reaching the markdown twin throws on `.replace`.
+    // String-only: a non-string reaching generated Markdown throws on `.replace`.
     const fact: SecuritySchemeFacts = {};
     if (typeof scheme.type === "string") fact.type = scheme.type;
     if (scheme.in === "header" || scheme.in === "query" || scheme.in === "cookie") fact.in = scheme.in;

@@ -18,13 +18,13 @@ Frontmatter is validated against a Zod schema at build time, with errors written
 | `sidebar` | `false` \| object | — | `false` removes the sidebar column on this page; use `sidebar.hidden` to hide the page from the rail. See below. |
 | `hideChildren` | boolean | — | Top-level alias of `sidebar.hideChildren` — collapse a section to a single link. |
 | `head` | array | `[]` | Extra `<head>` elements; merged with `config.head`. |
-| `banner` | object | — | Top-of-page banner — see [Banners](/styling/banners). |
-| `draft` | boolean | `false` | Excluded from production builds and the agent index. |
+| `banner` | object | — | Per-page announcement shown above the page header. See below. |
+| `draft` | boolean | `false` | Excluded from production builds and the `llms.txt` indexes. |
 | `noindex` | boolean | `false` | Emits `<meta name="robots" content="noindex">`. |
 | `searchable` | boolean | derives from `noindex` | Include in the site search index. |
 | `tableOfContents` | `false` \| object | — | `{ minHeadingLevel, maxHeadingLevel }` (default 2–3). |
 | `lastUpdated` | date | — | Overrides the git-derived date. |
-| `socialImage` | string | — | Per-page OG image (path or URL). |
+| `socialImage` | string | — | Per-page OG image as an absolute URL or unbased logical path. |
 | `prev` / `next` | string \| object \| `false` | — | Override or disable pagination links. |
 | `previousSlug` | string \| string[] | — | Versioning rename hatch — see [Redirects](/navigation/redirects). |
 | `external_link` | URL \| `/path` | — | Rewrite the sidebar link target. |
@@ -44,6 +44,36 @@ sidebar:
     label: Getting started
     badge: Beta
 ```
+
+## Banner
+
+Use `banner` for a page-specific announcement such as a release, migration notice, or deprecation warning:
+
+```yaml
+---
+title: Workers
+banner:
+  content: This API is in beta and may change.
+  type: caution
+---
+```
+
+`content` is plain text. `type` accepts `note`, `tip`, `caution`, or `danger`.
+
+Add `dismissible` to let readers close the banner:
+
+```yaml
+banner:
+  content: v2 is out — see the migration guide.
+  type: tip
+  dismissible:
+    id: v2-release
+    days: 7
+```
+
+`id` identifies the dismissal. Change it when the message changes so the banner appears again. `days` controls how long the dismissal lasts; omit it to remember the dismissal indefinitely.
+
+For a site-wide notice, render the `Banner` component in `BaseLayout` instead. See [Layouts](/styling/layouts).
 
 ## Example
 

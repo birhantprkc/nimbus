@@ -11,7 +11,7 @@
 
 You are helping the user write a **how-to guide** for their Nimbus docs site — a task page whose reader already knows what they want and needs the steps, not the theory ("How do I do X?"). Read this entire file before writing.
 
-The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/how-to> — and its agent-readable twin at <https://nimbus-docs.com/writing/recipes/how-to/index.md>. Fetch it if you need more depth than this handoff carries.
+The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/how-to> — and its Markdown version at <https://nimbus-docs.com/writing/recipes/how-to/index.md>. Fetch it if you need more depth than this handoff carries.
 
 ## 1. Discovery
 
@@ -48,7 +48,7 @@ lastVerified: 2026-07-06
     Quarantine third-party setup here. Skip the section if there are truly none. */}
 
 {/* ## Steps — the happy path only, verb-first, one action per step.
-    - Steps component or a plain ordered list (both must read identically in the .md twin).
+    - Steps component or a plain ordered list (both must read identically in the `.md` version).
     - State location before action ("In Settings → Webhooks, select…").
     - Show the expected result after any non-obvious step.
     - A warning callout BEFORE a destructive/irreversible step is part of the happy path.
@@ -69,7 +69,7 @@ lastVerified: 2026-07-06
 
 ## 5. Structure & components
 
-- **Numbered steps** are the signature structure — `Steps` or a plain ordered list; both must read identically in the `.md` twin. No steps? Question whether it's a how-to.
+- **Numbered steps** are the signature structure — `Steps` or a plain ordered list; both must read identically in the `.md` version. No steps? Question whether it's a how-to.
 - **Tabs / code groups** carry variant axes (language, platform, CLI-vs-dashboard) *inside* one canonical page. For alternative *methods*, pick the recommended one and link the rest — never duplicate the page.
 - **Callouts** warn before destructive steps; a page drowning in exception callouts has the wrong happy path.
 - **Ending, in order:** Verify → the irreversible closing step (if any) → optional blocks → Next steps. Never end on the last numbered step.

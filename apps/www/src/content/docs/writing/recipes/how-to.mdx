@@ -22,7 +22,7 @@ One goal per page. "Rotate a signing secret" and "Revoke a signing secret" are t
 
 ## Title & description
 
-- **Title: imperative verb phrase stating the goal.** "Rotate a signing secret." "Add a second endpoint." No gerunds ("Rotating secrets"), no bare nouns ("Secret rotation"), no "How to" prefix — the imperative verb phrase itself signals the type, and it's the consensus across Cloudflare and GitLab.
+- **Title: imperative verb phrase stating the goal.** "Rotate a signing secret." "Add a second endpoint." No gerunds ("Rotating secrets"), no bare nouns ("Secret rotation"), no "How to" prefix — the imperative verb phrase itself signals the type.
 - **Description formula:** "*Verb the thing, with the benefit or key constraint.*" — e.g. "Rotate a signing secret without dropping deliveries. Both secrets stay valid during the overlap window."
 
 ## Scaffold this page
@@ -33,7 +33,7 @@ Install the recipe — your coding agent reads the full skeleton and checklist a
 
 ## Component guidance
 
-- **Numbered steps** are the defining structure — as the Steps component or a plain ordered list; both must read identically in the `.md` twin. If a page has no steps, question whether it's a how-to.
+- **Numbered steps** are the defining structure — as the Steps component or a plain ordered list; both must read identically in the `.md` version. If a page has no steps, question whether it's a how-to.
 - **Tabs / code groups** carry variant axes (language, platform, CLI-vs-dashboard) *inside* one canonical page. Duplicating the page per variant is the failure mode. For alternative *methods*, don't tab — pick the recommended one and link the rest.
 - **Callouts:** warnings before destructive steps (part of the happy path), and exceptions to it ("If you're on the legacy plan, …"). A how-to drowning in exception callouts has the wrong happy path.
 - **Doesn't fit:** Cards (this page routes nowhere until Next steps), long conceptual asides, full option tables (link to reference).
@@ -56,7 +56,7 @@ Link *out* for depth: concepts for why, reference for values, adjacent how-tos f
 
 - Each step must be executable without the surrounding page: name the product area, the full command, the exact setting label — never "as configured above."
 - Keep expected outputs in fenced blocks with full, realistic values — no `…`-truncated credentials; agents match on what you show.
-- Tabbed variants must flatten into labeled sections in the `.md` twin; never let the only copy of a step live inside a component the twin drops.
+- Tabbed variants must flatten into labeled sections in the `.md` version; never let the only copy of a step live inside a component that generated Markdown drops.
 - The Verify section doubles as the agent's acceptance check — write it as something runnable, with the failure branch spelled out.
 
 ## Checklist

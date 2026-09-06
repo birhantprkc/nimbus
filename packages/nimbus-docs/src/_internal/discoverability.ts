@@ -1,7 +1,7 @@
 /**
  * `true` when an entry belongs on machine discovery surfaces. `noindex: true`
  * drops a page from `/llms.txt`, per-section `llms.txt`, the `/llms-full.txt`
- * corpus, on-site search, and the sitemap while keeping it addressable
+ * full documentation, on-site search, and the sitemap while keeping it addressable
  * (`.md`/HTML resolve) and navigable (sidebar, breadcrumbs, prev/next).
  */
 export function isDiscoverable(entry: { data?: unknown }): boolean {

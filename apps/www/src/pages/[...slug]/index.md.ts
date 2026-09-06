@@ -73,7 +73,7 @@ export async function GET({ props }: { props: SlugProps }) {
     "",
     markdown,
     "",
-    // Point at the authored source (`.mdx` twin) when it exists.
+    // Point at the authored source (`.mdx` version) when it exists.
     `Source: ${absoluteUrl(sourceUrl ?? markdownUrl)}`,
     "",
   ].join("\n");

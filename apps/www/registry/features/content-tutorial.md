@@ -11,7 +11,7 @@
 
 You are helping the user write a **tutorial** for their Nimbus docs site — a lesson that takes a newcomer from nothing to a working project, where the teacher carries **all** responsibility and every stage produces a visible result ("Teach me to build something real with this"). Read this entire file before writing.
 
-The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/tutorial> — and its agent-readable twin at <https://nimbus-docs.com/writing/recipes/tutorial/index.md>. Fetch it if you need more depth than this handoff carries.
+The full, browsable version of this recipe, with the complete rationale, lives at <https://nimbus-docs.com/writing/recipes/tutorial> — and its Markdown version at <https://nimbus-docs.com/writing/recipes/tutorial/index.md>. Fetch it if you need more depth than this handoff carries.
 
 ## 1. Discovery
 
@@ -25,7 +25,7 @@ Inspect the repo before writing — do not assume:
 
 ## 2. When to use it
 
-Write a tutorial when competence requires *assembling* the product's pieces — a platform or API whose value shows only when several features work together. Know the cost first: this is the most expensive type to build and keep true, because it must work for every reader, every time, on a cold machine. Fewest and freshest wins — one tested tutorial beats five stale ones, and a broken tutorial convinces a newcomer the *product* is broken. You may not need one at all: app-like products and single-concern tools often don't (Linear and Tailwind ship none) — a good quickstart plus how-tos covers them.
+Write a tutorial when competence requires *assembling* the product's pieces — a platform or API whose value shows only when several features work together. Know the cost first: this is the most expensive type to build and keep true, because it must work for every reader, every time, on a cold machine. Fewest and freshest wins — one tested tutorial beats five stale ones, and a broken tutorial convinces a newcomer the *product* is broken. A good quickstart plus how-tos often covers app-like products and single-concern tools without a tutorial.
 
 It is **not** a quickstart (proves the product works in minutes; the tutorial builds competence through a meaningful project in an hour), **not** a how-to (which serves a competent reader who carries themselves; here the reader knows nothing and when something breaks it is the tutorial's fault, never the reader's), and **not** a concept course (teach by doing, not explaining). One path, zero alternatives — the author already chose. When different stacks genuinely need different narratives, stamp one tutorial per stack (sibling pages beat variant tabs when the *whole story* differs).
 

@@ -7,19 +7,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { toBrowserHref, toRouteKey, withBase } from "../src/_internal/url.js";
+import {
+  stripBase,
+  toBrowserHref,
+  toRouteKey,
+  withBase,
+} from "../src/_internal/url.js";
 
-test("withBase prefixes internal paths and is idempotent", () => {
+test("withBase prefixes logical internal paths exactly once", () => {
   assert.equal(withBase("/api/index.md", "/docs/"), "/docs/api/index.md");
   assert.equal(withBase("api/index.md", "/docs/"), "/docs/api/index.md");
-  assert.equal(withBase("/docs/api/index.md", "/docs/"), "/docs/api/index.md");
-  assert.equal(withBase("/docs?x=1#top", "/docs/"), "/docs?x=1#top");
+  assert.equal(withBase("api/index.md", "/"), "/api/index.md");
+  assert.equal(withBase("/docs/api/index.md", "/docs/"), "/docs/docs/api/index.md");
+  assert.equal(withBase("/docs?x=1#top", "/docs/"), "/docs/docs?x=1#top");
   assert.equal(withBase("/api?x=1#top", "/docs/"), "/docs/api?x=1#top");
 });
 
-test("withBase does not double-prefix an already-absolute, already-based URL (NimbusHead markdownUrl path)", () => {
-  // NimbusHead re-applies withBase to a caller-pre-absolutized markdownUrl;
-  // the absolute-URL short-circuit must keep it single-based.
+test("withBase leaves absolute URLs unchanged", () => {
   const abs = "https://docs.acme.dev/docs/guide/index.md";
   assert.equal(withBase(abs, "/docs/"), abs);
   assert.equal(new URL(withBase(abs, "/docs/")).pathname, "/docs/guide/index.md");
@@ -31,6 +35,14 @@ test("withBase leaves root-base and external URLs unchanged", () => {
   assert.equal(withBase("//cdn.example.com/api", "/docs/"), "//cdn.example.com/api");
   assert.equal(withBase("#top", "/docs/"), "#top");
   assert.equal(withBase("?x=1", "/docs/"), "?x=1");
+});
+
+test("stripBase removes only a complete deployment-base segment", () => {
+  assert.equal(stripBase("/docs/guide/", "/docs/"), "/guide/");
+  assert.equal(stripBase("/docs", "/docs/"), "/");
+  assert.equal(stripBase("/docs?view=all", "/docs/"), "/?view=all");
+  assert.equal(stripBase("/docs-preview/guide", "/docs/"), "/docs-preview/guide");
+  assert.equal(stripBase("/guide", "/"), "/guide");
 });
 
 // ---------------------------------------------------------------------------

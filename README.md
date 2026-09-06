@@ -69,7 +69,7 @@ Components and utilities copy in as editable files. Features hand off a recipe y
 ## What you get
 
 - **Owned source** — layouts, components, content collections, styles, and theme tokens, all editable.
-- **An agent surface** — `.md` / `.mdx` twins for every page, `/llms.txt` + `/llms-full.txt`, JSON-LD, sitemap, `robots.txt`, and per-page OG images. The agent web reads your docs as well as a browser does, by default.
+- **Documentation for agents** — a clean Markdown version of every discoverable page, a prepared MDX source version of every discoverable authored page, `/llms.txt`, `/llms-full.txt`, JSON-LD, sitemap, `robots.txt`, and per-page OG images. Coding agents can read your docs as well as a browser does, by default.
 - **A reader experience** — full-text search, light/dark theming, accessible navigation, breadcrumbs, pagination, and a mobile sidebar.
 - **Authoring guardrails** — prose-and-structure linting, an MDX component validator, and config validation that fails with human-readable errors.
 - **Versioned docs, when you need them** — parallel versions with alternates, canonical links, and automatic redirects.
@@ -78,7 +78,7 @@ Components and utilities copy in as editable files. Features hand off a recipe y
 
 **You own every file.** The scaffolder writes your layouts, components, and design tokens once, then steps back. Change a Tailwind class, restructure a layout, delete what you don't need — it's your codebase, not a dependency you theme around.
 
-**Humans and agents are both first-class.** The agent-readable surface ships by default, not as an add-on, so coding agents and the wider agent web consume your docs as cleanly as people do.
+**Humans and agents are both first-class.** Agent-readable formats ship by default, not as add-ons, so coding agents and the wider agent web consume your docs as cleanly as people do.
 
 ## Built on
 

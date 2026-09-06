@@ -1,7 +1,7 @@
 /**
- * Per-page `/api/<slug>/index.md` - the clean-markdown alternate for every
+ * Per-page `/api/<slug>/index.md` - the clean Markdown version of every
  * entry of the `api` reference collection. Sibling to the primary-collection
- * twin at `pages/[...slug]/index.md.ts`; filtering to `api` keeps the two
+ * Markdown route at `pages/[...slug]/index.md.ts`; filtering to `api` keeps the two
  * rest routes from generating conflicting paths.
  */
 
@@ -42,7 +42,9 @@ export async function GET({ props }: { props: SlugProps }) {
   const { item } = props;
   const { title, description, markdownUrl, sourceUrl, version } = item;
 
-  const markdown = await renderIndexedEntryMarkdown(item);
+  const markdown = await renderIndexedEntryMarkdown(item, {
+    base: import.meta.env.BASE_URL,
+  });
 
   const body = [
     "---",
@@ -61,7 +63,7 @@ export async function GET({ props }: { props: SlugProps }) {
     markdown,
     "",
     // API pages have no authored `.mdx` source, so `sourceUrl` is undefined -
-    // fall back to the `.md` twin's own URL.
+    // fall back to the Markdown version's own URL.
     `Source: ${absoluteUrl(sourceUrl ?? markdownUrl)}`,
     "",
   ].join("\n");

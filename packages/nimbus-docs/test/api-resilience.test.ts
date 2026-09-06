@@ -167,7 +167,7 @@ describe("api resilience — a non-string security scope renders, never crashes"
 
 describe("api resilience — non-string security scheme fields render, never crash", () => {
   // Sibling to the scope case: a scheme whose scalar metadata violates the
-  // spec (`type: 123`, `in: 7`) must not reach the markdown twin as a non-string
+  // spec (`type: 123`, `in: 7`) must not reach the Markdown version as a non-string
   // where `inlineText(...).replace(...)` would throw. The bogus values are
   // dropped; a valid neighbour survives.
   const badSchemeSpec = JSON.stringify({

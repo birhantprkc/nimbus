@@ -89,7 +89,7 @@ describe("request body: JSON + multipart both render, multipart stays citable", 
     );
   });
 
-  test("both media types appear in the markdown twin", () => {
+  test("both media types appear in the Markdown version", () => {
     const md = renderApiPageMarkdown(page);
     assert.match(md, /## Request body \(application\/json\)/);
     assert.match(md, /## Request body \(multipart\/form-data\)/);
@@ -163,7 +163,7 @@ describe("a scalar secondary body (no fields) is never dropped", () => {
     assert.equal(bin!.fields.length, 0, "a binary scalar has no top-level fields");
   });
 
-  test("the twin still announces the octet-stream affordance", () => {
+  test("the Markdown version still announces the octet-stream affordance", () => {
     const md = renderApiPageMarkdown(page);
     assert.match(md, /## Request body \(application\/octet-stream\)/);
   });

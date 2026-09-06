@@ -45,7 +45,7 @@ Inspect the repo to learn its conventions:
   this map, so authored components in entries work like they do in docs.
 - `src/pages/og/[...slug].ts` and `src/pages/og/_og-card-config.ts` —
   the OG card setup. The starter uses `astro-og-canvas`; you will mirror it
-  for the changelog (step 5l).
+  for the changelog (step 5m).
 - `src/styles/globals.css` — confirm Nimbus tokens exist (`--nb-border`,
   `--nb-card`, `--nb-foreground`, `--nb-muted-foreground`, `--nb-h1-size`, …).
   The components use them.
@@ -236,6 +236,7 @@ import type { CollectionEntry } from "astro:content";
 import DateRail from "./DateRail.astro";
 import { Badge } from "@/components/ui/badge";
 import { components } from "@/components";
+import { withBase } from "@cloudflare/nimbus-docs/runtime";
 
 interface Props {
   entry: CollectionEntry<"changelog">;
@@ -247,7 +248,7 @@ interface Props {
 
 const { entry, overflow = false, railEnd = false } = Astro.props;
 const { title, date, tags } = entry.data;
-const href = `/changelog/${entry.id}`;
+const href = withBase(`/changelog/${entry.id}`, import.meta.env.BASE_URL);
 const { Content } = await render(entry);
 ---
 
@@ -302,6 +303,7 @@ styles. If the project's prose root class differs, swap it.
 import { Icon } from "astro-icon/components";
 import type { CollectionEntry } from "astro:content";
 import ChangelogEntry from "./ChangelogEntry.astro";
+import { withBase } from "@cloudflare/nimbus-docs/runtime";
 
 interface Props {
   entries: CollectionEntry<"changelog">[];
@@ -310,6 +312,7 @@ interface Props {
 }
 
 const { entries, pageSize, loadMoreHref = "/changelog/page/2" } = Astro.props;
+const resolvedLoadMoreHref = withBase(loadMoreHref, import.meta.env.BASE_URL);
 
 const sorted = [...entries].sort(
   (a, b) => b.data.date.getTime() - a.data.date.getTime(),
@@ -342,7 +345,7 @@ const lastVisibleIndex = Math.min(cap, sorted.length) - 1;
     hasOverflow && (
       <div class="mt-2 pl-[var(--body-x)] max-sm:pl-0">
         <a
-          href={loadMoreHref}
+          href={resolvedLoadMoreHref}
           class="inline-flex items-center gap-[0.4375rem] rounded-[0.625rem] border border-border bg-card py-2 pr-3 pl-3.5 text-sm font-medium text-foreground no-underline transition-[background-color,border-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-border-strong hover:bg-accent active:scale-[0.97] motion-reduce:active:scale-100"
           data-load-more
         >
@@ -647,6 +650,7 @@ import { getCollection } from "astro:content";
 import ChangelogLayout from "@/layouts/ChangelogLayout.astro";
 import ChangelogFeed from "@/components/changelog/ChangelogFeed.astro";
 import ChangelogFilter from "@/components/changelog/ChangelogFilter.astro";
+import { withBase } from "@cloudflare/nimbus-docs/runtime";
 
 export const prerender = true;
 
@@ -671,7 +675,7 @@ const description = "New features, improvements, and fixes.";
         rel: "alternate",
         type: "application/rss+xml",
         title: `${title} RSS`,
-        href: "/changelog/rss.xml",
+        href: withBase("/changelog/rss.xml", import.meta.env.BASE_URL),
       },
     },
   ]}
@@ -687,7 +691,7 @@ const description = "New features, improvements, and fixes.";
       </h1>
       {/* RSS only — omit this button if the user declined RSS. */}
       <a
-        href="/changelog/rss.xml"
+        href={withBase("/changelog/rss.xml", import.meta.env.BASE_URL)}
         class="inline-flex shrink-0 items-center gap-1.5 rounded-[0.625rem] border border-border py-1.5 pr-3 pl-2.5 text-[0.8125rem] font-medium text-muted-foreground no-underline transition-[color,border-color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:border-border-strong hover:text-foreground active:scale-[0.97] motion-reduce:active:scale-100"
       >
         <Icon name="ph:rss" class="h-4 w-4" />
@@ -713,14 +717,17 @@ route in 5j entirely.
 
 ```astro
 ---
+import type { GetStaticPaths } from "astro";
 import { Icon } from "astro-icon/components";
 import ChangelogLayout from "@/layouts/ChangelogLayout.astro";
 import { Badge } from "@/components/ui/badge";
-import { getCollectionStaticPaths, getCollectionPage, withBase } from "@cloudflare/nimbus-docs";
+import { entryRouteKey, getCollectionStaticPaths, getCollectionPage, withBase } from "@cloudflare/nimbus-docs";
 import { components } from "@/components";
 
 export const prerender = true;
-export const getStaticPaths = getCollectionStaticPaths("changelog");
+const getChangelogStaticPaths = getCollectionStaticPaths("changelog");
+export const getStaticPaths: GetStaticPaths = async (options) =>
+  (await getChangelogStaticPaths(options)).filter((path) => path.params.slug);
 
 const page = await getCollectionPage<"changelog">(Astro);
 if (page instanceof Response) return page;
@@ -730,9 +737,11 @@ const { title, description, date, tags } = entry.data;
 const iso = date.toISOString().slice(0, 10);
 const dateLabel = date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
-const markdownPath = `/changelog/${entry.id}/index.md`;
-const basedMarkdownPath = withBase(markdownPath, import.meta.env.BASE_URL);
-const markdownUrl = Astro.site ? new URL(basedMarkdownPath, Astro.site).href : basedMarkdownPath;
+const routeKey = entryRouteKey(entry.id);
+const markdownPath = routeKey
+  ? `/changelog/${routeKey}/index.md`
+  : "/changelog/index.md";
+const markdownUrl = markdownPath;
 const socialImage = entry.data.socialImage ?? `/og/changelog/${entry.id}.png`;
 ---
 
@@ -747,7 +756,7 @@ const socialImage = entry.data.socialImage ?? `/og/changelog/${entry.id}.png`;
   entryId={entry.id}
 >
   <a
-    href="/changelog"
+    href={withBase("/changelog", import.meta.env.BASE_URL)}
     class="group mb-9 -ml-0.5 inline-flex items-center gap-1.5 text-[0.8125rem] font-medium text-muted-foreground no-underline transition-[color,transform] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:text-foreground active:scale-[0.98] motion-reduce:active:scale-100"
   >
     <Icon
@@ -798,6 +807,7 @@ import { getCollection } from "astro:content";
 import ChangelogLayout from "@/layouts/ChangelogLayout.astro";
 import ChangelogFeed from "@/components/changelog/ChangelogFeed.astro";
 import { Pagination } from "@/components/ui/pagination";
+import { withBase } from "@cloudflare/nimbus-docs/runtime";
 
 export const prerender = true;
 
@@ -839,7 +849,7 @@ const next =
 <ChangelogLayout title={`Changelog — Page ${page}`} description="" noindex>
   <header class="mb-14">
     <a
-      href="/changelog"
+      href={withBase("/changelog", import.meta.env.BASE_URL)}
       class="mb-4 inline-block text-[0.8125rem] font-medium text-muted-foreground no-underline hover:text-foreground"
     >
       ← Latest
@@ -874,6 +884,7 @@ also dropped the `<head>` link + RSS button in 5g).
  * /changelog/rss.xml — hand-rolled RSS 2.0 feed (no feed dependency).
  */
 import { getCollection } from "astro:content";
+import { withBase } from "@cloudflare/nimbus-docs/runtime";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
@@ -889,8 +900,8 @@ function escapeXml(value: string): string {
 
 export async function GET() {
   const site = config.site ?? "http://localhost:4321";
-  const feedUrl = new URL("/changelog/rss.xml", site).href;
-  const channelLink = new URL("/changelog/", site).href;
+  const feedUrl = new URL(withBase("/changelog/rss.xml", import.meta.env.BASE_URL), site).href;
+  const channelLink = new URL(withBase("/changelog/", import.meta.env.BASE_URL), site).href;
 
   const entries = (await getCollection("changelog", (e) => !e.data.draft)).sort(
     (a, b) => b.data.date.getTime() - a.data.date.getTime(),
@@ -898,7 +909,7 @@ export async function GET() {
 
   const items = entries
     .map((entry) => {
-      const url = new URL(`/changelog/${entry.id}/`, site).href;
+      const url = new URL(withBase(`/changelog/${entry.id}/`, import.meta.env.BASE_URL), site).href;
       const { title, description, date, tags } = entry.data;
       return [
         "    <item>",
@@ -940,12 +951,13 @@ export async function GET() {
  * Mirrors the primary docs alternate, scoped to the `changelog` collection,
  * adding the entry's date + tags to the frontmatter.
  */
+import { entryRouteKey, withBase } from "@cloudflare/nimbus-docs";
+import { getEntry } from "astro:content";
 import {
-  getIndexedEntries,
-  renderEntryAsMarkdown,
-  type IndexedEntry,
-  withBase,
-} from "@cloudflare/nimbus-docs";
+  getPreparedMarkdownArtifact,
+  getPreparedMarkdownStaticPaths,
+  type PreparedMarkdownReference,
+} from "@cloudflare/nimbus-docs/build";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
@@ -955,37 +967,49 @@ const absoluteUrl = (path: string) =>
   new URL(withBase(path, import.meta.env.BASE_URL), config.site).href;
 
 interface SlugProps {
-  item: IndexedEntry;
+  artifact: PreparedMarkdownReference;
 }
 
-export async function getStaticPaths() {
-  const indexed = await getIndexedEntries();
-  return indexed
-    .filter((item) => item.collection === COLLECTION)
-    .map((item) => ({ params: { slug: item.entry.id }, props: { item } as SlugProps }));
-}
+export const getStaticPaths = () =>
+  getPreparedMarkdownStaticPaths({ collection: COLLECTION, surface: "markdown" })
+    .then((paths) => paths.filter((path) => path.params.slug !== undefined));
 
 export async function GET({ props }: { props: SlugProps }) {
-  const { item } = props;
-  const { entry, title, description, url } = item;
+  const artifact = await getPreparedMarkdownArtifact(props.artifact);
+  const entry = await getEntry(COLLECTION, props.artifact.id);
+  if (!entry) return new Response(null, { status: 404 });
   const data = (entry.data ?? {}) as Record<string, unknown>;
+  const title = String(data.title);
+  const description =
+    typeof data.description === "string" ? data.description : undefined;
 
-  const date = data.date instanceof Date ? data.date.toISOString().slice(0, 10) : undefined;
+  const date =
+    data.date instanceof Date
+      ? data.date.toISOString().slice(0, 10)
+      : undefined;
   const tags = Array.isArray(data.tags) ? (data.tags as string[]) : [];
+  const routeKey = entryRouteKey(entry.id);
+  const sourcePath = routeKey
+    ? `/changelog/${routeKey}/index.mdx`
+    : "/changelog/index.mdx";
 
   const rawImage = data.socialImage;
   const socialImage =
-    typeof rawImage === "string" && rawImage.length > 0 ? rawImage : config.socialImage;
-
-  const markdown = renderEntryAsMarkdown(entry);
+    typeof rawImage === "string" && rawImage.length > 0
+      ? rawImage
+      : config.socialImage;
 
   const body = [
     "---",
     `title: ${JSON.stringify(title)}`,
     ...(description ? [`description: ${JSON.stringify(description)}`] : []),
     ...(date ? [`date: ${date}`] : []),
-    ...(tags.length ? [`tags: [${tags.map((t) => JSON.stringify(t)).join(", ")}]`] : []),
-    ...(socialImage ? [`image: ${JSON.stringify(absoluteUrl(socialImage))}`] : []),
+    ...(tags.length
+      ? [`tags: [${tags.map((t) => JSON.stringify(t)).join(", ")}]`]
+      : []),
+    ...(socialImage
+      ? [`image: ${JSON.stringify(absoluteUrl(socialImage))}`]
+      : []),
     "---",
     "",
     "> Documentation Index",
@@ -994,17 +1018,46 @@ export async function GET({ props }: { props: SlugProps }) {
     "",
     `# ${title}`,
     "",
-    markdown,
+    artifact.content,
     "",
-    `Source: ${absoluteUrl(`${url}/index.md`)}`,
+    `Source: ${absoluteUrl(sourcePath)}`,
     "",
   ].join("\n");
 
-  return new Response(body, { headers: { "Content-Type": "text/markdown; charset=utf-8" } });
+  return new Response(body, {
+    headers: { "Content-Type": "text/markdown; charset=utf-8" },
+  });
 }
 ```
 
-### 5l. `src/pages/og/changelog/[...slug].ts` (OG cards)
+### 5l. `src/pages/changelog/[...slug]/index.mdx.ts` (expanded source)
+
+```ts
+import {
+  getPreparedMarkdownArtifact,
+  getPreparedMarkdownStaticPaths,
+  type PreparedMarkdownReference,
+} from "@cloudflare/nimbus-docs/build";
+
+export const prerender = true;
+
+interface SlugProps {
+  artifact: PreparedMarkdownReference;
+}
+
+export const getStaticPaths = () =>
+  getPreparedMarkdownStaticPaths({ collection: "changelog", surface: "source" })
+    .then((paths) => paths.filter((path) => path.params.slug !== undefined));
+
+export async function GET({ props }: { props: SlugProps }) {
+  const artifact = await getPreparedMarkdownArtifact(props.artifact);
+  return new Response(artifact.body, {
+    headers: { "Content-Type": artifact.mediaType },
+  });
+}
+```
+
+### 5m. `src/pages/og/changelog/[...slug].ts` (OG cards)
 
 Mirror the project's existing docs OG route for the changelog collection. For
 the default starter (which uses `astro-og-canvas`):
@@ -1037,7 +1090,7 @@ export const { getStaticPaths, GET } = await OGImageRoute({
 If the project uses a custom OG renderer instead, copy its docs OG route and
 swap `getCollection("docs", …)` for `getCollection("changelog", …)`.
 
-### 5m. Seed entry — `src/content/changelog/<YYYY-MM-DD>-welcome.mdx`
+### 5n. Seed entry — `src/content/changelog/<YYYY-MM-DD>-welcome.mdx`
 
 ```mdx
 ---

@@ -14,6 +14,7 @@ import {
   getVersionStatus,
   renderIndexedEntryMarkdown,
 } from "../runtime.js";
+import { getPreparedMarkdownArtifact } from "../build.js";
 
 export const prerender = true;
 
@@ -60,7 +61,15 @@ export async function GET() {
     if (item.version) route.version = item.version;
     if (versionStatus?.isDeprecated) route.deprecated = true;
     if (route.request && searchable) {
-      route.content = await renderIndexedEntryMarkdown(item);
+      route.content = apiCollections.has(collection)
+        ? await renderIndexedEntryMarkdown(item, { base: import.meta.env.BASE_URL })
+        : (
+            await getPreparedMarkdownArtifact({
+              collection,
+              id: item.entry.id,
+              surface: "markdown",
+            })
+          ).content;
     }
     routes.push(route);
   }

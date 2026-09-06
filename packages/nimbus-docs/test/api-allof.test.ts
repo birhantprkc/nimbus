@@ -90,7 +90,7 @@ describe("allOf folding accumulates properties and unions required", () => {
     );
   });
 
-  test("both property names survive into the rendered markdown twin", () => {
+  test("both property names survive into the rendered Markdown version", () => {
     const md = renderApiPageMarkdown(composed());
     assert.ok(md.includes("Composed.kind"), "the `kind` field row is emitted");
     assert.ok(md.includes("Composed.note"), "the `note` field row is emitted");
