@@ -1215,7 +1215,10 @@ export async function bakePreparedArtifacts(
         id: entry.id,
         surface,
         digest: `sha256:${fingerprint}`,
-        mediaType: "text/markdown; charset=utf-8",
+        mediaType:
+          surface === "markdown"
+            ? "text/markdown; charset=utf-8"
+            : "text/mdx; charset=utf-8",
         path: `artifacts/${fingerprint}.${extension}`,
         contentStart,
         contentEnd,

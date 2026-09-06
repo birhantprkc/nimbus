@@ -8,3 +8,5 @@ Generate deterministic Markdown versions for every public page, prepared MDX sou
 Rename prepared publication APIs without compatibility aliases: `TwinSurface` becomes `PreparedMarkdownSurface`, `PreparedTwin*` becomes `PreparedMarkdown*`, `PreparedCorpus*` becomes `PreparedLlms*`, `getPreparedTwin*` becomes `getPreparedMarkdown*`, `getPreparedCorpus*` becomes `getPreparedLlms*`, and `renderCorpusMarkdown` becomes `renderLlmsFullMarkdown`. Move integration customization from `twins.componentMap` and `twins.partialResolver` to `markdown.componentMap` and `markdown.partialResolver`.
 
 Keep framework assets, metadata, starter navigation, and generated API links inside Astro's configured deployment base path. Replace the removed `withBaseRoute` runtime export with `withBase`; site-relative inputs to `withBase` must be logical, unbased paths.
+
+Keep generated `.nimbus` build data out of source control, deduplicate sitemap roots on subpath deployments, and advertise prepared MDX source responses as `text/mdx` consistently across static and request rendering.

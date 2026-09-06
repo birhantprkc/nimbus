@@ -267,6 +267,8 @@ async function setupIntegration(
   contentConfig = 'export const collections = { docs: {}, blog: {}, "docs-v1": {} };\n',
   api?: NimbusConfig["api"],
   integrationOptions: Partial<NimbusIntegrationOptions> = {},
+  base = "",
+  trailingSlash: "always" | "never" | "ignore" = "ignore",
 ) {
   const root = await mkdtemp(path.join(tmpdir(), "nimbus-rendering-policy-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -315,7 +317,8 @@ async function setupIntegration(
       root: pathToFileURL(`${root}${path.sep}`),
       srcDir: pathToFileURL(`${path.join(root, "src")}${path.sep}`),
       cacheDir: pathToFileURL(`${path.join(root, ".cache")}${path.sep}`),
-      base: "",
+      base,
+      trailingSlash,
     },
     logger: {
       info: () => {},
@@ -369,6 +372,8 @@ async function generateRequestSitemap(
   entries: readonly Record<string, unknown>[],
   pages: readonly { pathname: string }[],
   sitemapOptions: NonNullable<NimbusIntegrationOptions["sitemap"]> = {},
+  base = "/",
+  trailingSlash: "always" | "never" | "ignore" = "ignore",
 ) {
   const integration = await setupIntegration(
     t,
@@ -377,6 +382,8 @@ async function generateRequestSitemap(
     undefined,
     undefined,
     { sitemap: sitemapOptions },
+    base,
+    trailingSlash,
   );
   await integration.routeSetup({
     route: { component: "src/pages/[...slug].astro", prerender: true },
@@ -412,8 +419,8 @@ async function generateRequestSitemap(
   await sitemapIntegration.hooks["astro:config:done"]?.({
     config: {
       site: "https://example.test",
-      base: "/",
-      trailingSlash: "ignore",
+      base,
+      trailingSlash,
       build: { format: "directory" },
     },
   } as never);
@@ -482,6 +489,113 @@ test("mixed sitemap includes prerendered and request-rendered pages", async (t) 
 
   assert.match(xml, /<loc>https:\/\/example\.test\/built\/<\/loc>/);
   assert.match(xml, /<loc>https:\/\/example\.test\/runtime\/<\/loc>/);
+});
+
+test("sitemap deduplicates the deployment root across trailing slash forms", async (t) => {
+  const xml = await generateRequestSitemap(
+    t,
+    [{ collection: "docs", url: "/", request: true, discoverable: true }],
+    [{ pathname: "" }],
+    {},
+    "/docs",
+  );
+
+  assert.equal(
+    xml.match(/<loc>https:\/\/example\.test\/docs\/?<\/loc>/g)?.length,
+    1,
+  );
+});
+
+test("sitemap deduplicates mixed routes for every trailing slash policy", async (t) => {
+  for (const trailingSlash of ["always", "never", "ignore"] as const) {
+    const xml = await generateRequestSitemap(
+      t,
+      [
+        {
+          collection: "docs",
+          url: "/guide/",
+          request: true,
+          discoverable: true,
+        },
+      ],
+      [{ pathname: "guide" }],
+      {},
+      "/docs",
+      trailingSlash,
+    );
+
+    assert.equal(
+      xml.match(/<loc>https:\/\/example\.test\/docs\/guide\/?<\/loc>/g)
+        ?.length,
+      1,
+    );
+
+    const requestOnlyXml = await generateRequestSitemap(
+      t,
+      [
+        {
+          collection: "docs",
+          url: "/request-only/",
+          request: true,
+          discoverable: true,
+        },
+      ],
+      [],
+      {},
+      "/docs",
+      trailingSlash,
+    );
+    const suffix = trailingSlash === "never" ? "" : "/";
+    assert.match(
+      requestOnlyXml,
+      new RegExp(
+        `<loc>https://example\\.test/docs/request-only${suffix}</loc>`,
+      ),
+    );
+  }
+});
+
+test("sitemap compares encoded and decoded route identities symmetrically", async (t) => {
+  const xml = await generateRequestSitemap(
+    t,
+    [
+      {
+        collection: "docs",
+        url: "/café",
+        request: true,
+        discoverable: true,
+      },
+    ],
+    [{ pathname: "caf%C3%A9" }],
+    {},
+    "/docs",
+  );
+
+  assert.equal(
+    xml.match(/<loc>https:\/\/example\.test\/docs\/caf%C3%A9\/?<\/loc>/g)
+      ?.length,
+    1,
+  );
+});
+
+test("sitemap keeps logical routes that begin with the deployment base", async (t) => {
+  const xml = await generateRequestSitemap(
+    t,
+    [
+      {
+        collection: "docs",
+        url: "/guide",
+        request: true,
+        discoverable: true,
+      },
+    ],
+    [{ pathname: "docs/guide" }],
+    {},
+    "/docs",
+  );
+
+  assert.match(xml, /<loc>https:\/\/example\.test\/docs\/guide\/<\/loc>/);
+  assert.match(xml, /<loc>https:\/\/example\.test\/docs\/docs\/guide<\/loc>/);
 });
 
 test("sitemap accepts custom page inventories above the argument limit", async (t) => {

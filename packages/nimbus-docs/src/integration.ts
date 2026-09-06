@@ -1423,6 +1423,13 @@ export function nimbus(
         const prerenderedRoutes = new Set(
           publicPages.map(({ pathname }) => canonicalizePathname(pathname)),
         );
+        const prerenderedSitemapPaths = new Set(
+          publicPages.map(({ pathname }) =>
+            canonicalizePathname(
+              safeDecode(withBase(pathname || "/", astroBaseForBuild)),
+            ),
+          ),
+        );
         const inventory = requestRenderingConfigured
           ? readRequestRouteInventory(
               distDir,
@@ -1439,11 +1446,15 @@ export function nimbus(
             safeDecode(withBase(entry.url, astroBaseForBuild)),
           );
           if (!entry.discoverable) sitemapExcludedPaths.add(pathname);
-          if (entry.request && entry.discoverable) {
+          if (
+            entry.request &&
+            entry.discoverable &&
+            !prerenderedSitemapPaths.has(pathname)
+          ) {
             const basedPath = withBase(entry.url, astroBaseForBuild);
             const sitemapPath =
               sitemapTrailingSlash === "never"
-                ? basedPath
+                ? basedPath.replace(/\/$/, "") || "/"
                 : `${basedPath.replace(/\/$/, "")}/`;
             sitemapCustomPages.push(new URL(sitemapPath, config.site).href);
           }

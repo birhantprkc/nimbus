@@ -229,6 +229,7 @@ test("bakes expanded source and transformed Markdown artifacts deterministically
   assert.match(source.body, /Hello 😀\./);
   assert.match(source.body, /## 😀/);
   assert.doesNotMatch(source.body, /<Render/);
+  assert.equal(source.mediaType, "text/mdx; charset=utf-8");
 
   const markdown = await readPreparedMarkdownArtifact(projectRoot, {
     collection: "docs",
@@ -236,6 +237,7 @@ test("bakes expanded source and transformed Markdown artifacts deterministically
     surface: "markdown",
   });
   assert.match(markdown.body, /\[Catalog\]\(\/docs:\/docs\/catalog\)/);
+  assert.equal(markdown.mediaType, "text/markdown; charset=utf-8");
   assert.match(markdown.body, /\[Nested\]\(\/nested\)/);
   assert.doesNotMatch(markdown.body, /wrong/);
   assert.match(markdown.body, /\[API\]\(\/docs\/api\/list\)/);

@@ -31,6 +31,8 @@ test("every generated variant ships the adapter marker and implicit build defaul
       assert.doesNotMatch(cfg, /nimbus:rendering/);
       assert.doesNotMatch(cfg, /rendering:\s*\{\s*default:\s*["']request["']/);
       assert.doesNotMatch(cfg, /rendering:\s*\{/);
+      const gitignore = fs.readFileSync(path.join(dir, "gitignore"), "utf8");
+      assert.match(gitignore, /^\.nimbus\/$/m);
     }
   } finally {
     fs.rmSync(out, { recursive: true, force: true });
