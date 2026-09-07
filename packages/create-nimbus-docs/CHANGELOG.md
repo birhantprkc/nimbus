@@ -1,5 +1,14 @@
 # @cloudflare/create-nimbus-docs
 
+## 0.7.3
+
+### Patch Changes
+
+- [#119](https://github.com/cloudflare/nimbus/pull/119) [`bd179bb`](https://github.com/cloudflare/nimbus/commit/bd179bbe65f1c09d4375ce189865fdee90d543d7) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Index API response coordinates for direct citations, and keep scaffold progress readable in non-interactive terminals. Emit canonical trailing slashes for API navigation links.
+
+- Updated dependencies [[`e6fb2b1`](https://github.com/cloudflare/nimbus/commit/e6fb2b15c2f2a2227276fcc61baa71d21cc5d3fb), [`f4d0d78`](https://github.com/cloudflare/nimbus/commit/f4d0d7879a6b3564147efbed810ea56dce0c7ec9), [`bd179bb`](https://github.com/cloudflare/nimbus/commit/bd179bbe65f1c09d4375ce189865fdee90d543d7)]:
+  - @cloudflare/nimbus-docs@0.13.1
+
 ## 0.7.2
 
 ### Patch Changes
