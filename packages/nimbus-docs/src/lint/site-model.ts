@@ -200,8 +200,8 @@ export function formatShadowedRoutes(dups: DuplicateGroup[]): string {
  * framework's docs renderer collides with a content entry the *content*
  * enumeration also catches.
  *
- * URL normalization: lowercase each segment + strip a trailing `/index`,
- * matching Astro's `joinSegments` behavior for static routes. Underscore-
+ * URL normalization: preserve each static segment's casing and strip a trailing
+ * `/index`, matching Astro's `joinSegments` behavior for static routes. Underscore-
  * prefixed files are skipped (Astro's private-helper convention). Endpoint
  * files (`name.<ext>.<ts|js>`) map to `/name.<ext>` per Astro's convention.
  */
@@ -256,7 +256,7 @@ function isDynamicSegment(seg: string): boolean {
  *
  *   pages/index.astro       → /
  *   pages/search.astro      → /search
- *   pages/Search.astro      → /search       (Astro lowercases via joinSegments)
+ *   pages/Search.astro      → /Search       (Astro preserves static segment casing)
  *   pages/llms.txt.ts       → /llms.txt     (endpoint: strip .ts, keep .txt)
  *   pages/blog/index.astro  → /blog
  *   pages/blog/post.md      → /blog/post
@@ -275,8 +275,7 @@ function fileToRoute(parts: string[], ext: string): string {
   // Strip trailing `index` segment so `foo/index.astro` → `/foo`.
   if (cloned[cloned.length - 1] === "index") cloned.pop();
 
-  // Lowercase each segment to match Astro's `joinSegments` behavior.
-  const joined = cloned.map((s) => s.toLowerCase()).join("/");
+  const joined = cloned.join("/");
   return joined === "" ? "/" : `/${joined}`;
 }
 
