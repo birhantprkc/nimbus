@@ -1,8 +1,8 @@
 import {
-  getPreparedMarkdownArtifact,
-  getPreparedMarkdownStaticPaths,
-  type PreparedMarkdownReference,
-} from "@cloudflare/nimbus-docs/build";
+  getPreparedMarkdownRouteArtifact,
+  getPreparedMarkdownRouteStaticPaths,
+} from "@cloudflare/nimbus-docs/publication";
+import type { PreparedMarkdownReference } from "@cloudflare/nimbus-docs/types";
 
 export const prerender = true;
 
@@ -10,11 +10,27 @@ interface SlugProps {
   artifact: PreparedMarkdownReference;
 }
 
-export const getStaticPaths = () =>
-  getPreparedMarkdownStaticPaths({ collection: "docs", surface: "source" });
+interface SlugContext {
+  params: { slug?: string };
+  props: Partial<SlugProps>;
+  request: Request;
+}
 
-export async function GET({ props }: { props: SlugProps }) {
-  const artifact = await getPreparedMarkdownArtifact(props.artifact);
+export const getStaticPaths = async () =>
+  getPreparedMarkdownRouteStaticPaths({
+    collection: "docs",
+    surface: "source",
+  });
+
+export async function GET({ params, props, request }: SlugContext) {
+  const artifact = await getPreparedMarkdownRouteArtifact({
+    collection: "docs",
+    surface: "source",
+    slug: params.slug,
+    reference: props.artifact,
+    context: { request },
+  });
+  if (!artifact) return new Response("Not found", { status: 404 });
   return new Response(artifact.body, {
     headers: { "Content-Type": artifact.mediaType },
   });

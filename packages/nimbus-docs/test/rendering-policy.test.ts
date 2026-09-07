@@ -33,6 +33,7 @@ import {
   preparedMarkdownRootKey,
 } from "../src/_internal/prepared-markdown-registry.js";
 import {
+  contentInventoryEntryUrl,
   requestInventoryEntryUrl,
   requestInventoryVersionStatusKey,
 } from "../src/_internal/request-route-url.js";
@@ -66,6 +67,16 @@ test("request inventory preserves prose ids and only collapses the API root", ()
     "docs-v1",
   );
   assert.equal(requestInventoryVersionStatusKey("api", true, "v1"), "api@v1");
+});
+
+test("content inventory uses final IDs and each collection's actual render mode", () => {
+  assert.equal(
+    contentInventoryEntryUrl("", "1.1.1.1/encryption", false, false),
+    "/1.1.1.1/encryption",
+  );
+  assert.equal(contentInventoryEntryUrl("", "index", false, false), "/");
+  assert.equal(contentInventoryEntryUrl("", "index", false, true), "/index");
+  assert.equal(contentInventoryEntryUrl("/api", "index", true, true), "/api");
 });
 
 test("request inventory reader removes root and base-prefixed candidates", async (t) => {
@@ -357,6 +368,48 @@ async function setupIntegration(
   };
 }
 
+function resolvedNimbusRoutes(
+  injectedRoutes: readonly unknown[],
+  docsRendering: "build" | "request",
+) {
+  return [
+    {
+      pattern: "/[...slug]",
+      entrypoint: "src/pages/[...slug].astro",
+      type: "page",
+      isPrerendered: docsRendering === "build",
+      origin: "project",
+    },
+    {
+      pattern: "/blog/[...slug]",
+      entrypoint: "src/pages/blog/[...slug].astro",
+      type: "page",
+      isPrerendered: true,
+      origin: "project",
+    },
+    {
+      pattern: "/v1/[...slug]",
+      entrypoint: "src/pages/v1/[...slug].astro",
+      type: "page",
+      isPrerendered: true,
+      origin: "project",
+    },
+    ...injectedRoutes.map((route) => {
+      const injected = route as { pattern: string; entrypoint: string | URL };
+      return {
+        pattern: injected.pattern,
+        entrypoint:
+          injected.entrypoint instanceof URL
+            ? injected.entrypoint.href
+            : injected.entrypoint,
+        type: "endpoint",
+        isPrerendered: true,
+        origin: "project",
+      };
+    }),
+  ];
+}
+
 const buildLogger = {
   info: () => {},
   warn: () => {},
@@ -393,15 +446,7 @@ async function generateRequestSitemap(
     config: { output: "server", adapter: { name: "cloudflare" } },
     buildOutput: "server",
   } as never);
-  const routes = [
-    {
-      pattern: "/[...slug]",
-      entrypoint: "src/pages/[...slug].astro",
-      type: "page",
-      isPrerendered: false,
-      origin: "project",
-    },
-  ];
+  const routes = resolvedNimbusRoutes(integration.injectedRoutes, "request");
   integration.routesResolved({ routes } as never);
 
   const sitemapIntegration = integration.configUpdates
@@ -671,7 +716,9 @@ test("request inventory is removed before downstream build failures", async (t) 
     config: { output: "server", adapter: { name: "cloudflare" } },
     buildOutput: "server",
   } as never);
-  integration.routesResolved({ routes: [] } as never);
+  integration.routesResolved({
+    routes: resolvedNimbusRoutes(integration.injectedRoutes, "build"),
+  } as never);
   const dist = path.join(integration.root, "dist");
   const inventory = path.join(dist, "_nimbus/request-route-inventory.json");
   await mkdir(path.dirname(inventory), { recursive: true });
@@ -728,16 +775,25 @@ test("omitted rendering policy leaves existing route decisions untouched", async
 
   assert.equal(docs.prerender, false);
   assert.equal(blog.prerender, true);
-  assert.equal(integration.injectedRoutes.length, 0);
+  assert.equal(integration.injectedRoutes.length, 1);
 
   integration.configDone({
     injectTypes: () => new URL("file:///noop"),
     config: { output: "static" },
     buildOutput: "static",
   } as never);
-  integration.routesResolved({ routes: [] } as never);
+  integration.routesResolved({
+    routes: resolvedNimbusRoutes(integration.injectedRoutes, "build"),
+  } as never);
+  const dist = path.join(integration.root, "dist");
+  await mkdir(path.join(dist, "_nimbus"), { recursive: true });
+  await writeFile(
+    path.join(dist, "_nimbus/request-route-inventory.json"),
+    "[]",
+    "utf8",
+  );
   await integration.buildDone({
-    dir: pathToFileURL(`${path.join(integration.root, "dist")}${path.sep}`),
+    dir: pathToFileURL(`${dist}${path.sep}`),
     pages: [{ pathname: "/_nimbus/request-route-inventory.json" }],
     logger: {
       info: () => {},
@@ -752,9 +808,7 @@ test("omitted rendering policy leaves existing route decisions untouched", async
   const routeTruth = JSON.parse(
     await readFile(path.join(integration.root, ".nimbus/routes.json"), "utf8"),
   );
-  assert.deepEqual(routeTruth.knownRoutes, [
-    "/_nimbus/request-route-inventory.json",
-  ]);
+  assert.deepEqual(routeTruth.knownRoutes, []);
 });
 
 test("opaque version registrations still reach the request inventory", async (t) => {
@@ -908,15 +962,7 @@ test("configured request routes are explained to the build invariant", async (t)
     buildOutput: "server",
   } as never);
   integration.routesResolved({
-    routes: [
-      {
-        pattern: "/[...slug]",
-        entrypoint: "src/pages/[...slug].astro",
-        type: "page",
-        isPrerendered: false,
-        origin: "project",
-      },
-    ],
+    routes: resolvedNimbusRoutes(integration.injectedRoutes, "request"),
   } as never);
   const preparedRoot = preparedMarkdownRootKey(integration.root);
   for (const [collection, entries] of [
@@ -977,7 +1023,7 @@ test("configured request routes are explained to the build invariant", async (t)
   );
   assert.equal(route.prerender, false);
   assert.ok(
-    infos.some((message) => /docs prerendered=2\/3 \(1 moved\)/.test(message)),
+    infos.some((message) => /docs prerendered=1\/2 \(1 moved\)/.test(message)),
   );
   assert.deepEqual(
     JSON.parse(

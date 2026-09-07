@@ -33,6 +33,20 @@ declare module "virtual:nimbus/headings" {
   export const records: import("../_internal/prepared-headings.js").PreparedHeadingRecord[];
 }
 
+declare module "virtual:nimbus/prepared-artifacts" {
+  export const projectRoot: string;
+  export const base: string;
+  export const markdownArtifacts: import("../_internal/prepared-artifacts.js").PreparedMarkdownManifestArtifact[];
+  export const llmsArtifacts: import("../_internal/prepared-artifacts.js").PreparedLlmsManifestArtifact[];
+}
+
+declare module "virtual:nimbus/prepared-asset-loader" {
+  export function fetchPreparedAsset(
+    path: string,
+    request: Request,
+  ): Promise<Response> | null;
+}
+
 declare module "virtual:nimbus/api-build-config" {
   export const api: import("../types.js").ApiSpec[];
   export const root: string;

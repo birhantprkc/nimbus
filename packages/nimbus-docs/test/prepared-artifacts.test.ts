@@ -6,6 +6,7 @@ import {
   readdir,
   rm,
   symlink,
+  writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -27,10 +28,14 @@ import {
   ensurePreparedArtifacts,
   invalidatePreparedArtifacts,
   isPreparedArtifactRequested,
+  preparedAssetLoaderPlugin,
+  preparedArtifactsRuntimePlugin,
   preparedHeadingsPlugin,
   readPreparedLlmsArtifact,
   readPreparedMarkdownArtifact,
   registerPreparedArtifactDemand,
+  removePreparedArtifactAssets,
+  stagePreparedArtifactAssets,
 } from "../src/_internal/prepared-artifacts.ts";
 
 const roots: string[] = [];
@@ -388,6 +393,111 @@ test("bakes site and section llms.txt artifacts from public discoverable prose a
   assert.ok(
     manifest.markdownArtifacts.every((artifact) => artifact.collection !== "docs-v1"),
   );
+});
+
+test("runtime publication exposes metadata and stages bodies as assets", async () => {
+  const projectRoot = await root();
+  commit(projectRoot, "docs", [
+    { id: "guide", body: "Unique prepared body", data: { title: "Guide" } },
+  ]);
+  const options = {
+    root: projectRoot,
+    base: "/docs",
+    site: "https://example.test",
+    title: "Test",
+    indexedCollections: ["docs"],
+  };
+  configure(projectRoot, options);
+
+  const plugin = preparedArtifactsRuntimePlugin(projectRoot);
+  const id = plugin.resolveId("virtual:nimbus/prepared-artifacts");
+  assert.ok(id);
+  const source = await plugin.load.call(
+    { environment: { name: "ssr" } },
+    id,
+  );
+  assert.ok(source);
+  assert.doesNotMatch(source, /Unique prepared body/);
+  assert.match(source, /artifacts\//);
+  assert.equal(isPreparedArtifactRequested(projectRoot), true);
+
+  const output = path.join(projectRoot, "dist", "client");
+  const stale = path.join(
+    output,
+    "_nimbus",
+    "prepared-artifacts",
+    "artifacts",
+    "stale.txt",
+  );
+  await mkdir(path.dirname(stale), { recursive: true });
+  await writeFile(stale, "stale");
+  await stagePreparedArtifactAssets(projectRoot, output);
+  await assert.rejects(readFile(stale, "utf8"), { code: "ENOENT" });
+  const manifest = await ensurePreparedArtifacts(projectRoot);
+  for (const artifact of [
+    ...manifest.markdownArtifacts,
+    ...manifest.llmsArtifacts,
+  ]) {
+    assert.equal(
+      await readFile(
+        path.join(output, "_nimbus", "prepared-artifacts", artifact.path),
+        "utf8",
+      ),
+      await readFile(
+        path.join(
+          projectRoot,
+          ".astro",
+          "nimbus",
+          "prepared-artifacts",
+          artifact.path,
+        ),
+        "utf8",
+      ),
+    );
+  }
+  await removePreparedArtifactAssets(output);
+  await assert.rejects(
+    readdir(path.join(output, "_nimbus", "prepared-artifacts")),
+    { code: "ENOENT" },
+  );
+});
+
+test("prepared asset loader uses the Cloudflare assets binding only on Cloudflare", async () => {
+  const cloudflare = preparedAssetLoaderPlugin(() => "@astrojs/cloudflare");
+  const cloudflareId = cloudflare.resolveId(
+    "virtual:nimbus/prepared-asset-loader",
+  );
+  assert.ok(cloudflareId);
+  const cloudflareSource = await cloudflare.load(cloudflareId);
+  assert.match(cloudflareSource ?? "", /cloudflare:workers/);
+  assert.match(cloudflareSource ?? "", /env\.ASSETS/);
+
+  const node = preparedAssetLoaderPlugin(() => "@astrojs/node");
+  const nodeId = node.resolveId("virtual:nimbus/prepared-asset-loader");
+  assert.ok(nodeId);
+  const nodeSource = await node.load(nodeId);
+  assert.doesNotMatch(nodeSource ?? "", /cloudflare:workers|ASSETS/);
+});
+
+test("staged artifact cleanup rejects a symlinked output root", async () => {
+  const projectRoot = await root();
+  const realOutput = path.join(projectRoot, "real-output");
+  const linkedOutput = path.join(projectRoot, "linked-output");
+  const retained = path.join(
+    realOutput,
+    "_nimbus",
+    "prepared-artifacts",
+    "retained.txt",
+  );
+  await mkdir(path.dirname(retained), { recursive: true });
+  await writeFile(retained, "retained");
+  await symlink(realOutput, linkedOutput, "dir");
+
+  await assert.rejects(
+    removePreparedArtifactAssets(linkedOutput),
+    /contains a symbolic link/,
+  );
+  assert.equal(await readFile(retained, "utf8"), "retained");
 });
 
 test("waits for API index transactions before caching llms.txt output", async () => {

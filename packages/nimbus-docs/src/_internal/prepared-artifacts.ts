@@ -3,6 +3,7 @@ import {
   lstat,
   mkdir,
   open,
+  copyFile,
   readFile,
   readdir,
   realpath,
@@ -187,6 +188,15 @@ function artifactRoot(root: URL | string): string {
 }
 
 async function assertNoSymlink(root: string, target: string): Promise<void> {
+  try {
+    if ((await lstat(root)).isSymbolicLink()) {
+      throw new Error(
+        `nimbus-docs: prepared artifact path contains a symbolic link: ${root}.`,
+      );
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   const relative = path.relative(root, target);
   let current = root;
   for (const segment of relative.split(path.sep).filter(Boolean)) {
@@ -780,8 +790,12 @@ function componentFingerprint(
 
 export interface PreparedHeadingsPlugin {
   name: string;
+  enforce?: "pre" | "post";
   resolveId(id: string): string | undefined;
-  load(id: string): Promise<string | undefined>;
+  load(
+    this: { environment?: { name?: string } },
+    id: string,
+  ): Promise<string | undefined> | string | undefined;
   handleHotUpdate(context: {
     server: {
       moduleGraph: {
@@ -794,6 +808,10 @@ export interface PreparedHeadingsPlugin {
 
 const HEADINGS_VIRTUAL_ID = "virtual:nimbus/headings";
 const HEADINGS_RESOLVED_ID = `\0${HEADINGS_VIRTUAL_ID}`;
+const ARTIFACTS_VIRTUAL_ID = "virtual:nimbus/prepared-artifacts";
+const ARTIFACTS_RESOLVED_ID = `\0${ARTIFACTS_VIRTUAL_ID}`;
+const ASSET_LOADER_VIRTUAL_ID = "virtual:nimbus/prepared-asset-loader";
+const ASSET_LOADER_RESOLVED_ID = `\0${ASSET_LOADER_VIRTUAL_ID}`;
 
 export function preparedHeadingsPlugin(
   root: URL | string,
@@ -827,6 +845,94 @@ export function preparedHeadingsPlugin(
       if (module) context.server.moduleGraph.invalidateModule(module);
     },
   };
+}
+
+export function preparedArtifactsRuntimePlugin(
+  root: URL | string,
+): PreparedHeadingsPlugin {
+  return {
+    name: "nimbus-docs:prepared-artifacts-runtime",
+    resolveId(id) {
+      return id === ARTIFACTS_VIRTUAL_ID ? ARTIFACTS_RESOLVED_ID : undefined;
+    },
+    async load(id) {
+      if (id !== ARTIFACTS_RESOLVED_ID) return undefined;
+      if (this.environment?.name === "ssr") {
+        registerPreparedArtifactDemand(root);
+      }
+      const manifest = await ensurePreparedArtifacts(root);
+      return (
+        `export const projectRoot = ${JSON.stringify(preparedMarkdownRootKey(root))};\n` +
+        `export const base = ${JSON.stringify(manifest.base)};\n` +
+        `export const markdownArtifacts = ${JSON.stringify(manifest.markdownArtifacts)};\n` +
+        `export const llmsArtifacts = ${JSON.stringify(manifest.llmsArtifacts)};\n`
+      );
+    },
+    handleHotUpdate(context) {
+      const module =
+        context.server.moduleGraph.getModuleById(ARTIFACTS_RESOLVED_ID);
+      if (module) context.server.moduleGraph.invalidateModule(module);
+    },
+  };
+}
+
+export function preparedAssetLoaderPlugin(
+  adapterName: () => string | null,
+): PreparedHeadingsPlugin {
+  return {
+    name: "nimbus-docs:prepared-asset-loader",
+    enforce: "pre",
+    resolveId(id) {
+      return id === ASSET_LOADER_VIRTUAL_ID
+        ? ASSET_LOADER_RESOLVED_ID
+        : undefined;
+    },
+    load(id) {
+      if (id !== ASSET_LOADER_RESOLVED_ID) return undefined;
+      if (adapterName() === "@astrojs/cloudflare") {
+        return (
+          'import { env } from "cloudflare:workers";\n' +
+          "export function fetchPreparedAsset(path, request) {\n" +
+          "  return env.ASSETS?.fetch(new Request(new URL(path, request.url))) ?? null;\n" +
+          "}\n"
+        );
+      }
+      return "export function fetchPreparedAsset() { return null; }\n";
+    },
+    handleHotUpdate() {},
+  };
+}
+
+export async function removePreparedArtifactAssets(
+  outputRoot: string,
+): Promise<void> {
+  const targetRoot = path.join(outputRoot, "_nimbus", "prepared-artifacts");
+  await assertNoSymlink(outputRoot, targetRoot);
+  await rm(targetRoot, { recursive: true, force: true });
+}
+
+export async function stagePreparedArtifactAssets(
+  root: URL | string,
+  outputRoot: string,
+): Promise<void> {
+  const projectRoot = preparedMarkdownRootKey(root);
+  const manifest = await ensurePreparedArtifacts(projectRoot);
+  const sourceRoot = artifactRoot(projectRoot);
+  const targetRoot = path.join(outputRoot, "_nimbus", "prepared-artifacts");
+  await removePreparedArtifactAssets(outputRoot);
+  const artifacts = [...manifest.markdownArtifacts, ...manifest.llmsArtifacts];
+  for (let index = 0; index < artifacts.length; index += 64) {
+    await Promise.all(
+      artifacts.slice(index, index + 64).map(async (artifact) => {
+        const source = path.join(sourceRoot, artifact.path);
+        const target = path.join(targetRoot, artifact.path);
+        await assertNoSymlink(projectRoot, source);
+        await mkdir(path.dirname(target), { recursive: true });
+        await assertNoSymlink(outputRoot, target);
+        await copyFile(source, target);
+      }),
+    );
+  }
 }
 
 export function configurePreparedArtifactRoot(

@@ -9,6 +9,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     runtime: "src/runtime.ts",
+    publication: "src/publication.ts",
     build: "src/build.ts",
     config: "src/config.ts",
     content: "src/content.ts",

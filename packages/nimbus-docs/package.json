@@ -37,6 +37,10 @@
 			"types": "./dist/runtime.d.ts",
 			"import": "./dist/runtime.js"
 		},
+		"./publication": {
+			"types": "./dist/publication.d.ts",
+			"import": "./dist/publication.js"
+		},
 		"./build": {
 			"types": "./dist/build.d.ts",
 			"import": "./dist/build.js"

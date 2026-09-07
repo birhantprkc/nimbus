@@ -1,6 +1,6 @@
 import { collectionMountPrefix } from "./collection-mount.js";
 import {
-  requestInventoryEntryUrl,
+  contentInventoryEntryUrl,
   requestInventoryVersionStatusKey,
   type RequestRouteInventoryEntry,
 } from "./request-route-url.js";
@@ -32,6 +32,7 @@ export async function GET() {
     const collection = item.collection;
     const prefix = collectionMountPrefix(collection, versions);
     const data = (item.entry.data ?? {}) as Record<string, unknown>;
+    const request = requestCollections.has(collection);
     const versionStatus = await getVersionStatus(
       requestInventoryVersionStatusKey(
         collection,
@@ -46,12 +47,13 @@ export async function GET() {
         (data.searchable !== false && data.noindex !== true));
     const route: RequestRouteInventoryEntry = {
       collection,
-      url: requestInventoryEntryUrl(
+      url: contentInventoryEntryUrl(
         prefix,
         item.entry.id,
         apiCollections.has(collection),
+        request,
       ),
-      request: requestCollections.has(collection),
+      request,
       discoverable,
       searchable,
       title: item.title,

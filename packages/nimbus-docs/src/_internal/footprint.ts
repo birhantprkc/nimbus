@@ -23,13 +23,16 @@ export interface FeatureRecipe {
   env: EnvRequirement[];
   /** npm package whose presence in the footprint means the feature is installed. */
   dep: string;
-  /**
-   * On-demand route patterns this feature owns (e.g. `/mcp`). The prerender
-   * invariant treats these as *explained* on-demand routes; every other
-   * non-infra on-demand route is a violation. Empty/omitted for prerendered
-   * features.
-   */
-  routes?: readonly string[];
+  routes?: readonly FeatureRoute[];
+}
+
+export interface FeatureRoute {
+  pattern: string;
+  entrypoint: string;
+}
+
+export interface OwnedFeatureRoute extends FeatureRoute {
+  feature: string;
 }
 
 // Populated by downstream feature slices (loaders, hosted MCP). Empty here: the
@@ -43,7 +46,18 @@ export function deriveFootprint(
   return recipes.filter((recipe) => installedDeps.has(recipe.dep));
 }
 
-/** The on-demand routes a footprint's installed features declare (deduped). */
-export function footprintRoutes(footprint: readonly FeatureRecipe[]): string[] {
-  return [...new Set(footprint.flatMap((f) => f.routes ?? []))];
+export function footprintRoutes(
+  footprint: readonly FeatureRecipe[],
+): OwnedFeatureRoute[] {
+  const routes = new Map<string, OwnedFeatureRoute>();
+  for (const feature of footprint) {
+    for (const route of feature.routes ?? []) {
+      const owned = { ...route, feature: feature.id };
+      routes.set(
+        `${owned.feature}\0${owned.pattern}\0${owned.entrypoint}`,
+        owned,
+      );
+    }
+  }
+  return [...routes.values()];
 }
