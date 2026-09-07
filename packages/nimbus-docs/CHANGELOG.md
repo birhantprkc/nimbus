@@ -1,5 +1,15 @@
 # @cloudflare/nimbus-docs
 
+## 0.13.1
+
+### Patch Changes
+
+- [#110](https://github.com/cloudflare/nimbus/pull/110) [`e6fb2b1`](https://github.com/cloudflare/nimbus/commit/e6fb2b15c2f2a2227276fcc61baa71d21cc5d3fb) Thanks [@sansynx](https://github.com/sansynx)! - Reject registry install paths that resolve outside src through symbolic links.
+
+- [#109](https://github.com/cloudflare/nimbus/pull/109) [`f4d0d78`](https://github.com/cloudflare/nimbus/commit/f4d0d7879a6b3564147efbed810ea56dce0c7ec9) Thanks [@sansynx](https://github.com/sansynx)! - Preserve casing in static page routes during duplicate-route checks.
+
+- [#119](https://github.com/cloudflare/nimbus/pull/119) [`bd179bb`](https://github.com/cloudflare/nimbus/commit/bd179bbe65f1c09d4375ce189865fdee90d543d7) Thanks [@MohamedH1998](https://github.com/MohamedH1998)! - Index API response coordinates for direct citations, and keep scaffold progress readable in non-interactive terminals. Emit canonical trailing slashes for API navigation links.
+
 ## 0.13.0
 
 ### Minor Changes
