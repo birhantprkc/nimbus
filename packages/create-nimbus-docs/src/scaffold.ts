@@ -149,6 +149,7 @@ export class ScaffoldError extends Error {
 /** Injectable seams for tests — real runs use the process cwd and giget. */
 export interface ScaffoldInternals {
   cwd?: string;
+  stdoutIsTTY?: boolean;
   previewMode?: boolean;
   previewPr?: string | null;
   previewTemplatesDir?: string;
@@ -232,20 +233,23 @@ export async function scaffold(
       realFetchTemplate(target, options, internals));
   const preview = previewProvenance(internals);
 
-  const s = p.spinner();
+  const s = (internals.stdoutIsTTY ?? process.stdout.isTTY) ? p.spinner() : null;
+  const startProgress = (message: string) => s?.start(message);
+  const stopProgress = (message: string) =>
+    s ? s.stop(message) : p.log.step(message);
 
   // Fetch + transform. If anything throws mid-way (network, EACCES, disk full,
   // a malformed template package.json), roll back the partial target dir — we
   // just confirmed it didn't exist, so removing it can't clobber user data —
   // and rethrow a friendly error. Without the rollback, a half-written dir
   // blocks re-running (the existence check above hard-fails on it).
-  s.start("Fetching template…");
+  startProgress("Fetching template…");
   try {
     await fetchTemplate(target, options);
     assertNoTemplateSymlinks(target);
-    s.stop("Template ready.");
+    stopProgress("Template ready.");
 
-    s.start("Configuring project…");
+    startProgress("Configuring project…");
     normalizePackageManagerFiles(target, packageManager);
     if (options.output === "server") {
       await applyAdapter(target, options.adapter);
@@ -271,9 +275,9 @@ export async function scaffold(
       });
     }
     writeNimbusJson(target, options, preview);
-    s.stop("Project configured.");
+    stopProgress("Project configured.");
   } catch (err) {
-    s.stop("Failed.");
+    stopProgress("Failed.");
     rmSync(target, { recursive: true, force: true });
     // A ScaffoldError already carries an actionable message (missing tag,
     // offline, rate-limited, bad --template-dir). Pass it through untouched;
@@ -287,12 +291,12 @@ export async function scaffold(
 
   // 3. Git init
   if (git) {
-    s.start("Initializing git repository…");
+    startProgress("Initializing git repository…");
     try {
       await runCommand("git", ["init"], target);
-      s.stop("Git repository initialized.");
+      stopProgress("Git repository initialized.");
     } catch {
-      s.stop("Skipped git initialization.");
+      stopProgress("Skipped git initialization.");
       p.log.warn("Could not initialize a git repository.");
     }
   }
@@ -303,14 +307,14 @@ export async function scaffold(
     return;
   }
 
-  s.start(`Installing dependencies via ${packageManager}…`);
+  startProgress(`Installing dependencies via ${packageManager}…`);
   try {
     const cmd = packageManager === "yarn" ? "yarn" : `${packageManager} install`;
     const [bin = packageManager, ...args] = cmd.split(" ");
     await runCommand(bin, args, target);
-    s.stop("Dependencies installed.");
+    stopProgress("Dependencies installed.");
   } catch {
-    s.stop("Failed to install dependencies.");
+    stopProgress("Failed to install dependencies.");
     p.log.warn(
       `Could not install dependencies. Run \`${packageManager} install\` manually in ${dir}.`,
     );

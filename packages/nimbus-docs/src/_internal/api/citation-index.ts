@@ -6,7 +6,12 @@
  * payload). Version lives in the path via `mountPath`, never in the coordinate.
  */
 
-import { buildApiModel, getApiFieldCitations, getApiPageSlugs } from "../../api/index.js";
+import {
+  buildApiModel,
+  getApiFieldCitations,
+  getApiPageProps,
+  getApiPageSlugs,
+} from "../../api/index.js";
 import type { ApiSpec } from "../../types.js";
 import { citationKey, isSafeCitationPath } from "./citations.js";
 import { resolveSpecSource } from "./resolve-spec.js";
@@ -63,6 +68,15 @@ export async function buildCitationIndex(
     const targets: Array<{ coordinate: string; url: string }> = [];
     for (const { coordinate, slug } of getApiPageSlugs(model)) {
       targets.push({ coordinate, url: pageUrl(target.mountPath, slug) });
+      const page = getApiPageProps(model, coordinate);
+      if (page.kind === "operation") {
+        for (const response of page.responses) {
+          targets.push({
+            coordinate: response.coordinate,
+            url: `${pageUrl(target.mountPath, slug)}#${response.anchor}`,
+          });
+        }
+      }
     }
 
     for (const { coordinate, slug, anchor } of getApiFieldCitations(model)) {

@@ -27,6 +27,26 @@ test("collection recipes resolve breadcrumbs from their own collection", async (
   }
 });
 
+test("collection recipes guard disabled table-of-contents configuration", async () => {
+  for (const name of ["new-collection", "new-version"]) {
+    const source = await feature(name);
+    assert.match(source, /getRouteFlags,/);
+    assert.match(
+      source,
+      /const \{ tableOfContents: tocOn \} = await getRouteFlags\(entry\);/,
+    );
+    assert.match(source, /const tocConfig = entry\.data\.tableOfContents;/);
+    assert.match(
+      source,
+      /const toc = tocOn && tocConfig !== false \? getTOC\(headings, tocConfig\) : false;/,
+    );
+    assert.doesNotMatch(
+      source,
+      /getTOC\(headings, entry\.data\.tableOfContents\)/,
+    );
+  }
+});
+
 test("changelog serves and links its expanded source artifact", async () => {
   const source = await feature("changelog");
   assert.match(source, /surface: "source"/);

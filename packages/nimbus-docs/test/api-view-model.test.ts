@@ -16,6 +16,7 @@ import {
   getApiPageSlugs,
   apiSchemaVersion,
   type ApiModel,
+  type ApiNavItem,
   type ApiOperationPage,
   type ApiSchemaPage,
 } from "../src/api/index.js";
@@ -32,6 +33,19 @@ function roundTrips(value: unknown): void {
     JSON.parse(JSON.stringify(structuredClone(value))),
     JSON.parse(json),
   );
+}
+
+function findNavItem(items: ApiNavItem[], coordinate: string): ApiNavItem | undefined {
+  for (const item of items) {
+    if (item.coordinate === coordinate) return item;
+    const child = findNavItem(item.children, coordinate);
+    if (child) return child;
+  }
+  return undefined;
+}
+
+function flattenNavItems(items: ApiNavItem[]): ApiNavItem[] {
+  return items.flatMap((item) => [item, ...flattenNavItems(item.children)]);
 }
 
 function assertJsonSafe(value: unknown, path = "$"): void {
@@ -949,6 +963,61 @@ describe("nav: active + ancestor-expanded + verb chips", () => {
     assert.ok(create);
     assert.equal(create!.active, true);
     assert.equal(create!.method, "POST");
+  });
+
+  test("page-backed hrefs use the trailing-slash browser shape", () => {
+    const nav = getApiNav(smallco);
+    assert.equal(findNavItem(nav.items, "tags.charges")?.href, "/smallco/tags/charges/");
+    assert.equal(findNavItem(nav.items, "create")?.href, "/smallco/charges/create/");
+    for (const item of flattenNavItems(nav.items)) {
+      if (!item.href) continue;
+      assert.ok(item.href.endsWith("/"), `${item.coordinate} has a slashless href`);
+      assert.ok(!item.href.endsWith("//"), `${item.coordinate} has duplicate trailing slashes`);
+    }
+  });
+
+  test("a dotted operation identifier is treated as a document route", async () => {
+    const dotted = await buildApiModel({
+      collection: "dotted",
+      spec: {
+        openapi: "3.1.0",
+        info: { title: "Dotted", version: "1" },
+        paths: {
+          "/reports": {
+            get: {
+              operationId: "reports.list",
+              responses: { "200": { description: "ok" } },
+            },
+          },
+        },
+      },
+    });
+    assert.equal(
+      findNavItem(getApiNav(dotted).items, "reports.list")?.href,
+      "/dotted/reports.list/",
+    );
+  });
+
+  test("nested API mounts retain one trailing slash", async () => {
+    const mounted = await buildApiModel({
+      collection: "mounted",
+      spec: readFileSync(fixture("smallco.yaml"), "utf8"),
+      mountPath: "/core/v1",
+    });
+    assert.equal(
+      findNavItem(getApiNav(mounted).items, "create")?.href,
+      "/core/v1/charges/create/",
+    );
+  });
+
+  test("active overlays share frozen off-path navigation", () => {
+    const base = getApiNav(smallco);
+    const active = getApiNav(smallco, "create");
+    const baseDisputes = findNavItem(base.items, "tags.disputes");
+    const activeDisputes = findNavItem(active.items, "tags.disputes");
+    assert.ok(baseDisputes);
+    assert.ok(Object.isFrozen(baseDisputes));
+    assert.strictEqual(activeDisputes, baseDisputes);
   });
 
   test("without an active coordinate, nothing is active/expanded", () => {

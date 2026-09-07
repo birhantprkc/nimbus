@@ -68,6 +68,14 @@ describe("buildCitationIndex: versioned family (v2 default + v1)", () => {
     assert.equal(index.get("svc@v2:svc"), "/svc");
     // non-default (v1): only the @v1 key exists, under /svc/v1 — no bare alias
     assert.equal(index.get("svc@v1:svc"), "/svc/v1");
+    assert.equal(
+      index.get("svc:create.response.200"),
+      `${index.get("svc:create")}#response-200`,
+    );
+    assert.equal(
+      index.get("svc@v1:create.response.200"),
+      `${index.get("svc@v1:create")}#response-200`,
+    );
     assert.equal(manifest.collections.svc?.defaultVersion, "v2");
   });
 });
@@ -101,6 +109,56 @@ describe("buildCitationIndex: field coordinates resolve to <page>#<anchor>", () 
     const entries = manifest.collections.smallco!.entries;
     assert.equal(typeof entries["create.amount"]?.url, "string");
     assert.match(entries["create.amount"]!.url!, /#create\.amount$/);
+  });
+});
+
+describe("buildCitationIndex: response coordinates resolve to rendered anchors", () => {
+  const api: ApiSpec[] = [{ collection: "smallco", spec: fixturePath("smallco.yaml") }];
+
+  test("bare responses are addressable in the index and manifest", async () => {
+    const { index, manifest } = await buildCitationIndex(api, root);
+    assert.equal(
+      index.get("smallco:create.response.200"),
+      `${index.get("smallco:create")}#response-200`,
+    );
+    assert.equal(
+      manifest.collections.smallco!.entries["create.response.200"]?.url,
+      `${index.get("smallco:create")}#response-200`,
+    );
+  });
+
+  test("deviant response statuses use the exact rendered anchor", async () => {
+    const { index } = await buildCitationIndex(
+      [{ collection: "dev", spec: fixturePath("deviant.yaml") }],
+      root,
+    );
+    assert.equal(
+      index.get("dev:listWidgets.response.4xx"),
+      `${index.get("dev:listWidgets")}#response-4xx`,
+    );
+  });
+
+  test("punctuation in a response status is sanitized losslessly", async () => {
+    const spec = {
+      openapi: "3.0.3",
+      info: { title: "Odd status", version: "1.0.0" },
+      paths: {
+        "/odd": {
+          get: {
+            operationId: "oddStatus",
+            responses: { "2:00": { description: "ok" } },
+          },
+        },
+      },
+    };
+    const { index } = await buildCitationIndex(
+      [{ collection: "odd", spec }],
+      root,
+    );
+    const url = index.get("odd:oddStatus.response.2:00");
+    assert.ok(url);
+    assert.match(url, /#response-2-00--[a-z2-7]+$/);
+    assert.ok(!url.split("#")[1]!.includes(":"));
   });
 });
 

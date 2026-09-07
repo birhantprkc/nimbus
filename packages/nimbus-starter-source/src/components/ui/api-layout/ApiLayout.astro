@@ -66,7 +66,7 @@ if (versionStatus?.isHidden) {
     <div class="pointer-events-none sticky bottom-0 h-8 bg-gradient-to-t from-background to-transparent"></div>
   </aside>
 
-  <div class="flex min-w-0 flex-1 flex-col 2xl:flex-row">
+  <div data-api-layout class="flex min-w-0 flex-1 flex-col min-[90rem]:flex-row">
     <main id="main-content" tabindex="-1" class="min-w-0 flex-1" {...pagefindAttrs}>
       <div class="mx-auto max-w-(--nb-content-max) px-4 md:px-8 2xl:px-16 pt-8 pb-12">
         {pagefindDeprecated && <span hidden data-pagefind-filter="status:deprecated"></span>}
@@ -83,12 +83,12 @@ if (versionStatus?.isHidden) {
       </div>
     </main>
 
-    {/* Below 2xl the rail reflows inline beneath the body (samples are unique
+    {/* Below 90rem the rail reflows inline beneath the body (samples are unique
         content, so unlike the TOC they stay in the no-JS HTML for crawlability);
-        at 2xl+ it becomes the sticky right column. 2xl:pl-1 keeps overflow-y-auto
+        at 90rem+ it becomes the sticky right column. The left padding keeps overflow-y-auto
         from clipping the LayerCard's outset ring at the scroll edge. */}
     {hasRail && (
-      <div class="mx-auto w-full max-w-(--nb-content-max) px-4 pb-12 md:px-8 2xl:mx-0 2xl:max-w-none 2xl:sticky 2xl:top-14 2xl:h-[calc(100vh-3.5rem)] 2xl:w-(--nb-code-rail-width) 2xl:shrink-0 2xl:overflow-y-auto 2xl:pt-8 2xl:pr-6 2xl:pb-8 2xl:pl-1 2xl:[scrollbar-color:gray_transparent] 2xl:[scrollbar-width:thin]">
+      <div class="mx-auto w-full max-w-(--nb-content-max) px-4 pb-12 md:px-8 min-[90rem]:mx-0 min-[90rem]:max-w-none min-[90rem]:sticky min-[90rem]:top-14 min-[90rem]:h-[calc(100vh-3.5rem)] min-[90rem]:w-[29rem] min-[90rem]:shrink-0 min-[90rem]:overflow-y-auto min-[90rem]:pt-8 min-[90rem]:pr-6 min-[90rem]:pb-8 min-[90rem]:pl-1 min-[90rem]:[scrollbar-color:gray_transparent] min-[90rem]:[scrollbar-width:thin] 2xl:w-(--nb-code-rail-width)">
         <ApiCodeRail
           responses={page.responses}
           samples={page.samples}

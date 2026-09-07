@@ -668,6 +668,24 @@ async function applyOverlay() {
     await mkdir(dirname(target), { recursive: true });
     await cp(join(OVERLAY, file), target);
   }
+  const astroConfigPath = join(site, "astro.config.ts");
+  const astroConfig = await readFile(astroConfigPath, "utf8");
+  const configMarker = "export default defineConfig({";
+  assert(
+    occurrences(astroConfig, configMarker) === 1,
+    "generated astro.config.ts has an unexpected defineConfig export",
+  );
+  assert(
+    !/^\s*trailingSlash\s*:/m.test(astroConfig),
+    "generated astro.config.ts already defines trailingSlash",
+  );
+  await writeFile(
+    astroConfigPath,
+    astroConfig.replace(
+      configMarker,
+      'export default defineConfig({\n  trailingSlash: "always",',
+    ),
+  );
   await mkdir(join(site, "src", "api"), { recursive: true });
   await cp(SPEC, join(site, "src", "api", "smallco.yaml"));
   await writeFile(
@@ -823,6 +841,21 @@ async function assertArtifactsAndSmoke(dist) {
     await exists(join(dist, "pagefind", "pagefind.js")),
     "missing Pagefind browser index",
   );
+
+  const operationHtml = await readFile(
+    join(dist, "api", "charges", "create", "index.html"),
+    "utf8",
+  );
+  const apiNav = /<nav[^>]*data-nb-api-nav[^>]*>([\s\S]*?)<\/nav>/.exec(
+    operationHtml,
+  )?.[1];
+  assert(apiNav, "operation page has no API navigation");
+  for (const href of ["/api/tags/charges/", "/api/charges/create/"]) {
+    assert(
+      apiNav.includes(`href="${href}"`),
+      `API navigation is missing canonical href ${href}`,
+    );
+  }
 
   const operationMarkdown = await readFile(
     join(dist, "api", "charges", "create", "index.md"),
@@ -1151,6 +1184,19 @@ async function assertBasePathMetadata() {
     operationHtml.includes(`href="${operationMarkdownUrl}"`),
     "non-root API View as Markdown link uses an unbased URL",
   );
+  const apiNav = /<nav[^>]*data-nb-api-nav[^>]*>([\s\S]*?)<\/nav>/.exec(
+    operationHtml,
+  )?.[1];
+  assert(apiNav, "non-root operation page has no API navigation");
+  for (const href of [
+    "/docs/api/tags/charges/",
+    "/docs/api/charges/create/",
+  ]) {
+    assert(
+      apiNav.includes(`href="${href}"`),
+      `non-root API navigation is missing canonical href ${href}`,
+    );
+  }
   const directive = /<aside[^>]*data-ai-agent-directive[^>]*>([\s\S]*?)<\/aside>/.exec(
     operationHtml,
   )?.[1];
