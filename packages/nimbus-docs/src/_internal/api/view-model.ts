@@ -739,7 +739,10 @@ function projectNavBase(model: DocsModel): ApiNavItem[] {
     };
     // Nav-only grouping nodes (x-tagGroups categories) carry no page, so they
     // get no href — the row renders as a disclosure header, not a link.
-    if (view.hasPage(nav.coordinate)) item.href = view.href(nav.coordinate);
+    if (view.hasPage(nav.coordinate)) {
+      const href = view.href(nav.coordinate);
+      item.href = href.endsWith("/") ? href : `${href}/`;
+    }
     if (node?.facts.kind === "operation") {
       const method = protocolString(node.facts.protocol, "method");
       if (method) item.method = method;
