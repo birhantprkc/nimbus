@@ -131,3 +131,20 @@ export function normalizeSourceRouteEntrypoint(
   const relative = normalizeRouteComponent(entrypoint).replace(/^src\//, "");
   return normalizeRouteEntrypoint(projectRoot, pathApi.join(srcDir, relative));
 }
+
+export function isRequiredCanonicalRouteComponent(
+  projectRoot: string,
+  srcDir: string,
+  component: string,
+): boolean {
+  const normalized = normalizeRouteEntrypoint(projectRoot, component);
+  return STARTER_ROUTE_INVENTORY.some(
+    (route) =>
+      route.role === "canonical" &&
+      normalizeSourceRouteEntrypoint(
+        projectRoot,
+        srcDir,
+        route.entrypoint,
+      ) === normalized,
+  );
+}

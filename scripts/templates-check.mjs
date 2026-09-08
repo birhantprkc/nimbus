@@ -163,6 +163,50 @@ async function verifyRuntime(site, lane) {
         );
       }
     }
+    if (lane === "cloudflare") {
+      const manifest = JSON.parse(
+        readFileSync(
+          join(site, ".astro", "nimbus", "agent-endpoint-assets", "manifest.json"),
+          "utf8",
+        ),
+      );
+      const asset = manifest.markdownAssets.find(
+        (entry) =>
+          entry.collection === "docs" &&
+          entry.id === "owned-by-slug" &&
+          entry.surface === "markdown",
+      );
+      if (!asset) throw new Error("runtime fixture has no known Markdown asset");
+      rmSync(
+        join(
+          site,
+          "dist",
+          "client",
+          "_nimbus",
+          "agent-endpoint-assets",
+          asset.path,
+        ),
+      );
+      const missingAsset = await fetch(`${origin}/owned-by-slug/index.md`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      const missingAssetBody = await missingAsset.text();
+      if (
+        missingAsset.status !== 500 ||
+        missingAssetBody !== "Internal Server Error" ||
+        !missingAsset.headers.get("content-type")?.startsWith("text/plain")
+      ) {
+        throw new Error(
+          `known missing asset returned ${missingAsset.status}: ${JSON.stringify(missingAssetBody.slice(0, 300))}`,
+        );
+      }
+      const unknown = await fetch(`${origin}/missing/index.md`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (unknown.status !== 404) {
+        throw new Error(`unknown Markdown endpoint returned ${unknown.status}`);
+      }
+    }
   } finally {
     child.kill("SIGTERM");
     await Promise.race([
@@ -358,6 +402,23 @@ if (LANE === "node" || LANE === "cloudflare") {
     fail(`${LANE} runtime verification failed: ${error.message}`);
   }
   ok(`${LANE} serves custom, scaffolded, and dynamic request routes`);
+}
+if (LANE === "cloudflare") {
+  rmSync(join(site, "src", "pages", "[...slug].astro"));
+  const missingCanonical = spawnSync(
+    SCAFFOLD_PM_BIN,
+    [...SCAFFOLD_PM_PREFIX, "build"],
+    { cwd: site, encoding: "utf8" },
+  );
+  const output = `${missingCanonical.stdout ?? ""}\n${missingCanonical.stderr ?? ""}`;
+  if (
+    missingCanonical.status === 0 ||
+    !/route ownership invariant FAILED/.test(output) ||
+    !output.includes("/[...slug]")
+  ) {
+    fail("missing canonical request route did not fail ownership validation");
+  }
+  ok("missing canonical request route fails ownership validation");
 }
 if (LANE === "node") {
   writeFileSync(

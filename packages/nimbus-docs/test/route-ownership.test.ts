@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 
 import {
+  isRequiredCanonicalRouteComponent,
   normalizeRouteEntrypoint,
   normalizeSourceRouteEntrypoint,
 } from "../src/_internal/route-ownership.js";
@@ -35,6 +36,27 @@ test("source-relative declarations follow a custom Astro srcDir", () => {
   assert.equal(
     normalizeSourceRouteEntrypoint(root, srcDir, "src/pages/mcp.ts"),
     "app/pages/mcp.ts",
+  );
+});
+
+test("required canonical routes are recognized independently of filesystem state", () => {
+  const root = path.join(path.sep, "workspace", "site");
+  const srcDir = path.join(root, "app");
+  assert.equal(
+    isRequiredCanonicalRouteComponent(
+      root,
+      srcDir,
+      path.join(srcDir, "pages", "[...slug].astro"),
+    ),
+    true,
+  );
+  assert.equal(
+    isRequiredCanonicalRouteComponent(
+      root,
+      srcDir,
+      path.join(srcDir, "pages", "docs", "[...slug].astro"),
+    ),
+    false,
   );
 });
 

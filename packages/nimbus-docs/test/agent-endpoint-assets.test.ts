@@ -497,6 +497,51 @@ test("agent-endpoint asset loader uses the Cloudflare assets binding only on Clo
   assert.doesNotMatch(nodeSource ?? "", /cloudflare:workers|ASSETS/);
 });
 
+test("staging rejects manifest paths outside asset roots before cleanup", async () => {
+  const projectRoot = await root();
+  commit(projectRoot, "docs", [
+    { id: "guide", body: "Guide", data: { title: "Guide" } },
+  ]);
+  configure(projectRoot, {
+    root: projectRoot,
+    base: "/docs",
+    site: "https://example.test",
+    title: "Test",
+    indexedCollections: ["docs"],
+  });
+  const manifest = await ensureAgentEndpointAssets(projectRoot);
+  const asset = manifest.markdownAssets[0];
+  assert.ok(asset);
+  asset.path = "../outside.md";
+
+  const output = path.join(projectRoot, "dist", "client");
+  const staged = path.join(
+    output,
+    "_nimbus",
+    "agent-endpoint-assets",
+    "assets",
+    "retained.md",
+  );
+  const outsideTarget = path.join(output, "_nimbus", "outside.md");
+  const outsideSource = path.join(
+    projectRoot,
+    ".astro",
+    "nimbus",
+    "outside.md",
+  );
+  await mkdir(path.dirname(staged), { recursive: true });
+  await writeFile(staged, "retained");
+  await writeFile(outsideTarget, "outside retained");
+  await writeFile(outsideSource, "poisoned");
+
+  await assert.rejects(
+    stageAgentEndpointAssets(projectRoot, output),
+    /asset path escapes its root/,
+  );
+  assert.equal(await readFile(staged, "utf8"), "retained");
+  assert.equal(await readFile(outsideTarget, "utf8"), "outside retained");
+});
+
 test("staged agent-endpoint asset cleanup rejects a symlinked output root", async () => {
   const projectRoot = await root();
   const realOutput = path.join(projectRoot, "real-output");

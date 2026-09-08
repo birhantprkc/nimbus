@@ -277,7 +277,9 @@ async function setupIntegration(
   command: "dev" | "build" = "dev",
   contentConfig = 'export const collections = { docs: {}, blog: {}, "docs-v1": {} };\n',
   api?: NimbusConfig["api"],
-  integrationOptions: Partial<NimbusIntegrationOptions> = {},
+  integrationOptions: Partial<NimbusIntegrationOptions> & {
+    omitCanonicalDocsRoute?: boolean;
+  } = {},
   base = "",
   trailingSlash: "always" | "never" | "ignore" = "ignore",
 ) {
@@ -291,7 +293,10 @@ async function setupIntegration(
   };
   await write("src/content.config.ts", contentConfig);
   await write("src/components.ts", "export const components = {};\n");
-  await write("src/pages/[...slug].astro", "---\n---\n");
+  const { omitCanonicalDocsRoute = false, ...options } = integrationOptions;
+  if (!omitCanonicalDocsRoute) {
+    await write("src/pages/[...slug].astro", "---\n---\n");
+  }
   await write("src/pages/blog/[...slug].astro", "---\n---\n");
   await write("src/pages/v1/[...slug].astro", "---\n---\n");
   await write("src/pages/api/[...slug].astro", "---\n---\n");
@@ -311,7 +316,7 @@ async function setupIntegration(
       admonitions: false,
       sitemap: false,
       markdown: { processor: {} as never },
-      ...integrationOptions,
+      ...options,
     },
   );
   const setup = integration.hooks["astro:config:setup"];
@@ -909,6 +914,40 @@ test("production request rendering requires server output and an adapter", async
         buildOutput: "server",
       } as never),
     /currently requires `@astrojs\/cloudflare`/,
+  );
+});
+
+test("required canonical routes retain rendering policy when their file is missing", async (t) => {
+  const integration = await setupIntegration(
+    t,
+    { default: "request" },
+    "build",
+    'export const collections = { docs: {}, blog: {}, "docs-v1": {} };\n',
+    undefined,
+    { omitCanonicalDocsRoute: true },
+  );
+  const canonical = {
+    component: "src/pages/[...slug].astro",
+    prerender: true,
+  };
+  const moved = {
+    component: "src/pages/docs/[...slug].astro",
+    prerender: true,
+  };
+
+  await integration.routeSetup({ route: canonical } as never);
+  await integration.routeSetup({ route: moved } as never);
+
+  assert.equal(canonical.prerender, false);
+  assert.equal(moved.prerender, true);
+  assert.throws(
+    () =>
+      integration.configDone({
+        injectTypes: () => new URL("file:///noop"),
+        config: { output: "static", adapter: null },
+        buildOutput: "static",
+      } as never),
+    /requires Astro `output: "server"` and a compatible adapter/,
   );
 });
 

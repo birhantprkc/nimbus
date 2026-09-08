@@ -3,6 +3,7 @@ import {
   getMarkdownStaticPaths,
   type MarkdownEndpointReference,
 } from "@cloudflare/nimbus-docs/agent-endpoints";
+import { agentEndpointResponse } from "../../utils/agent-endpoint-response";
 
 export const prerender = true;
 
@@ -23,15 +24,14 @@ export const getStaticPaths = async () =>
   });
 
 export async function GET({ params, props, request }: SlugContext) {
-  const payload = await getMarkdownPayload({
-    collection: "docs",
-    surface: "source",
-    slug: params.slug,
-    reference: props.reference,
-    context: { request },
-  });
-  if (!payload) return new Response("Not found", { status: 404 });
-  return new Response(payload.body, {
-    headers: { "Content-Type": payload.mediaType },
-  });
+  return agentEndpointResponse(() =>
+    getMarkdownPayload({
+      collection: "docs",
+      surface: "source",
+      slug: params.slug,
+      reference: props.reference,
+      context: { request },
+    }),
+    prerender,
+  );
 }

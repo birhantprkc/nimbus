@@ -1,17 +1,17 @@
 import { getLlmsPayload } from "@cloudflare/nimbus-docs/agent-endpoints";
+import { agentEndpointResponse } from "../utils/agent-endpoint-response";
 
 export const prerender = true;
 
 export async function GET(context: { request: Request }) {
-  const payload = await getLlmsPayload(
-    {
-      scope: "site",
-      surface: "index",
-    },
-    context,
+  return agentEndpointResponse(() =>
+    getLlmsPayload(
+      {
+        scope: "site",
+        surface: "index",
+      },
+      context,
+    ),
+    prerender,
   );
-  if (!payload) return new Response("Not found", { status: 404 });
-  return new Response(payload.body, {
-    headers: { "Content-Type": payload.mediaType },
-  });
 }

@@ -3,6 +3,7 @@ import {
   getLlmsStaticPaths,
   type LlmsEndpointReference,
 } from "@cloudflare/nimbus-docs/agent-endpoints";
+import { agentEndpointResponse } from "../../utils/agent-endpoint-response";
 
 export const prerender = true;
 
@@ -30,11 +31,10 @@ export async function GET({ params, props, request }: SectionContext) {
         } satisfies LlmsEndpointReference)
       : null);
   if (!reference) return new Response("Not found", { status: 404 });
-  const payload = await getLlmsPayload(reference, {
-    request,
-  });
-  if (!payload) return new Response("Not found", { status: 404 });
-  return new Response(payload.body, {
-    headers: { "Content-Type": payload.mediaType },
-  });
+  return agentEndpointResponse(() =>
+    getLlmsPayload(reference, {
+      request,
+    }),
+    prerender,
+  );
 }

@@ -220,6 +220,30 @@ async function assertNoSymlink(root: string, target: string): Promise<void> {
   }
 }
 
+function resolveContainedAssetPath(root: string, assetPath: string): string {
+  if (
+    assetPath.length === 0 ||
+    path.isAbsolute(assetPath) ||
+    path.win32.isAbsolute(assetPath)
+  ) {
+    throw new Error(
+      `nimbus-docs: agent-endpoint asset path must be relative: ${assetPath}.`,
+    );
+  }
+  const resolved = path.resolve(root, assetPath);
+  const relative = path.relative(root, resolved);
+  if (
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error(
+      `nimbus-docs: agent-endpoint asset path escapes its root: ${assetPath}.`,
+    );
+  }
+  return resolved;
+}
+
 async function writeAsset(file: string, body: string): Promise<boolean> {
   let created = false;
   try {
@@ -931,13 +955,15 @@ export async function stageAgentEndpointAssets(
   const manifest = await ensureAgentEndpointAssets(projectRoot);
   const sourceRoot = agentEndpointAssetRoot(projectRoot);
   const targetRoot = path.join(outputRoot, "_nimbus", "agent-endpoint-assets");
-  await removeAgentEndpointAssets(outputRoot);
   const assets = [...manifest.markdownAssets, ...manifest.llmsAssets];
-  for (let index = 0; index < assets.length; index += 64) {
+  const copies = assets.map((asset) => ({
+    source: resolveContainedAssetPath(sourceRoot, asset.path),
+    target: resolveContainedAssetPath(targetRoot, asset.path),
+  }));
+  await removeAgentEndpointAssets(outputRoot);
+  for (let index = 0; index < copies.length; index += 64) {
     await Promise.all(
-      assets.slice(index, index + 64).map(async (asset) => {
-        const source = path.join(sourceRoot, asset.path);
-        const target = path.join(targetRoot, asset.path);
+      copies.slice(index, index + 64).map(async ({ source, target }) => {
         await assertNoSymlink(projectRoot, source);
         await mkdir(path.dirname(target), { recursive: true });
         await assertNoSymlink(outputRoot, target);

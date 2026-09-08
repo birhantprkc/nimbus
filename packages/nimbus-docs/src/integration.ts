@@ -123,6 +123,7 @@ import {
 } from "./_internal/rendering-policy.js";
 import { collectionMountPrefix } from "./_internal/collection-mount.js";
 import {
+  isRequiredCanonicalRouteComponent,
   normalizeRouteEntrypoint,
   normalizeSourceRouteEntrypoint,
   STARTER_ROUTE_INVENTORY,
@@ -756,11 +757,22 @@ export function nimbus(
             );
           }
         }
-        const canonicalCollections = [...candidates].filter((collection) =>
-          fs.existsSync(
-            canonicalCollectionRouteComponent(srcDir, collection, versions),
-          ),
-        );
+        const canonicalCollections = [...candidates].filter((collection) => {
+          const component = canonicalCollectionRouteComponent(
+            srcDir,
+            collection,
+            versions,
+          );
+          return (
+            (config.rendering !== undefined &&
+              isRequiredCanonicalRouteComponent(
+                projectRoot,
+                srcDir,
+                component,
+              )) ||
+            fs.existsSync(component)
+          );
+        });
         const policy = compileRenderingPolicy(
           config.rendering,
           canonicalCollections,
