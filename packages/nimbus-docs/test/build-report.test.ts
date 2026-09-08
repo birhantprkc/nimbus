@@ -164,6 +164,7 @@ test("feature routes require matching feature, pattern, and entrypoint", () => {
   );
   assert.deepEqual(allowed.violations, []);
   assert.deepEqual(allowed.featureRoutes, ["/mcp"]);
+  assert.deepEqual(allowed.onDemandDocRoutes, ["/mcp"]);
   assert.match(allowed.summaryLine, /feature routes=1 \(\/mcp\)/);
   assert.match(allowed.summaryLine, /server features=\[hosted-mcp\]/);
 

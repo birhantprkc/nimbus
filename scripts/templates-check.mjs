@@ -390,6 +390,17 @@ if (!staticRouteCandidates.some(existsSync)) {
   fail(`${LANE} scaffold did not emit the explicit prerender=true route`);
 }
 if (LANE === "node" || LANE === "cloudflare") {
+  const routeTruth = JSON.parse(
+    readFileSync(join(site, ".nimbus", "routes.json"), "utf8"),
+  );
+  for (const route of ["/custom-default", "/custom-false", "/api/ping-false"]) {
+    if (!routeTruth.knownRoutes.includes(route)) {
+      fail(`${LANE} route truth omits custom on-demand route ${route}`);
+    }
+  }
+  if (routeTruth.knownRoutes.includes("/dynamic/[slug]")) {
+    fail(`${LANE} route truth includes a non-concrete dynamic route pattern`);
+  }
   if (LANE === "node") {
     rmSync(join(site, ".astro", "nimbus", "agent-endpoint-assets"), {
       recursive: true,

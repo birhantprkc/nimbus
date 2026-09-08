@@ -315,9 +315,10 @@ test("custom Astro infrastructure routes are excluded by origin", async (t) => {
 });
 
 test("project pages and endpoints reach build completion as custom on-demand routes", async (t) => {
-  const { infos } = await driveBuild(t, {
+  const { infos, projectRoot } = await driveBuild(t, {
     output: "server",
     adapter: "@astrojs/node",
+    base: "/docs",
     routes: [
       {
         pattern: "/foo",
@@ -333,17 +334,34 @@ test("project pages and endpoints reach build completion as custom on-demand rou
         isPrerendered: false,
         origin: "project",
       },
+      {
+        pattern: "/dynamic/[slug]",
+        entrypoint: "src/pages/dynamic/[slug].ts",
+        type: "endpoint",
+        isPrerendered: false,
+        origin: "project",
+      },
     ],
   });
   assert.ok(
     infos.some((message) =>
-      /custom on-demand routes=2 \(\/foo, \/api\/ping\)/.test(message),
+      /custom on-demand routes=3 \(\/foo, \/api\/ping, \/dynamic\/\[slug\]\)/.test(
+        message,
+      ),
     ),
+  );
+  const routeTruth = JSON.parse(
+    await readFile(path.join(projectRoot, ".nimbus/routes.json"), "utf8"),
+  );
+  assert.equal(routeTruth.base, "/docs");
+  assert.deepEqual(
+    routeTruth.knownRoutes,
+    ["/", "/api/ping", "/foo"],
   );
 });
 
 test("unrelated integration routes reach build completion separately", async (t) => {
-  const { infos } = await driveBuild(t, {
+  const { infos, projectRoot } = await driveBuild(t, {
     output: "server",
     adapter: "@astrojs/node",
     routes: [
@@ -362,6 +380,12 @@ test("unrelated integration routes reach build completion separately", async (t)
         message,
       ),
     ),
+  );
+  assert.deepEqual(
+    JSON.parse(
+      await readFile(path.join(projectRoot, ".nimbus/routes.json"), "utf8"),
+    ).knownRoutes,
+    ["/", "/integration/status"],
   );
 });
 

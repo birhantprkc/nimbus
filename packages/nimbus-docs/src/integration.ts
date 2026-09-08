@@ -1533,25 +1533,6 @@ export function nimbus(
             sitemapCustomPages.push(new URL(sitemapPath, config.site).href);
           }
         }
-        // Materialize the site's route truth from Astro's emitted `pages`
-        // array — the single source of truth: every URL on this list is a
-        // page Astro just wrote to disk. No reconstruction, no slug
-        // mirroring, no Astro-internals coupling. The build/lint
-        // contract is "after `astro build`, `.nimbus/routes.json` reflects
-        // exactly what the site serves." Lint that runs without a prior
-        // build silently skips `internal-link`.
-        //
-        // Duplicate-slug detection happens in `astro:config:setup`, not
-        // here: Astro silently dedupes colliding routes before this hook
-        // fires, so the collisions are invisible post-build.
-        materializeRouteTruthFromPages(
-          projectRootForBuild,
-          astroBaseForBuild,
-          publicPages,
-          requestRoutes,
-          logger,
-        );
-
         // Filled by `astro:routes:resolved`; reset at the next build's
         // `config:setup`, so a build whose `routes:resolved` never fires trips
         // the empty-routes guard instead of reusing stale routes.
@@ -1595,6 +1576,17 @@ export function nimbus(
         if (report.violations.length > 0) {
           throw new Error(formatInvariantFailure(report.violations));
         }
+
+        materializeRouteTruthFromPages(
+          projectRootForBuild,
+          astroBaseForBuild,
+          publicPages,
+          [
+            ...requestRoutes,
+            ...report.onDemandDocRoutes.filter(isConcreteRoutePattern),
+          ],
+          logger,
+        );
 
         materializeCoordinatesManifest(
           projectRootForBuild,
@@ -1658,8 +1650,8 @@ function materializeLintConfig(
 
 /**
  * Write the site's route truth to `<root>/.nimbus/routes.json` from Astro's
- * emitted pages plus the concrete inventory produced for request-rendered
- * collections.
+ * emitted pages, request-rendered collection inventory, and concrete
+ * on-demand route patterns.
  *
  * Best-effort write, same as `materializeLintConfig`. When the file is
  * missing (e.g. lint ran before any `astro build`), `internal-link` skips
@@ -1674,7 +1666,7 @@ function materializeRouteTruthFromPages(
   projectRoot: string,
   base: string,
   pages: readonly { pathname: string }[],
-  requestRoutes: readonly string[],
+  onDemandRoutes: readonly string[],
   logger: { warn: (msg: string) => void; debug?: (msg: string) => void },
 ): void {
   // Normalize and dedupe pathnames into the canonical `/foo` form used by
@@ -1686,7 +1678,7 @@ function materializeRouteTruthFromPages(
   for (const { pathname } of pages) {
     canonical.add(canonicalizePathname(pathname));
   }
-  for (const pathname of requestRoutes) {
+  for (const pathname of onDemandRoutes) {
     canonical.add(canonicalizePathname(pathname));
   }
 
@@ -1712,6 +1704,10 @@ function materializeRouteTruthFromPages(
       `failed to write .nimbus/routes.json — internal-link will skip: ${(err as Error).message}`,
     );
   }
+}
+
+function isConcreteRoutePattern(pattern: string): boolean {
+  return !pattern.includes("[");
 }
 
 function isRequestRouteInventoryPath(pathname: string, base: string): boolean {
