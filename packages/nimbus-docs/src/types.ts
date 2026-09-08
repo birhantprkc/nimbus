@@ -23,14 +23,17 @@ export interface GeneratedMarkdownPartialResolver {
   resolve: (attrs: { file: string; product: string | undefined }) => string;
 }
 
+/** @deprecated Use `MarkdownEndpointSurface` from `@cloudflare/nimbus-docs/agent-endpoints`. */
 export type PreparedMarkdownSurface = "markdown" | "source";
 
+/** @deprecated Use `MarkdownEndpointReference` from `@cloudflare/nimbus-docs/agent-endpoints`. */
 export interface PreparedMarkdownReference {
   collection: string;
   id: string;
   surface: PreparedMarkdownSurface;
 }
 
+/** @deprecated Use `MarkdownEndpointPayload` from `@cloudflare/nimbus-docs/agent-endpoints`. */
 export interface PreparedMarkdownArtifact extends PreparedMarkdownReference {
   digest: string;
   mediaType: string;
@@ -38,10 +41,12 @@ export interface PreparedMarkdownArtifact extends PreparedMarkdownReference {
   content: string;
 }
 
+/** @deprecated Use `LlmsEndpointReference` from `@cloudflare/nimbus-docs/agent-endpoints`. */
 export type PreparedLlmsReference =
   | { scope: "site"; surface: "index" | "full" }
   | { scope: "section"; surface: "index"; section: string };
 
+/** @deprecated Use `LlmsEndpointPayload` from `@cloudflare/nimbus-docs/agent-endpoints`. */
 export type PreparedLlmsArtifact = PreparedLlmsReference & {
   digest: string;
   mediaType: string;

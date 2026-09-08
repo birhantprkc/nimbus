@@ -140,7 +140,7 @@ test("conflicting active declarations for one route are rejected", () => {
   );
 });
 
-test("scaffolded starter publication routes remain user-owned", () => {
+test("scaffolded Markdown and llms.txt endpoints remain user-owned", () => {
   for (const route of STARTER_ROUTE_INVENTORY.filter(
     (candidate) => candidate.role === "user-owned",
   )) {

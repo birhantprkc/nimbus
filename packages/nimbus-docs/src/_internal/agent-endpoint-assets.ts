@@ -44,16 +44,18 @@ import { toBrowserHref, toRouteKey, withBase } from "./url.js";
 import type {
   GeneratedMarkdownComponentTransform,
   GeneratedMarkdownPartialResolver,
-  PreparedLlmsArtifact,
-  PreparedLlmsReference,
-  PreparedMarkdownArtifact,
-  PreparedMarkdownReference,
 } from "../types.js";
+import type {
+  LlmsEndpointPayload,
+  LlmsEndpointReference,
+  MarkdownEndpointPayload,
+  MarkdownEndpointReference,
+} from "../agent-endpoints.js";
 
-export const PREPARED_ARTIFACT_MANIFEST_VERSION = 4;
-export const PREPARED_ARTIFACT_GENERATION = 1;
+export const AGENT_ENDPOINT_ASSET_MANIFEST_VERSION = 4;
+export const AGENT_ENDPOINT_ASSET_GENERATION = 1;
 
-export interface PreparedMarkdownManifestArtifact extends PreparedMarkdownReference {
+export interface MarkdownEndpointAsset extends MarkdownEndpointReference {
   digest: string;
   mediaType: string;
   path: string;
@@ -61,28 +63,28 @@ export interface PreparedMarkdownManifestArtifact extends PreparedMarkdownRefere
   contentEnd: number;
 }
 
-export type PreparedLlmsManifestArtifact = PreparedLlmsReference & {
+export type LlmsEndpointAsset = LlmsEndpointReference & {
   digest: string;
   mediaType: string;
   path: string;
 };
 
-export interface PreparedArtifactManifest {
+export interface AgentEndpointAssetManifest {
   version: 4;
   generation: number;
   base: string;
   audience: "public";
-  markdownArtifacts: PreparedMarkdownManifestArtifact[];
-  llmsArtifacts: PreparedLlmsManifestArtifact[];
+  markdownAssets: MarkdownEndpointAsset[];
+  llmsAssets: LlmsEndpointAsset[];
   headings: PreparedHeadingRecord[];
 }
 
-export type PreparedArtifactPublicationDecision =
+export type AgentEndpointVisibilityDecision =
   | { status: "include" }
   | { status: "exclude"; reason: string }
   | { status: "unknown"; reason: string };
 
-export interface BakePreparedArtifactsOptions {
+export interface BakeAgentEndpointAssetsOptions {
   root: URL | string;
   base: string;
   site: string;
@@ -99,9 +101,9 @@ export interface BakePreparedArtifactsOptions {
   citationIndex?: ReadonlyMap<string, string>;
   componentMap?: Record<string, GeneratedMarkdownComponentTransform>;
   partialResolver?: GeneratedMarkdownPartialResolver;
-  decidePublic?: (entry: PreparedMarkdownEntry) => PreparedArtifactPublicationDecision;
-  apiEntries?: readonly PreparedLlmsApiEntry[];
-  loadApiEntries?: () => Promise<readonly PreparedLlmsApiEntry[]>;
+  decidePublic?: (entry: PreparedMarkdownEntry) => AgentEndpointVisibilityDecision;
+  apiEntries?: readonly LlmsEndpointApiEntry[];
+  loadApiEntries?: () => Promise<readonly LlmsEndpointApiEntry[]>;
 }
 
 export interface BakePreparedHeadingsOptions {
@@ -111,14 +113,14 @@ export interface BakePreparedHeadingsOptions {
   partialResolver?: GeneratedMarkdownPartialResolver;
 }
 
-export interface PreparedLlmsApiEntry {
+export interface LlmsEndpointApiEntry {
   collection: string;
   id: string;
   data: Record<string, unknown>;
   hidden?: boolean;
 }
 
-interface ArtifactState {
+interface AgentEndpointAssetState {
   version: 1;
   demands: Set<string>;
   publications: Map<string, Promise<void>>;
@@ -130,36 +132,36 @@ interface ArtifactState {
     string,
     {
       mode: "build" | "dev";
-      bake: () => Promise<PreparedArtifactManifest>;
+      bake: () => Promise<AgentEndpointAssetManifest>;
       bakeHeadings?: () => Promise<PreparedHeadingRecord[]>;
       headingsBase?: string;
       bakedRevision?: number;
       invalidation: number;
       bakedInvalidation?: number;
-      inFlight?: Promise<PreparedArtifactManifest>;
-      manifest?: PreparedArtifactManifest;
-      markdownArtifacts?: Map<string, PreparedMarkdownManifestArtifact>;
-      llmsArtifacts?: Map<string, PreparedLlmsManifestArtifact>;
+      inFlight?: Promise<AgentEndpointAssetManifest>;
+      manifest?: AgentEndpointAssetManifest;
+      markdownAssets?: Map<string, MarkdownEndpointAsset>;
+      llmsAssets?: Map<string, LlmsEndpointAsset>;
       headings?: Map<string, PreparedHeadingRecord>;
     }
   >;
 }
 
 const STATE_KEY = Symbol.for(
-  "@cloudflare/nimbus-docs/prepared-artifacts/v1",
+  "@cloudflare/nimbus-docs/agent-endpoint-assets/v1",
 );
 const stateGlobal = globalThis as typeof globalThis & {
-  [STATE_KEY]?: ArtifactState;
+  [STATE_KEY]?: AgentEndpointAssetState;
 };
-const artifactState = (stateGlobal[STATE_KEY] ??= {
+const agentEndpointAssetState = (stateGlobal[STATE_KEY] ??= {
   version: 1,
   demands: new Set(),
   publications: new Map(),
   readers: new Map(),
   roots: new Map(),
 });
-artifactState.publications ??= new Map();
-artifactState.readers ??= new Map();
+agentEndpointAssetState.publications ??= new Map();
+agentEndpointAssetState.readers ??= new Map();
 
 function digest(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -169,11 +171,11 @@ function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function artifactKey(reference: PreparedMarkdownReference): string {
+function markdownAssetKey(reference: MarkdownEndpointReference): string {
   return `${reference.collection}\0${reference.id}\0${reference.surface}`;
 }
 
-function preparedLlmsKey(reference: PreparedLlmsReference): string {
+function preparedLlmsKey(reference: LlmsEndpointReference): string {
   return reference.scope === "site"
     ? `${reference.scope}\0${reference.surface}`
     : `${reference.scope}\0${reference.section}\0${reference.surface}`;
@@ -183,15 +185,20 @@ function headingKey(collection: string, id: string): string {
   return `${collection}\0${id}`;
 }
 
-function artifactRoot(root: URL | string): string {
-  return path.join(preparedMarkdownRootKey(root), ".astro", "nimbus", "prepared-artifacts");
+function agentEndpointAssetRoot(root: URL | string): string {
+  return path.join(
+    preparedMarkdownRootKey(root),
+    ".astro",
+    "nimbus",
+    "agent-endpoint-assets",
+  );
 }
 
 async function assertNoSymlink(root: string, target: string): Promise<void> {
   try {
     if ((await lstat(root)).isSymbolicLink()) {
       throw new Error(
-        `nimbus-docs: prepared artifact path contains a symbolic link: ${root}.`,
+        `nimbus-docs: agent-endpoint asset path contains a symbolic link: ${root}.`,
       );
     }
   } catch (error) {
@@ -204,7 +211,7 @@ async function assertNoSymlink(root: string, target: string): Promise<void> {
     try {
       if ((await lstat(current)).isSymbolicLink()) {
         throw new Error(
-          `nimbus-docs: prepared artifact path contains a symbolic link: ${current}.`,
+          `nimbus-docs: agent-endpoint asset path contains a symbolic link: ${current}.`,
         );
       }
     } catch (error) {
@@ -213,7 +220,7 @@ async function assertNoSymlink(root: string, target: string): Promise<void> {
   }
 }
 
-async function writeArtifact(file: string, body: string): Promise<boolean> {
+async function writeAsset(file: string, body: string): Promise<boolean> {
   let created = false;
   try {
     const handle = await open(file, "wx");
@@ -233,12 +240,12 @@ async function writeArtifact(file: string, body: string): Promise<boolean> {
     const info = await lstat(file);
     if (!info.isFile() || info.isSymbolicLink()) {
       throw new Error(
-        `nimbus-docs: prepared artifact is not a regular file: ${file}.`,
+        `nimbus-docs: agent-endpoint asset is not a regular file: ${file}.`,
       );
     }
     if ((await readFile(file, "utf8")) !== body) {
       throw new Error(
-        `nimbus-docs: content-addressed prepared artifact collision at ${file}.`,
+        `nimbus-docs: content-addressed agent-endpoint asset collision at ${file}.`,
       );
     }
     return false;
@@ -247,7 +254,7 @@ async function writeArtifact(file: string, body: string): Promise<boolean> {
 
 async function writeManifest(
   directory: string,
-  manifest: PreparedArtifactManifest,
+  manifest: AgentEndpointAssetManifest,
 ): Promise<void> {
   const temporary = path.join(
     directory,
@@ -262,15 +269,15 @@ async function writeManifest(
   await rename(temporary, path.join(directory, "manifest.json"));
 }
 
-function beginArtifactRead(root: string): () => void {
-  let readers = artifactState.readers.get(root);
+function beginAssetRead(root: string): () => void {
+  let readers = agentEndpointAssetState.readers.get(root);
   if (!readers || readers.active === 0) {
     let resolve = () => {};
     const idle = new Promise<void>((done) => {
       resolve = done;
     });
     readers = { active: 0, idle, resolve };
-    artifactState.readers.set(root, readers);
+    agentEndpointAssetState.readers.set(root, readers);
   }
   readers.active += 1;
   return () => {
@@ -280,28 +287,28 @@ function beginArtifactRead(root: string): () => void {
   };
 }
 
-async function cleanupArtifacts(
+async function cleanupAssets(
   root: string,
   directory: string,
-  manifest: PreparedArtifactManifest,
+  manifest: AgentEndpointAssetManifest,
 ): Promise<void> {
-  const pendingReaders = artifactState.readers.get(root)?.idle;
+  const pendingReaders = agentEndpointAssetState.readers.get(root)?.idle;
   if (pendingReaders) await pendingReaders;
   const retained = new Set(
-    [...manifest.markdownArtifacts, ...manifest.llmsArtifacts].map(
-      (artifact) => artifact.path,
+    [...manifest.markdownAssets, ...manifest.llmsAssets].map(
+      (asset) => asset.path,
     ),
   );
-  const artifactDirectory = path.join(directory, "artifacts");
-  const entries = await readdir(artifactDirectory, { withFileTypes: true });
+  const assetDirectory = path.join(directory, "assets");
+  const entries = await readdir(assetDirectory, { withFileTypes: true });
   await Promise.all(
     entries
       .filter(
         (entry) =>
-          !entry.isDirectory() && !retained.has(`artifacts/${entry.name}`),
+          !entry.isDirectory() && !retained.has(`assets/${entry.name}`),
       )
       .map((entry) =>
-        rm(path.join(artifactDirectory, entry.name), { force: true }),
+        rm(path.join(assetDirectory, entry.name), { force: true }),
       ),
   );
 }
@@ -309,13 +316,13 @@ async function cleanupArtifacts(
 async function publishManifest(
   root: string,
   directory: string,
-  manifest: PreparedArtifactManifest,
-  previous: PreparedArtifactManifest | undefined,
+  manifest: AgentEndpointAssetManifest,
+  previous: AgentEndpointAssetManifest | undefined,
   isFresh: () => boolean,
-  preparedArtifacts: ReadonlyArray<{ path: string; body: string }>,
+  endpointAssets: ReadonlyArray<{ path: string; body: string }>,
   onPublished: () => void | Promise<void>,
 ): Promise<boolean> {
-  const prior = artifactState.publications.get(root) ?? Promise.resolve();
+  const prior = agentEndpointAssetState.publications.get(root) ?? Promise.resolve();
   let published = false;
   const operation = prior.then(async () => {
     if (!isFresh()) return;
@@ -323,29 +330,29 @@ async function publishManifest(
     const removeCreated = async () => {
       const retained = new Set(
         previous
-          ? [...previous.markdownArtifacts, ...previous.llmsArtifacts].map(
-              (artifact) => artifact.path,
+          ? [...previous.markdownAssets, ...previous.llmsAssets].map(
+              (asset) => asset.path,
             )
           : [],
       );
       await Promise.all(
         created
-          .filter((artifactPath) => !retained.has(artifactPath))
-          .map((artifactPath) =>
-            rm(path.join(directory, artifactPath), { force: true }),
+          .filter((assetPath) => !retained.has(assetPath))
+          .map((assetPath) =>
+            rm(path.join(directory, assetPath), { force: true }),
           ),
       );
     };
     try {
       const writes = await Promise.allSettled(
-        preparedArtifacts.map(async (artifact) => {
+        endpointAssets.map(async (asset) => {
           if (
-            await writeArtifact(
-              path.join(directory, artifact.path),
-              artifact.body,
+            await writeAsset(
+              path.join(directory, asset.path),
+              asset.body,
             )
           ) {
-            created.push(artifact.path);
+            created.push(asset.path);
           }
         }),
       );
@@ -378,12 +385,12 @@ async function publishManifest(
     () => undefined,
     () => undefined,
   );
-  artifactState.publications.set(root, settled);
+  agentEndpointAssetState.publications.set(root, settled);
   try {
     await operation;
   } finally {
-    if (artifactState.publications.get(root) === settled) {
-      artifactState.publications.delete(root);
+    if (agentEndpointAssetState.publications.get(root) === settled) {
+      agentEndpointAssetState.publications.delete(root);
     }
   }
   return published;
@@ -397,7 +404,7 @@ function assertPreparedCollection(
   const expected = preparedMarkdownCollectionCapability(
     name,
     collection.entries.values(),
-    { generation: PREPARED_ARTIFACT_GENERATION, base },
+    { generation: AGENT_ENDPOINT_ASSET_GENERATION, base },
   );
   if (
     collection.capability.generation !== expected.generation ||
@@ -406,13 +413,13 @@ function assertPreparedCollection(
   ) {
     throw new Error(
       `nimbus-docs: cannot bake collection "${name}" because its bodies were not prepared ` +
-        `for generation ${PREPARED_ARTIFACT_GENERATION} and base ${JSON.stringify(base)}. ` +
+        `for generation ${AGENT_ENDPOINT_ASSET_GENERATION} and base ${JSON.stringify(base)}. ` +
         "Use withNimbusMarkdown(loader) for custom body-retaining loaders.",
     );
   }
 }
 
-function defaultDecision(entry: PreparedMarkdownEntry): PreparedArtifactPublicationDecision {
+function defaultDecision(entry: PreparedMarkdownEntry): AgentEndpointVisibilityDecision {
   if (entry.data.draft === true) return { status: "exclude", reason: "draft" };
   if (
     entry.data.visibility === undefined ||
@@ -441,7 +448,7 @@ function absoluteAssetUrl(
   return new URL(withBase(pathname, base), site).href;
 }
 
-function withArtifactBase(base: string, pathname: string): string {
+function withAssetBase(base: string, pathname: string): string {
   if (!pathname.startsWith("/") || pathname.startsWith("//")) return pathname;
   const prefix = base === "/" ? "" : base.replace(/\/+$/u, "");
   return `${prefix}${pathname}`;
@@ -449,7 +456,7 @@ function withArtifactBase(base: string, pathname: string): string {
 
 function entryVersion(
   entry: PreparedMarkdownEntry,
-  versions: BakePreparedArtifactsOptions["versions"],
+  versions: BakeAgentEndpointAssetsOptions["versions"],
 ): string | undefined {
   if (typeof entry.data.version === "string") return entry.data.version;
   if (!versions) return undefined;
@@ -463,7 +470,7 @@ function entryVersion(
 
 function preparedMarkdownUrls(
   entry: PreparedMarkdownEntry,
-  options: BakePreparedArtifactsOptions,
+  options: BakeAgentEndpointAssetsOptions,
 ) {
   const route = entryRouteUrl(
     collectionMountPrefix(entry.collection, options.versions),
@@ -477,7 +484,7 @@ function preparedMarkdownUrls(
 
 function frontmatter(
   entry: PreparedMarkdownEntry,
-  options: BakePreparedArtifactsOptions,
+  options: BakeAgentEndpointAssetsOptions,
 ): string[] {
   const title =
     typeof entry.data.title === "string" && entry.data.title.length > 0
@@ -508,25 +515,25 @@ function frontmatter(
   ];
 }
 
-interface PreparedMarkdownArtifactBody {
+interface MarkdownEndpointPayloadBody {
   body: string;
   contentStart: number;
   contentEnd: number;
 }
 
-function envelopedArtifact(prefix: string, content: string, suffix = "") {
+function envelopedAsset(prefix: string, content: string, suffix = "") {
   return {
     body: `${prefix}${content}${suffix}`,
     contentStart: prefix.length,
     contentEnd: prefix.length + content.length,
-  } satisfies PreparedMarkdownArtifactBody;
+  } satisfies MarkdownEndpointPayloadBody;
 }
 
-function markdownArtifact(
+function markdownAsset(
   entry: PreparedMarkdownEntry,
   markdown: string,
-  options: BakePreparedArtifactsOptions,
-): PreparedMarkdownArtifactBody {
+  options: BakeAgentEndpointAssetsOptions,
+): MarkdownEndpointPayloadBody {
   const title =
     typeof entry.data.title === "string" && entry.data.title.length > 0
       ? entry.data.title
@@ -547,15 +554,15 @@ function markdownArtifact(
     `Source: ${absoluteUrl(options.site, options.base, urls.source)}`,
     "",
   ].join("\n");
-  return envelopedArtifact(`${prefix}\n`, markdown, `\n${suffix}`);
+  return envelopedAsset(`${prefix}\n`, markdown, `\n${suffix}`);
 }
 
-function sourceArtifact(
+function sourceAsset(
   entry: PreparedMarkdownEntry,
   expanded: string,
-  options: BakePreparedArtifactsOptions,
-): PreparedMarkdownArtifactBody {
-  return envelopedArtifact(
+  options: BakeAgentEndpointAssetsOptions,
+): MarkdownEndpointPayloadBody {
+  return envelopedAsset(
     `${[...frontmatter(entry, options), ""].join("\n")}\n`,
     expanded,
   );
@@ -581,7 +588,7 @@ interface PreparedLlmsGroup {
 function preparedLlmsPage(
   entry: Pick<PreparedMarkdownEntry, "collection" | "id" | "data">,
   markdown: string,
-  options: BakePreparedArtifactsOptions,
+  options: BakeAgentEndpointAssetsOptions,
 ): PreparedLlmsPage {
   const route = entryRouteUrl(
     collectionMountPrefix(entry.collection, options.versions),
@@ -607,7 +614,7 @@ function preparedLlmsPage(
 
 function groupPreparedLlmsPages(
   pages: readonly PreparedLlmsPage[],
-  options: BakePreparedArtifactsOptions,
+  options: BakeAgentEndpointAssetsOptions,
 ): { leaves: PreparedLlmsPage[]; groups: PreparedLlmsGroup[] } {
   const primary = new Map<string, PreparedLlmsPage[]>();
   const secondary = new Map<string, PreparedLlmsPage[]>();
@@ -649,10 +656,10 @@ function groupPreparedLlmsPages(
   return { leaves, groups };
 }
 
-function siteIndexArtifact(
+function siteIndexAsset(
   leaves: readonly PreparedLlmsPage[],
   groups: readonly PreparedLlmsGroup[],
-  options: BakePreparedArtifactsOptions,
+  options: BakeAgentEndpointAssetsOptions,
 ): string {
   const rows = [
     ...leaves.map((page) => ({
@@ -680,9 +687,9 @@ function siteIndexArtifact(
   ].join("\n");
 }
 
-function sectionIndexArtifact(
+function sectionIndexAsset(
   group: PreparedLlmsGroup,
-  options: BakePreparedArtifactsOptions,
+  options: BakeAgentEndpointAssetsOptions,
 ): string {
   return [
     `# ${group.label}`,
@@ -779,7 +786,7 @@ function assertLlmsRouteSafety(
 }
 
 function componentFingerprint(
-  componentMap: BakePreparedArtifactsOptions["componentMap"],
+  componentMap: BakeAgentEndpointAssetsOptions["componentMap"],
 ): string {
   return JSON.stringify(
     Object.entries(componentMap ?? {})
@@ -808,9 +815,9 @@ export interface PreparedHeadingsPlugin {
 
 const HEADINGS_VIRTUAL_ID = "virtual:nimbus/headings";
 const HEADINGS_RESOLVED_ID = `\0${HEADINGS_VIRTUAL_ID}`;
-const ARTIFACTS_VIRTUAL_ID = "virtual:nimbus/prepared-artifacts";
+const ARTIFACTS_VIRTUAL_ID = "virtual:nimbus/agent-endpoint-assets";
 const ARTIFACTS_RESOLVED_ID = `\0${ARTIFACTS_VIRTUAL_ID}`;
-const ASSET_LOADER_VIRTUAL_ID = "virtual:nimbus/prepared-asset-loader";
+const ASSET_LOADER_VIRTUAL_ID = "virtual:nimbus/agent-endpoint-asset-loader";
 const ASSET_LOADER_RESOLVED_ID = `\0${ASSET_LOADER_VIRTUAL_ID}`;
 
 export function preparedHeadingsPlugin(
@@ -824,7 +831,7 @@ export function preparedHeadingsPlugin(
     async load(id) {
       if (id !== HEADINGS_RESOLVED_ID) return undefined;
       const key = preparedMarkdownRootKey(root);
-      const configured = artifactState.roots.get(key);
+      const configured = agentEndpointAssetState.roots.get(key);
       if (!configured) {
         throw new Error(
           "nimbus-docs: prepared headings are available only during a configured Astro build or dev server.",
@@ -832,7 +839,7 @@ export function preparedHeadingsPlugin(
       }
       const records = configured.bakeHeadings
         ? await configured.bakeHeadings()
-        : (await ensurePreparedArtifacts(root)).headings;
+        : (await ensureAgentEndpointAssets(root)).headings;
       return (
         `export const generation = ${PREPARED_HEADINGS_GENERATION};\n` +
         `export const base = ${JSON.stringify(configured.headingsBase ?? records[0]?.base ?? "/")};\n` +
@@ -847,25 +854,25 @@ export function preparedHeadingsPlugin(
   };
 }
 
-export function preparedArtifactsRuntimePlugin(
+export function agentEndpointAssetsRuntimePlugin(
   root: URL | string,
 ): PreparedHeadingsPlugin {
   return {
-    name: "nimbus-docs:prepared-artifacts-runtime",
+    name: "nimbus-docs:agent-endpoint-assets-runtime",
     resolveId(id) {
       return id === ARTIFACTS_VIRTUAL_ID ? ARTIFACTS_RESOLVED_ID : undefined;
     },
     async load(id) {
       if (id !== ARTIFACTS_RESOLVED_ID) return undefined;
       if (this.environment?.name === "ssr") {
-        registerPreparedArtifactDemand(root);
+        registerAgentEndpointAssetDemand(root);
       }
-      const manifest = await ensurePreparedArtifacts(root);
+      const manifest = await ensureAgentEndpointAssets(root);
       return (
         `export const projectRoot = ${JSON.stringify(preparedMarkdownRootKey(root))};\n` +
         `export const base = ${JSON.stringify(manifest.base)};\n` +
-        `export const markdownArtifacts = ${JSON.stringify(manifest.markdownArtifacts)};\n` +
-        `export const llmsArtifacts = ${JSON.stringify(manifest.llmsArtifacts)};\n`
+        `export const markdownAssets = ${JSON.stringify(manifest.markdownAssets)};\n` +
+        `export const llmsAssets = ${JSON.stringify(manifest.llmsAssets)};\n`
       );
     },
     handleHotUpdate(context) {
@@ -876,11 +883,11 @@ export function preparedArtifactsRuntimePlugin(
   };
 }
 
-export function preparedAssetLoaderPlugin(
+export function agentEndpointAssetLoaderPlugin(
   adapterName: () => string | null,
 ): PreparedHeadingsPlugin {
   return {
-    name: "nimbus-docs:prepared-asset-loader",
+    name: "nimbus-docs:agent-endpoint-asset-loader",
     enforce: "pre",
     resolveId(id) {
       return id === ASSET_LOADER_VIRTUAL_ID
@@ -889,43 +896,48 @@ export function preparedAssetLoaderPlugin(
     },
     load(id) {
       if (id !== ASSET_LOADER_RESOLVED_ID) return undefined;
-      if (adapterName() === "@astrojs/cloudflare") {
+      if (
+        adapterName() === "@astrojs/cloudflare" &&
+        this.environment?.name === "ssr"
+      ) {
         return (
           'import { env } from "cloudflare:workers";\n' +
-          "export function fetchPreparedAsset(path, request) {\n" +
+          "export function fetchAgentEndpointAsset(path, request) {\n" +
           "  return env.ASSETS?.fetch(new Request(new URL(path, request.url))) ?? null;\n" +
           "}\n"
         );
       }
-      return "export function fetchPreparedAsset() { return null; }\n";
+      return "export function fetchAgentEndpointAsset() { return null; }\n";
     },
     handleHotUpdate() {},
   };
 }
 
-export async function removePreparedArtifactAssets(
+export async function removeAgentEndpointAssets(
   outputRoot: string,
 ): Promise<void> {
-  const targetRoot = path.join(outputRoot, "_nimbus", "prepared-artifacts");
-  await assertNoSymlink(outputRoot, targetRoot);
-  await rm(targetRoot, { recursive: true, force: true });
+  for (const directory of ["agent-endpoint-assets", "prepared-artifacts"]) {
+    const targetRoot = path.join(outputRoot, "_nimbus", directory);
+    await assertNoSymlink(outputRoot, targetRoot);
+    await rm(targetRoot, { recursive: true, force: true });
+  }
 }
 
-export async function stagePreparedArtifactAssets(
+export async function stageAgentEndpointAssets(
   root: URL | string,
   outputRoot: string,
 ): Promise<void> {
   const projectRoot = preparedMarkdownRootKey(root);
-  const manifest = await ensurePreparedArtifacts(projectRoot);
-  const sourceRoot = artifactRoot(projectRoot);
-  const targetRoot = path.join(outputRoot, "_nimbus", "prepared-artifacts");
-  await removePreparedArtifactAssets(outputRoot);
-  const artifacts = [...manifest.markdownArtifacts, ...manifest.llmsArtifacts];
-  for (let index = 0; index < artifacts.length; index += 64) {
+  const manifest = await ensureAgentEndpointAssets(projectRoot);
+  const sourceRoot = agentEndpointAssetRoot(projectRoot);
+  const targetRoot = path.join(outputRoot, "_nimbus", "agent-endpoint-assets");
+  await removeAgentEndpointAssets(outputRoot);
+  const assets = [...manifest.markdownAssets, ...manifest.llmsAssets];
+  for (let index = 0; index < assets.length; index += 64) {
     await Promise.all(
-      artifacts.slice(index, index + 64).map(async (artifact) => {
-        const source = path.join(sourceRoot, artifact.path);
-        const target = path.join(targetRoot, artifact.path);
+      assets.slice(index, index + 64).map(async (asset) => {
+        const source = path.join(sourceRoot, asset.path);
+        const target = path.join(targetRoot, asset.path);
         await assertNoSymlink(projectRoot, source);
         await mkdir(path.dirname(target), { recursive: true });
         await assertNoSymlink(outputRoot, target);
@@ -935,16 +947,16 @@ export async function stagePreparedArtifactAssets(
   }
 }
 
-export function configurePreparedArtifactRoot(
+export function configureAgentEndpointAssetRoot(
   root: URL | string,
   mode: "build" | "dev",
-  bake: () => Promise<PreparedArtifactManifest>,
+  bake: () => Promise<AgentEndpointAssetManifest>,
   bakeHeadings?: () => Promise<PreparedHeadingRecord[]>,
   headingsBase?: string,
 ): void {
   const key = preparedMarkdownRootKey(root);
-  artifactState.demands.delete(key);
-  artifactState.roots.set(key, {
+  agentEndpointAssetState.demands.delete(key);
+  agentEndpointAssetState.roots.set(key, {
     mode,
     bake,
     bakeHeadings,
@@ -1022,22 +1034,22 @@ export async function bakePreparedHeadings(
   }
 }
 
-export function registerPreparedArtifactDemand(root: URL | string): void {
-  artifactState.demands.add(preparedMarkdownRootKey(root));
+export function registerAgentEndpointAssetDemand(root: URL | string): void {
+  agentEndpointAssetState.demands.add(preparedMarkdownRootKey(root));
 }
 
-export function isPreparedArtifactRequested(root: URL | string): boolean {
-  return artifactState.demands.has(preparedMarkdownRootKey(root));
+export function isAgentEndpointAssetRequested(root: URL | string): boolean {
+  return agentEndpointAssetState.demands.has(preparedMarkdownRootKey(root));
 }
 
-export async function ensurePreparedArtifacts(
+export async function ensureAgentEndpointAssets(
   root: URL | string,
-): Promise<PreparedArtifactManifest> {
+): Promise<AgentEndpointAssetManifest> {
   const key = preparedMarkdownRootKey(root);
-  const configured = artifactState.roots.get(key);
+  const configured = agentEndpointAssetState.roots.get(key);
   if (!configured) {
     throw new Error(
-      "nimbus-docs: prepared artifact helpers are available only during a configured Astro build or dev server.",
+      "nimbus-docs: agent-endpoint assets are available only during a configured Astro build or dev server.",
     );
   }
   while (true) {
@@ -1070,23 +1082,23 @@ export async function ensurePreparedArtifacts(
         configured.bakedRevision = revision;
         configured.bakedInvalidation = invalidation;
         configured.manifest = manifest;
-        configured.markdownArtifacts = new Map(
-          manifest.markdownArtifacts.map(
+        configured.markdownAssets = new Map(
+          manifest.markdownAssets.map(
             (
-              artifact: PreparedMarkdownManifestArtifact,
-            ): [string, PreparedMarkdownManifestArtifact] => [
-              artifactKey(artifact),
-              artifact,
+              asset: MarkdownEndpointAsset,
+            ): [string, MarkdownEndpointAsset] => [
+              markdownAssetKey(asset),
+              asset,
             ],
           ),
         );
-        configured.llmsArtifacts = new Map(
-          manifest.llmsArtifacts.map(
+        configured.llmsAssets = new Map(
+          manifest.llmsAssets.map(
             (
-              artifact: PreparedLlmsManifestArtifact,
-            ): [string, PreparedLlmsManifestArtifact] => [
-              preparedLlmsKey(artifact),
-              artifact,
+              asset: LlmsEndpointAsset,
+            ): [string, LlmsEndpointAsset] => [
+              preparedLlmsKey(asset),
+              asset,
             ],
           ),
         );
@@ -1107,20 +1119,20 @@ export async function ensurePreparedArtifacts(
   }
 }
 
-export function invalidatePreparedArtifacts(root: URL | string): void {
-  const configured = artifactState.roots.get(preparedMarkdownRootKey(root));
+export function invalidateAgentEndpointAssets(root: URL | string): void {
+  const configured = agentEndpointAssetState.roots.get(preparedMarkdownRootKey(root));
   if (configured) configured.invalidation += 1;
 }
 
-export async function bakePreparedArtifacts(
-  options: BakePreparedArtifactsOptions,
-): Promise<PreparedArtifactManifest> {
+export async function bakeAgentEndpointAssets(
+  options: BakeAgentEndpointAssetsOptions,
+): Promise<AgentEndpointAssetManifest> {
   const root = preparedMarkdownRootKey(options.root);
-  const configuredAtStart = artifactState.roots.get(root);
+  const configuredAtStart = agentEndpointAssetState.roots.get(root);
   const previousManifest = configuredAtStart?.manifest;
   const invalidationAtStart = configuredAtStart?.invalidation;
   let snapshot: NonNullable<ReturnType<typeof getPreparedMarkdownSnapshot>>;
-  let apiEntries: PreparedLlmsApiEntry[];
+  let apiEntries: LlmsEndpointApiEntry[];
   while (true) {
     await waitForPreparedMarkdownTransactions(root);
     const candidateSnapshot = getPreparedMarkdownSnapshot(root);
@@ -1157,7 +1169,7 @@ export async function bakePreparedArtifacts(
   }
 
   const decide = options.decidePublic ?? defaultDecision;
-  const decisions = new Map<string, PreparedArtifactPublicationDecision>();
+  const decisions = new Map<string, AgentEndpointVisibilityDecision>();
   const hiddenVersions = new Set(options.versions?.hidden ?? []);
   const decideEntry = (entry: PreparedMarkdownEntry) => {
     const version = entry.collection.startsWith("docs-")
@@ -1212,7 +1224,7 @@ export async function bakePreparedArtifacts(
     return partial;
   };
 
-  const records: Array<PreparedMarkdownManifestArtifact & { body: string }> = [];
+  const records: Array<MarkdownEndpointAsset & { body: string }> = [];
   const headingRecords: PreparedHeadingRecord[] = [];
   const preparedLlmsPages: PreparedLlmsPage[] = [];
   const llmsRoutePages: PreparedLlmsPage[] = [];
@@ -1233,7 +1245,7 @@ export async function bakePreparedArtifacts(
     ? new Map(
         [...options.citationIndex].map(([coordinate, url]) => [
           coordinate,
-          withArtifactBase(base, url),
+          withAssetBase(base, url),
         ]),
       )
     : undefined;
@@ -1296,14 +1308,14 @@ export async function bakePreparedArtifacts(
       });
     }
     for (const surface of ["markdown", "source"] as const) {
-      const artifact =
+      const asset =
         surface === "markdown"
-          ? markdownArtifact(entry, markdown, options)
-          : sourceArtifact(entry, expanded, options);
-      const { body, contentStart, contentEnd } = artifact;
+          ? markdownAsset(entry, markdown, options)
+          : sourceAsset(entry, expanded, options);
+      const { body, contentStart, contentEnd } = asset;
       const fingerprint = digest(
         JSON.stringify({
-          generation: PREPARED_ARTIFACT_GENERATION,
+          generation: AGENT_ENDPOINT_ASSET_GENERATION,
           base,
           audience: "public",
           collection: entry.collection,
@@ -1325,7 +1337,7 @@ export async function bakePreparedArtifacts(
           surface === "markdown"
             ? "text/markdown; charset=utf-8"
             : "text/mdx; charset=utf-8",
-        path: `artifacts/${fingerprint}.${extension}`,
+        path: `assets/${fingerprint}.${extension}`,
         contentStart,
         contentEnd,
         body,
@@ -1381,12 +1393,12 @@ export async function bakePreparedArtifacts(
       !versionSlugs.has(collectionLabel(page.collection, options.versions)),
   );
   const llmsBodies: Array<{
-    reference: PreparedLlmsReference;
+    reference: LlmsEndpointReference;
     body: string;
   }> = [
     {
       reference: { scope: "site", surface: "index" },
-      body: siteIndexArtifact(leaves, groups, options),
+      body: siteIndexAsset(leaves, groups, options),
     },
     {
       reference: { scope: "site", surface: "full" },
@@ -1412,14 +1424,14 @@ export async function bakePreparedArtifacts(
         surface: "index" as const,
         section: group.slug,
       },
-      body: sectionIndexArtifact(group, options),
+      body: sectionIndexAsset(group, options),
     })),
   ];
-  const llmsRecords: Array<PreparedLlmsManifestArtifact & { body: string }> =
+  const llmsRecords: Array<LlmsEndpointAsset & { body: string }> =
     llmsBodies.map(({ reference, body }) => {
       const fingerprint = digest(
         JSON.stringify({
-          generation: PREPARED_ARTIFACT_GENERATION,
+          generation: AGENT_ENDPOINT_ASSET_GENERATION,
           base,
           audience: "public",
           reference,
@@ -1433,7 +1445,7 @@ export async function bakePreparedArtifacts(
         ...reference,
         digest: `sha256:${fingerprint}`,
         mediaType: "text/plain; charset=utf-8",
-        path: `artifacts/${fingerprint}.txt`,
+        path: `assets/${fingerprint}.txt`,
         body,
       };
     });
@@ -1461,28 +1473,28 @@ export async function bakePreparedArtifacts(
     }
     if (hashes.has(record.digest)) {
       throw new Error(
-        `nimbus-docs: duplicate artifact digest ${record.digest}.`,
+        `nimbus-docs: duplicate asset digest ${record.digest}.`,
       );
     }
     llmsIdentities.add(identity);
     hashes.add(record.digest);
   }
 
-  const directory = artifactRoot(root);
+  const directory = agentEndpointAssetRoot(root);
   await assertNoSymlink(root, directory);
-  await mkdir(path.join(directory, "artifacts"), { recursive: true });
-  await assertNoSymlink(root, path.join(directory, "artifacts"));
-  const manifest: PreparedArtifactManifest = {
-    version: PREPARED_ARTIFACT_MANIFEST_VERSION,
-    generation: PREPARED_ARTIFACT_GENERATION,
+  await mkdir(path.join(directory, "assets"), { recursive: true });
+  await assertNoSymlink(root, path.join(directory, "assets"));
+  const manifest: AgentEndpointAssetManifest = {
+    version: AGENT_ENDPOINT_ASSET_MANIFEST_VERSION,
+    generation: AGENT_ENDPOINT_ASSET_GENERATION,
     base,
     audience: "public",
-    markdownArtifacts: records.map(({ body: _body, ...record }) => record),
-    llmsArtifacts: llmsRecords.map(({ body: _body, ...record }) => record),
+    markdownAssets: records.map(({ body: _body, ...record }) => record),
+    llmsAssets: llmsRecords.map(({ body: _body, ...record }) => record),
     headings: headingRecords,
   };
   const isFresh = () => {
-    const current = artifactState.roots.get(root);
+    const current = agentEndpointAssetState.roots.get(root);
     return (
       (!configuredAtStart || current === configuredAtStart) &&
       current?.invalidation === invalidationAtStart &&
@@ -1498,7 +1510,7 @@ export async function bakePreparedArtifacts(
       isFresh,
       [...records, ...llmsRecords],
       async () => {
-        const configured = artifactState.roots.get(root);
+        const configured = agentEndpointAssetState.roots.get(root);
         let installed = !configuredAtStart;
         if (
           configured &&
@@ -1510,14 +1522,14 @@ export async function bakePreparedArtifacts(
           configured.bakedRevision = snapshot.revision;
           configured.bakedInvalidation = configured.invalidation;
           configured.manifest = manifest;
-          configured.markdownArtifacts = new Map(
-            manifest.markdownArtifacts.map((artifact) => [
-              artifactKey(artifact),
-              artifact,
+          configured.markdownAssets = new Map(
+            manifest.markdownAssets.map((asset) => [
+              markdownAssetKey(asset),
+              asset,
             ]),
           );
-          configured.llmsArtifacts = new Map(
-            manifest.llmsArtifacts.map((artifact) => [preparedLlmsKey(artifact), artifact]),
+          configured.llmsAssets = new Map(
+            manifest.llmsAssets.map((asset) => [preparedLlmsKey(asset), asset]),
           );
           configured.headings = new Map(
             manifest.headings.map((record): [string, PreparedHeadingRecord] => [
@@ -1527,7 +1539,7 @@ export async function bakePreparedArtifacts(
           );
         }
         if (installed) {
-          await cleanupArtifacts(root, directory, manifest);
+          await cleanupAssets(root, directory, manifest);
         }
       },
     ))
@@ -1537,28 +1549,28 @@ export async function bakePreparedArtifacts(
   return manifest;
 }
 
-export async function getPreparedArtifactManifest(
+export async function getAgentEndpointAssetManifest(
   root: URL | string,
-): Promise<PreparedArtifactManifest> {
-  return ensurePreparedArtifacts(root);
+): Promise<AgentEndpointAssetManifest> {
+  return ensureAgentEndpointAssets(root);
 }
 
-export async function readPreparedMarkdownArtifact(
+export async function readMarkdownEndpointPayload(
   root: URL | string,
-  reference: PreparedMarkdownReference,
-): Promise<PreparedMarkdownArtifact> {
+  reference: MarkdownEndpointReference,
+): Promise<MarkdownEndpointPayload> {
   const key = preparedMarkdownRootKey(root);
-  await ensurePreparedArtifacts(key);
-  const endRead = beginArtifactRead(key);
+  await ensureAgentEndpointAssets(key);
+  const endRead = beginAssetRead(key);
   try {
-    const configured = artifactState.roots.get(key);
-    const record = configured?.markdownArtifacts?.get(artifactKey(reference));
+    const configured = agentEndpointAssetState.roots.get(key);
+    const record = configured?.markdownAssets?.get(markdownAssetKey(reference));
     if (!record) {
       throw new Error(
-        `nimbus-docs: no prepared ${reference.surface} artifact for "${reference.collection}:${reference.id}".`,
+        `nimbus-docs: no ${reference.surface} agent-endpoint asset for "${reference.collection}:${reference.id}".`,
       );
     }
-    const body = await readArtifactBody(key, record);
+    const body = await readAssetBody(key, record);
     if (
       !Number.isSafeInteger(record.contentStart) ||
       !Number.isSafeInteger(record.contentEnd) ||
@@ -1567,7 +1579,7 @@ export async function readPreparedMarkdownArtifact(
       record.contentEnd > body.length
     ) {
       throw new Error(
-        `nimbus-docs: prepared ${reference.surface} artifact for "${reference.collection}:${reference.id}" has invalid content bounds.`,
+        `nimbus-docs: ${reference.surface} agent-endpoint asset for "${reference.collection}:${reference.id}" has invalid content bounds.`,
       );
     }
     return {
@@ -1582,16 +1594,16 @@ export async function readPreparedMarkdownArtifact(
   }
 }
 
-async function readArtifactBody(
+async function readAssetBody(
   root: string,
   record: { path: string },
 ): Promise<string> {
-  const directory = artifactRoot(root);
+  const directory = agentEndpointAssetRoot(root);
   const resolved = path.resolve(directory, record.path);
   const relative = path.relative(directory, resolved);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(
-      `nimbus-docs: prepared artifact path escapes its root: ${record.path}.`,
+      `nimbus-docs: agent-endpoint asset path escapes its root: ${record.path}.`,
     );
   }
   await assertNoSymlink(root, resolved);
@@ -1603,32 +1615,32 @@ async function readArtifactBody(
     path.isAbsolute(canonicalRelative)
   ) {
     throw new Error(
-      `nimbus-docs: prepared artifact path escapes its root: ${record.path}.`,
+      `nimbus-docs: agent-endpoint asset path escapes its root: ${record.path}.`,
     );
   }
   return readFile(resolved, "utf8");
 }
 
-export async function readPreparedLlmsArtifact(
+export async function readLlmsEndpointPayload(
   root: URL | string,
-  reference: PreparedLlmsReference,
-): Promise<PreparedLlmsArtifact> {
+  reference: LlmsEndpointReference,
+): Promise<LlmsEndpointPayload> {
   const key = preparedMarkdownRootKey(root);
-  await ensurePreparedArtifacts(key);
-  const endRead = beginArtifactRead(key);
+  await ensureAgentEndpointAssets(key);
+  const endRead = beginAssetRead(key);
   try {
-    const configured = artifactState.roots.get(key);
-    const record = configured?.llmsArtifacts?.get(preparedLlmsKey(reference));
+    const configured = agentEndpointAssetState.roots.get(key);
+    const record = configured?.llmsAssets?.get(preparedLlmsKey(reference));
     if (!record) {
       const identity =
         reference.scope === "site"
           ? `${reference.scope} ${reference.surface}`
           : `${reference.scope} ${reference.section} ${reference.surface}`;
       throw new Error(
-        `nimbus-docs: no prepared llms.txt artifact for ${identity}.`,
+        `nimbus-docs: no llms.txt agent-endpoint asset for ${identity}.`,
       );
     }
-    const body = await readArtifactBody(key, record);
+    const body = await readAssetBody(key, record);
     return {
       ...reference,
       digest: record.digest,

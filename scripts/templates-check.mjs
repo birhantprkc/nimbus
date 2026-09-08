@@ -347,7 +347,7 @@ if (!staticRouteCandidates.some(existsSync)) {
 }
 if (LANE === "node" || LANE === "cloudflare") {
   if (LANE === "node") {
-    rmSync(join(site, ".astro", "nimbus", "prepared-artifacts"), {
+    rmSync(join(site, ".astro", "nimbus", "agent-endpoint-assets"), {
       recursive: true,
       force: true,
     });

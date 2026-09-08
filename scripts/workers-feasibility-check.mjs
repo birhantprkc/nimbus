@@ -548,13 +548,18 @@ function assertSizeBudgets(site) {
     `Worker output is ${workerGzipBytes} gzip bytes; budget is ${SIZE_BUDGET.worker.maxGzipBytes}`,
   );
 
-  const preparedArtifactRoot = join(site, ".astro", "nimbus", "prepared-artifacts");
-  const manifest = JSON.parse(
-    readFileSync(join(preparedArtifactRoot, "manifest.json"), "utf8"),
+  const agentEndpointAssetRoot = join(
+    site,
+    ".astro",
+    "nimbus",
+    "agent-endpoint-assets",
   );
-  const sourceBodies = manifest.markdownArtifacts
-    .filter((artifact) => artifact.surface === "source")
-    .map((artifact) => readFileSync(join(preparedArtifactRoot, artifact.path)));
+  const manifest = JSON.parse(
+    readFileSync(join(agentEndpointAssetRoot, "manifest.json"), "utf8"),
+  );
+  const sourceBodies = manifest.markdownAssets
+    .filter((asset) => asset.surface === "source")
+    .map((asset) => readFileSync(join(agentEndpointAssetRoot, asset.path)));
   const sourceBytes = sourceBodies.reduce(
     (total, body) => total + body.length,
     0,
@@ -564,12 +569,12 @@ function assertSizeBudgets(site) {
     0,
   );
   assert(
-    sourceBytes <= SIZE_BUDGET.preparedSource.maxBytes,
-    `prepared source is ${sourceBytes} bytes; budget is ${SIZE_BUDGET.preparedSource.maxBytes}`,
+    sourceBytes <= SIZE_BUDGET.agentEndpointSource.maxBytes,
+    `agent-endpoint source is ${sourceBytes} bytes; budget is ${SIZE_BUDGET.agentEndpointSource.maxBytes}`,
   );
   assert(
-    sourceGzipBytes <= SIZE_BUDGET.preparedSource.maxGzipBytes,
-    `prepared source is ${sourceGzipBytes} gzip bytes; budget is ${SIZE_BUDGET.preparedSource.maxGzipBytes}`,
+    sourceGzipBytes <= SIZE_BUDGET.agentEndpointSource.maxGzipBytes,
+    `agent-endpoint source is ${sourceGzipBytes} gzip bytes; budget is ${SIZE_BUDGET.agentEndpointSource.maxGzipBytes}`,
   );
 }
 
@@ -647,9 +652,9 @@ const WORKER_TEXT_DENYLIST = [
       /(?:@cloudflare\/nimbus-docs\/build|nimbus-docs[\\/](?:(?:src|dist)[\\/])?build\.(?:[cm]?[jt]s)|(?:from\s*|import\s*\(?|require\s*\()\s*["'](?:\.\.?[\\/])+build\.js["']|(?:^|[\\/])build-markdown(?:-[^\\/"']+)?\.js)/m,
   },
   {
-    category: "prepared artifact",
+    category: "agent-endpoint asset",
     pattern:
-      /\.astro[\\/]nimbus[\\/]prepared-artifacts|nimbus\/prepared-artifacts\/manifest\.json/,
+      /\.astro[\\/]nimbus[\\/]agent-endpoint-assets|nimbus\/agent-endpoint-assets\/manifest\.json/,
   },
   {
     category: "native binding",
@@ -708,7 +713,7 @@ function assertWorkerPurityScanner() {
     ["/server/chunks/build-markdown-CX42.js", "build helper"],
     ["/node_modules/@cloudflare/nimbus-docs/src/build.ts", "build helper"],
     ["/node_modules/@cloudflare/nimbus-docs/dist/build.js", "build helper"],
-    [".astro/nimbus/prepared-artifacts/manifest.json", "prepared artifact"],
+    [".astro/nimbus/agent-endpoint-assets/manifest.json", "agent-endpoint asset"],
     ['require("binding.node")', "native binding"],
     ["/server/binding.node", "native binding"],
     ['WebAssembly.instantiate(atob("AGFzbAAAA"))', "embedded wasm"],
@@ -872,24 +877,24 @@ for (const output of ["dist", ".astro", join("node_modules", ".vite")]) {
 }
 build(site, { docs: "build", api: "build" });
 const firstWorkerBuild = directorySnapshot(join(site, "dist", "server"));
-const firstPreparedArtifactBuild = directorySnapshot(
-  join(site, ".astro", "nimbus", "prepared-artifacts"),
+const firstAgentEndpointAssetBuild = directorySnapshot(
+  join(site, ".astro", "nimbus", "agent-endpoint-assets"),
 );
 for (const output of ["dist", ".astro", join("node_modules", ".vite")]) {
   rmSync(join(site, output), { recursive: true, force: true });
 }
 build(site, { docs: "build", api: "build" });
 const secondWorkerBuild = directorySnapshot(join(site, "dist", "server"));
-const secondPreparedArtifactBuild = directorySnapshot(
-  join(site, ".astro", "nimbus", "prepared-artifacts"),
+const secondAgentEndpointAssetBuild = directorySnapshot(
+  join(site, ".astro", "nimbus", "agent-endpoint-assets"),
 );
 assert(
   JSON.stringify(secondWorkerBuild) === JSON.stringify(firstWorkerBuild),
   `two clean Worker builds differed: ${snapshotDifference(firstWorkerBuild, secondWorkerBuild).join(", ")}`,
 );
 assert(
-  JSON.stringify(secondPreparedArtifactBuild) === JSON.stringify(firstPreparedArtifactBuild),
-  `two clean prepared-artifact builds differed: ${snapshotDifference(firstPreparedArtifactBuild, secondPreparedArtifactBuild).join(", ")}`,
+  JSON.stringify(secondAgentEndpointAssetBuild) === JSON.stringify(firstAgentEndpointAssetBuild),
+  `two clean agent-endpoint asset builds differed: ${snapshotDifference(firstAgentEndpointAssetBuild, secondAgentEndpointAssetBuild).join(", ")}`,
 );
 const staticPages = captureStaticPages(site);
 const proseStatic = prosePages(staticPages);

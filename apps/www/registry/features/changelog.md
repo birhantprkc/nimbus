@@ -954,10 +954,10 @@ export async function GET() {
 import { entryRouteKey, withBase } from "@cloudflare/nimbus-docs";
 import { getEntry } from "astro:content";
 import {
-  getPreparedMarkdownArtifact,
-  getPreparedMarkdownStaticPaths,
-  type PreparedMarkdownReference,
-} from "@cloudflare/nimbus-docs/build";
+  getMarkdownPayload,
+  getMarkdownStaticPaths,
+  type MarkdownEndpointReference,
+} from "@cloudflare/nimbus-docs/agent-endpoints";
 import { config } from "virtual:nimbus/config";
 
 export const prerender = true;
@@ -967,16 +967,29 @@ const absoluteUrl = (path: string) =>
   new URL(withBase(path, import.meta.env.BASE_URL), config.site).href;
 
 interface SlugProps {
-  artifact: PreparedMarkdownReference;
+  reference: MarkdownEndpointReference;
 }
 
-export const getStaticPaths = () =>
-  getPreparedMarkdownStaticPaths({ collection: COLLECTION, surface: "markdown" })
+interface SlugContext {
+  params: { slug?: string };
+  props: Partial<SlugProps>;
+  request: Request;
+}
+
+export const getStaticPaths = async () =>
+  getMarkdownStaticPaths({ collection: COLLECTION, surface: "markdown" })
     .then((paths) => paths.filter((path) => path.params.slug !== undefined));
 
-export async function GET({ props }: { props: SlugProps }) {
-  const artifact = await getPreparedMarkdownArtifact(props.artifact);
-  const entry = await getEntry(COLLECTION, props.artifact.id);
+export async function GET({ params, props, request }: SlugContext) {
+  const payload = await getMarkdownPayload({
+    collection: COLLECTION,
+    surface: "markdown",
+    slug: params.slug,
+    reference: props.reference,
+    context: { request },
+  });
+  if (!payload) return new Response(null, { status: 404 });
+  const entry = await getEntry(COLLECTION, payload.id);
   if (!entry) return new Response(null, { status: 404 });
   const data = (entry.data ?? {}) as Record<string, unknown>;
   const title = String(data.title);
@@ -1018,7 +1031,7 @@ export async function GET({ props }: { props: SlugProps }) {
     "",
     `# ${title}`,
     "",
-    artifact.content,
+    payload.content,
     "",
     `Source: ${absoluteUrl(sourcePath)}`,
     "",
@@ -1034,25 +1047,38 @@ export async function GET({ props }: { props: SlugProps }) {
 
 ```ts
 import {
-  getPreparedMarkdownArtifact,
-  getPreparedMarkdownStaticPaths,
-  type PreparedMarkdownReference,
-} from "@cloudflare/nimbus-docs/build";
+  getMarkdownPayload,
+  getMarkdownStaticPaths,
+  type MarkdownEndpointReference,
+} from "@cloudflare/nimbus-docs/agent-endpoints";
 
 export const prerender = true;
 
 interface SlugProps {
-  artifact: PreparedMarkdownReference;
+  reference: MarkdownEndpointReference;
 }
 
-export const getStaticPaths = () =>
-  getPreparedMarkdownStaticPaths({ collection: "changelog", surface: "source" })
+interface SlugContext {
+  params: { slug?: string };
+  props: Partial<SlugProps>;
+  request: Request;
+}
+
+export const getStaticPaths = async () =>
+  getMarkdownStaticPaths({ collection: "changelog", surface: "source" })
     .then((paths) => paths.filter((path) => path.params.slug !== undefined));
 
-export async function GET({ props }: { props: SlugProps }) {
-  const artifact = await getPreparedMarkdownArtifact(props.artifact);
-  return new Response(artifact.body, {
-    headers: { "Content-Type": artifact.mediaType },
+export async function GET({ params, props, request }: SlugContext) {
+  const payload = await getMarkdownPayload({
+    collection: "changelog",
+    surface: "source",
+    slug: params.slug,
+    reference: props.reference,
+    context: { request },
+  });
+  if (!payload) return new Response("Not found", { status: 404 });
+  return new Response(payload.body, {
+    headers: { "Content-Type": payload.mediaType },
   });
 }
 ```

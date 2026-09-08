@@ -530,9 +530,9 @@ export async function renderIndexedEntryMarkdown(
  *   - Each entry is a `#`-level block (bodies render at `##` and below).
  *   - The document header cross-references `/llms.txt`.
  *
- * The starter route reads the prepared full-document artifact. A site that wants
- * a different policy (per-version, filtered, chunked) should prepare its own
- * artifact at build time rather than compose runtime entry renderers, which do
+ * The starter route reads the prebuilt full-document endpoint payload. A site
+ * that wants a different policy (per-version, filtered, chunked) should generate
+ * its own output at build time rather than compose runtime entry renderers, which do
  * not carry build-only partial or API rendering context. Pass Astro's
  * `import.meta.env.BASE_URL` as `base` when the site supports sub-path deploys.
  */

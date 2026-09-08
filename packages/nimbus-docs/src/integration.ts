@@ -161,18 +161,18 @@ const REQUEST_ROUTE_INVENTORY_ENTRYPOINT = new URL(
   import.meta.url,
 );
 
-type PreparedArtifactsModule = typeof import("./_internal/prepared-artifacts.js");
+type AgentEndpointAssetsModule = typeof import("./_internal/agent-endpoint-assets.js");
 
-function loadPreparedArtifacts(): Promise<PreparedArtifactsModule> {
+function loadAgentEndpointAssets(): Promise<AgentEndpointAssetsModule> {
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js";
   const specifier = [
     "./_internal/",
-    "prepared-artifacts.",
+    "agent-endpoint-assets.",
     extension,
   ].join("");
   return import(
     new URL(specifier, import.meta.url).href
-  ) as Promise<PreparedArtifactsModule>;
+  ) as Promise<AgentEndpointAssetsModule>;
 }
 
 export interface SitemapOptions {
@@ -439,8 +439,8 @@ export function nimbus(
         const srcDir = fileURLToPath(astroConfig.srcDir);
         const projectRoot = fileURLToPath(astroConfig.root);
         beginPreparedMarkdownSession(astroConfig.root);
-        const preparedArtifacts = await loadPreparedArtifacts();
-        preparedArtifacts.configurePreparedArtifactRoot(
+        const agentEndpointAssets = await loadAgentEndpointAssets();
+        agentEndpointAssets.configureAgentEndpointAssetRoot(
           astroConfig.root,
           command === "build" ? "build" : "dev",
           async () => {
@@ -454,7 +454,7 @@ export function nimbus(
                 ),
               ]),
             );
-            return preparedArtifacts.bakePreparedArtifacts({
+            return agentEndpointAssets.bakeAgentEndpointAssets({
               root: projectRoot,
               base: astroConfig.base || "/",
               site: config.site,
@@ -503,7 +503,7 @@ export function nimbus(
             });
           },
           () =>
-            preparedArtifacts.bakePreparedHeadings({
+            agentEndpointAssets.bakePreparedHeadings({
               root: projectRoot,
               base: astroConfig.base || "/",
               indexedCollections: indexedCollectionsForBuild,
@@ -533,7 +533,7 @@ export function nimbus(
             ),
           )
         ) {
-          preparedArtifacts.registerPreparedArtifactDemand(astroConfig.root);
+          agentEndpointAssets.registerAgentEndpointAssetDemand(astroConfig.root);
         }
         const publicDir = astroConfig.publicDir
           ? fileURLToPath(astroConfig.publicDir)
@@ -1207,13 +1207,13 @@ export function nimbus(
                 coordinates: Object.fromEntries(citationIndex),
                 manifest: coordinatesManifest,
               })),
-              preparedArtifacts.preparedHeadingsPlugin(astroConfig.root),
-              preparedArtifacts.preparedArtifactsRuntimePlugin(astroConfig.root),
-              preparedArtifacts.preparedAssetLoaderPlugin(
+              agentEndpointAssets.preparedHeadingsPlugin(astroConfig.root),
+              agentEndpointAssets.agentEndpointAssetsRuntimePlugin(astroConfig.root),
+              agentEndpointAssets.agentEndpointAssetLoaderPlugin(
                 () => adapterNameForBuild,
               ),
               {
-                name: "nimbus-docs:prepared-artifact-assets",
+                name: "nimbus-docs:agent-endpoint-assets",
                 enforce: "pre",
                 applyToEnvironment: (environment) =>
                   environment.name === "client",
@@ -1222,14 +1222,14 @@ export function nimbus(
                   const outputRoot = path.resolve(projectRoot, outputOptions.dir);
                   if (
                     outputModeForBuild === "server" &&
-                    preparedArtifacts.isPreparedArtifactRequested(projectRoot)
+                    agentEndpointAssets.isAgentEndpointAssetRequested(projectRoot)
                   ) {
-                    await preparedArtifacts.stagePreparedArtifactAssets(
+                    await agentEndpointAssets.stageAgentEndpointAssets(
                       projectRoot,
                       outputRoot,
                     );
                   } else {
-                    await preparedArtifacts.removePreparedArtifactAssets(
+                    await agentEndpointAssets.removeAgentEndpointAssets(
                       outputRoot,
                     );
                   }
@@ -1397,7 +1397,7 @@ export function nimbus(
           if (!isContentFile(file)) return;
           const { clearNavCaches } = await import("./index.js");
           clearNavCaches();
-          (await loadPreparedArtifacts()).invalidatePreparedArtifacts(
+          (await loadAgentEndpointAssets()).invalidateAgentEndpointAssets(
             projectRootForBuild,
           );
           server.moduleGraph.invalidateAll();
@@ -1432,7 +1432,7 @@ export function nimbus(
               );
               citationIndex = index;
               coordinatesManifest = manifest;
-              (await loadPreparedArtifacts()).invalidatePreparedArtifacts(
+              (await loadAgentEndpointAssets()).invalidateAgentEndpointAssets(
                 projectRootForBuild,
               );
               server.moduleGraph.invalidateAll();
@@ -1450,12 +1450,12 @@ export function nimbus(
       "astro:build:start": async () => {
         const { clearNavCaches } = await import("./index.js");
         clearNavCaches();
-        const preparedArtifacts = await loadPreparedArtifacts();
+        const agentEndpointAssets = await loadAgentEndpointAssets();
         if (requestRenderingConfigured) {
-          preparedArtifacts.registerPreparedArtifactDemand(projectRootForBuild);
+          agentEndpointAssets.registerAgentEndpointAssetDemand(projectRootForBuild);
         }
-        if (preparedArtifacts.isPreparedArtifactRequested(projectRootForBuild)) {
-          await preparedArtifacts.ensurePreparedArtifacts(projectRootForBuild);
+        if (agentEndpointAssets.isAgentEndpointAssetRequested(projectRootForBuild)) {
+          await agentEndpointAssets.ensureAgentEndpointAssets(projectRootForBuild);
         }
       },
       "astro:routes:resolved": ({ routes }) => {

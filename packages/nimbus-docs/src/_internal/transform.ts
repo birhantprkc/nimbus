@@ -287,7 +287,7 @@ export function renderEntryAsMarkdown(
   if (/<Render(?=[\s/>])/.test(protectCode(markdown).markdown)) {
     throw new Error(
       "nimbus-docs: renderEntryAsMarkdown no longer expands <Render> partials at runtime. " +
-        "Use the prepared artifact helpers from @cloudflare/nimbus-docs/build.",
+        "Serve it with getMarkdownPayload from @cloudflare/nimbus-docs/agent-endpoints.",
     );
   }
 

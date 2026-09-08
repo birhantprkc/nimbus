@@ -1,17 +1,17 @@
-import { getPreparedLlmsRouteArtifact } from "@cloudflare/nimbus-docs/publication";
+import { getLlmsPayload } from "@cloudflare/nimbus-docs/agent-endpoints";
 
 export const prerender = true;
 
 export async function GET(context: { request: Request }) {
-  const artifact = await getPreparedLlmsRouteArtifact(
+  const payload = await getLlmsPayload(
     {
       scope: "site",
       surface: "index",
     },
     context,
   );
-  if (!artifact) return new Response("Not found", { status: 404 });
-  return new Response(artifact.body, {
-    headers: { "Content-Type": artifact.mediaType },
+  if (!payload) return new Response("Not found", { status: 404 });
+  return new Response(payload.body, {
+    headers: { "Content-Type": payload.mediaType },
   });
 }

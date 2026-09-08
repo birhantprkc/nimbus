@@ -37,6 +37,10 @@
 			"types": "./dist/runtime.d.ts",
 			"import": "./dist/runtime.js"
 		},
+		"./agent-endpoints": {
+			"types": "./dist/agent-endpoints.d.ts",
+			"import": "./dist/agent-endpoints.js"
+		},
 		"./publication": {
 			"types": "./dist/publication.d.ts",
 			"import": "./dist/publication.js"

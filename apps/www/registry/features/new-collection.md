@@ -31,7 +31,7 @@ plain doc tree.
 **For an OpenAPI spec, this is also the wrong recipe.** This recipe makes a
 tree of hand-authored MDX pages. If the user wants their API reference
 *generated from an OpenAPI/Swagger document* — pages per operation and schema,
-Markdown versions and `llms.txt` coverage — use `nimbus-docs add api-reference`. Use this
+alternate Markdown versions and `llms.txt` indexes — use `nimbus-docs add api-reference`. Use this
 recipe for `api` only when they're writing the API docs by hand.
 
 **This recipe owns the whole setup of a non-version collection.** You
@@ -115,7 +115,7 @@ URL convention — a `docs-v1` collection always mounts at `/v1/`, never at
 `/docs-v1/`.
 
 For every other collection, the URL prefix must match the collection name.
-Per-page Markdown versions and the collection's `llms.txt` index use that identity as their mount prefix.
+Alternate Markdown versions and the collection's `llms.txt` index use that identity as their mount prefix.
 
 ### Q4. Add a starter entry?
 
@@ -288,33 +288,46 @@ Write `src/pages/<prefix>/[...slug]/index.md.ts`:
  */
 
 import {
-  getPreparedMarkdownArtifact,
-  getPreparedMarkdownStaticPaths,
-  type PreparedMarkdownReference,
-} from "@cloudflare/nimbus-docs/build";
+  getMarkdownPayload,
+  getMarkdownStaticPaths,
+  type MarkdownEndpointReference,
+} from "@cloudflare/nimbus-docs/agent-endpoints";
 
 export const prerender = true;
 
 const COLLECTION = "<collection>";
 
 interface SlugProps {
-  artifact: PreparedMarkdownReference;
+  reference: MarkdownEndpointReference;
 }
 
-export const getStaticPaths = () =>
-  getPreparedMarkdownStaticPaths({ collection: COLLECTION, surface: "markdown" });
+interface SlugContext {
+  params: { slug?: string };
+  props: Partial<SlugProps>;
+  request: Request;
+}
 
-export async function GET({ props }: { props: SlugProps }) {
-  const artifact = await getPreparedMarkdownArtifact(props.artifact);
-  return new Response(artifact.body, {
-    headers: { "Content-Type": artifact.mediaType },
+export const getStaticPaths = async () =>
+  getMarkdownStaticPaths({ collection: COLLECTION, surface: "markdown" });
+
+export async function GET({ params, props, request }: SlugContext) {
+  const payload = await getMarkdownPayload({
+    collection: COLLECTION,
+    surface: "markdown",
+    slug: params.slug,
+    reference: props.reference,
+    context: { request },
+  });
+  if (!payload) return new Response("Not found", { status: 404 });
+  return new Response(payload.body, {
+    headers: { "Content-Type": payload.mediaType },
   });
 }
 ```
 
 Substitute `<collection>` in the `COLLECTION` constant.
 
-To serve the expanded source URL referenced by the prepared markdown,
+To serve the expanded source URL referenced by the Markdown payload,
 mirror this route at `src/pages/<prefix>/[...slug]/index.mdx.ts` with
 `surface: "source"`.
 

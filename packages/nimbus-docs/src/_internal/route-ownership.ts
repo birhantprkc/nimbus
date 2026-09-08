@@ -10,7 +10,7 @@ export interface StarterRouteDeclaration {
   entrypoint: string;
   role: StarterRouteRole;
   allowsContentShadow?: true;
-  publishesPreparedArtifacts?: true;
+  publishesAgentEndpointAssets?: true;
 }
 
 export const STARTER_ROUTE_INVENTORY: readonly StarterRouteDeclaration[] = [
@@ -30,31 +30,31 @@ export const STARTER_ROUTE_INVENTORY: readonly StarterRouteDeclaration[] = [
     pattern: "/[...slug]/index.md",
     entrypoint: "pages/[...slug]/index.md.ts",
     role: "user-owned",
-    publishesPreparedArtifacts: true,
+    publishesAgentEndpointAssets: true,
   },
   {
     pattern: "/[...slug]/index.mdx",
     entrypoint: "pages/[...slug]/index.mdx.ts",
     role: "user-owned",
-    publishesPreparedArtifacts: true,
+    publishesAgentEndpointAssets: true,
   },
   {
     pattern: "/[section]/llms.txt",
     entrypoint: "pages/[section]/llms.txt.ts",
     role: "user-owned",
-    publishesPreparedArtifacts: true,
+    publishesAgentEndpointAssets: true,
   },
   {
     pattern: "/llms-full.txt",
     entrypoint: "pages/llms-full.txt.ts",
     role: "user-owned",
-    publishesPreparedArtifacts: true,
+    publishesAgentEndpointAssets: true,
   },
   {
     pattern: "/llms.txt",
     entrypoint: "pages/llms.txt.ts",
     role: "user-owned",
-    publishesPreparedArtifacts: true,
+    publishesAgentEndpointAssets: true,
   },
   {
     pattern: "/nimbus-api/coordinates.json",

@@ -14,11 +14,17 @@ import {
   getVersionStatus,
   renderIndexedEntryMarkdown,
 } from "../runtime.js";
-import { getPreparedMarkdownArtifact } from "../build.js";
+import { readMarkdownEndpointPayload } from "./agent-endpoint-assets.js";
 
 export const prerender = true;
 
 export async function GET() {
+  const projectRoot: unknown = import.meta.env.NIMBUS_PROJECT_ROOT;
+  if (typeof projectRoot !== "string" || projectRoot.length === 0) {
+    throw new Error(
+      "nimbus-docs: request route inventory requires the Nimbus Astro integration.",
+    );
+  }
   const config = await loadNimbusConfig();
   const requestCollections = new Set(await loadRequestRenderingCollections());
   const apiCollections = new Set(await loadApiCollections());
@@ -66,11 +72,14 @@ export async function GET() {
       route.content = apiCollections.has(collection)
         ? await renderIndexedEntryMarkdown(item, { base: import.meta.env.BASE_URL })
         : (
-            await getPreparedMarkdownArtifact({
-              collection,
-              id: item.entry.id,
-              surface: "markdown",
-            })
+            await readMarkdownEndpointPayload(
+              projectRoot,
+              {
+                collection,
+                id: item.entry.id,
+                surface: "markdown",
+              },
+            )
           ).content;
     }
     routes.push(route);

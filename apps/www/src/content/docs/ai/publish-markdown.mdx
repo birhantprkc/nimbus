@@ -1,37 +1,53 @@
 ---
-title: Publish Markdown
-description: Add per-page Markdown versions, llms.txt indexes, and the full documentation file.
+title: Markdown and llms.txt endpoints
+description: Add alternate Markdown/MDX versions, llms.txt indexes, and llms-full.txt.
 aiGenerated: true
 sidebar:
   order: 2
 ---
 
-Add the five routes that publish Markdown versions of each page, site and section indexes, and the full documentation in one file. The Nimbus integration must already be present in `astro.config.ts`.
+Add the five endpoints that serve alternate Markdown/MDX versions, site and section `llms.txt` indexes, and `llms-full.txt`. The Nimbus integration must already be present in `astro.config.ts`.
 
-## 1. Publish per-page Markdown
+## 1. Add alternate page versions
 
 Create the clean Markdown version:
 
 ```ts title="src/pages/[...slug]/index.md.ts"
 import {
-  getPreparedMarkdownArtifact,
-  getPreparedMarkdownStaticPaths,
-  type PreparedMarkdownReference,
-} from "@cloudflare/nimbus-docs/build";
+  getMarkdownPayload,
+  getMarkdownStaticPaths,
+  type MarkdownEndpointReference,
+} from "@cloudflare/nimbus-docs/agent-endpoints";
 
 export const prerender = true;
 
 interface SlugProps {
-  artifact: PreparedMarkdownReference;
+  reference: MarkdownEndpointReference;
 }
 
-export const getStaticPaths = () =>
-  getPreparedMarkdownStaticPaths({ collection: "docs", surface: "markdown" });
+interface SlugContext {
+  params: { slug?: string };
+  props: Partial<SlugProps>;
+  request: Request;
+}
 
-export async function GET({ props }: { props: SlugProps }) {
-  const artifact = await getPreparedMarkdownArtifact(props.artifact);
-  return new Response(artifact.body, {
-    headers: { "Content-Type": artifact.mediaType },
+export const getStaticPaths = async () =>
+  getMarkdownStaticPaths({
+    collection: "docs",
+    surface: "markdown",
+  });
+
+export async function GET({ params, props, request }: SlugContext) {
+  const payload = await getMarkdownPayload({
+    collection: "docs",
+    surface: "markdown",
+    slug: params.slug,
+    reference: props.reference,
+    context: { request },
+  });
+  if (!payload) return new Response("Not found", { status: 404 });
+  return new Response(payload.body, {
+    headers: { "Content-Type": payload.mediaType },
   });
 }
 ```
@@ -40,98 +56,142 @@ Create the MDX source version:
 
 ```ts title="src/pages/[...slug]/index.mdx.ts"
 import {
-  getPreparedMarkdownArtifact,
-  getPreparedMarkdownStaticPaths,
-  type PreparedMarkdownReference,
-} from "@cloudflare/nimbus-docs/build";
+  getMarkdownPayload,
+  getMarkdownStaticPaths,
+  type MarkdownEndpointReference,
+} from "@cloudflare/nimbus-docs/agent-endpoints";
 
 export const prerender = true;
 
 interface SlugProps {
-  artifact: PreparedMarkdownReference;
+  reference: MarkdownEndpointReference;
 }
 
-export const getStaticPaths = () =>
-  getPreparedMarkdownStaticPaths({ collection: "docs", surface: "source" });
+interface SlugContext {
+  params: { slug?: string };
+  props: Partial<SlugProps>;
+  request: Request;
+}
 
-export async function GET({ props }: { props: SlugProps }) {
-  const artifact = await getPreparedMarkdownArtifact(props.artifact);
-  return new Response(artifact.body, {
-    headers: { "Content-Type": artifact.mediaType },
+export const getStaticPaths = async () =>
+  getMarkdownStaticPaths({
+    collection: "docs",
+    surface: "source",
+  });
+
+export async function GET({ params, props, request }: SlugContext) {
+  const payload = await getMarkdownPayload({
+    collection: "docs",
+    surface: "source",
+    slug: params.slug,
+    reference: props.reference,
+    context: { request },
+  });
+  if (!payload) return new Response("Not found", { status: 404 });
+  return new Response(payload.body, {
+    headers: { "Content-Type": payload.mediaType },
   });
 }
 ```
 
-These root catch-all routes publish only the `docs` collection. For every additional authored collection, create the same `.md.ts` and `.mdx.ts` routes below its URL prefix and change `collection` to its literal collection key. For example, a `blog` collection at `/blog` uses `src/pages/blog/[...slug]/index.md.ts`; a `docs-v1` collection at `/v1` uses `src/pages/v1/[...slug]/index.md.ts`. Mirror each Markdown route with an MDX source route.
+These root catch-all endpoints serve only the `docs` collection. For every additional authored collection, create the same `.md.ts` and `.mdx.ts` endpoints below its URL prefix and change `collection` to its literal collection key. For example, a `blog` collection at `/blog` uses `src/pages/blog/[...slug]/index.md.ts`; a `docs-v1` collection at `/v1` uses `src/pages/v1/[...slug]/index.md.ts`. Mirror each alternate Markdown endpoint with an MDX source endpoint.
 
-## 2. Publish the site index
+## 2. Add the site index
 
 Create the site-wide discovery index:
 
 ```ts title="src/pages/llms.txt.ts"
-import { getPreparedLlmsArtifact } from "@cloudflare/nimbus-docs/build";
+import { getLlmsPayload } from "@cloudflare/nimbus-docs/agent-endpoints";
 
 export const prerender = true;
 
-export async function GET() {
-  const artifact = await getPreparedLlmsArtifact({
-    scope: "site",
-    surface: "index",
-  });
-  return new Response(artifact.body, {
-    headers: { "Content-Type": artifact.mediaType },
+export async function GET(context: { request: Request }) {
+  const payload = await getLlmsPayload(
+    {
+      scope: "site",
+      surface: "index",
+    },
+    context,
+  );
+  if (!payload) return new Response("Not found", { status: 404 });
+  return new Response(payload.body, {
+    headers: { "Content-Type": payload.mediaType },
   });
 }
 ```
 
-## 3. Publish the full documentation
+## 3. Add llms-full.txt
 
 Create the file containing all discoverable documentation:
 
 ```ts title="src/pages/llms-full.txt.ts"
-import { getPreparedLlmsArtifact } from "@cloudflare/nimbus-docs/build";
+import { getLlmsPayload } from "@cloudflare/nimbus-docs/agent-endpoints";
 
 export const prerender = true;
 
-export async function GET() {
-  const artifact = await getPreparedLlmsArtifact({
-    scope: "site",
-    surface: "full",
-  });
-  return new Response(artifact.body, {
-    headers: { "Content-Type": artifact.mediaType },
+export async function GET(context: { request: Request }) {
+  const payload = await getLlmsPayload(
+    {
+      scope: "site",
+      surface: "full",
+    },
+    context,
+  );
+  if (!payload) return new Response("Not found", { status: 404 });
+  return new Response(payload.body, {
+    headers: { "Content-Type": payload.mediaType },
   });
 }
 ```
 
-## 4. Publish section indexes
+## 4. Add section indexes
 
 Create the route for paths such as `/writing/llms.txt`:
 
 ```ts title="src/pages/[section]/llms.txt.ts"
 import {
-  getPreparedLlmsArtifact,
-  getPreparedLlmsStaticPaths,
-  type PreparedLlmsReference,
-} from "@cloudflare/nimbus-docs/build";
+  getLlmsPayload,
+  getLlmsStaticPaths,
+  type LlmsEndpointReference,
+} from "@cloudflare/nimbus-docs/agent-endpoints";
 
 export const prerender = true;
 
 interface SectionProps {
-  artifact: PreparedLlmsReference;
+  reference: LlmsEndpointReference;
 }
 
-export const getStaticPaths = () => getPreparedLlmsStaticPaths();
+interface SectionContext {
+  params: { section?: string };
+  props: Partial<SectionProps>;
+  request: Request;
+}
 
-export async function GET({ props }: { props: SectionProps }) {
-  const artifact = await getPreparedLlmsArtifact(props.artifact);
-  return new Response(artifact.body, {
-    headers: { "Content-Type": artifact.mediaType },
+export const getStaticPaths = async () =>
+  getLlmsStaticPaths();
+
+export async function GET({ params, props, request }: SectionContext) {
+  const reference =
+    props.reference ??
+    (params.section
+      ? ({
+          scope: "section",
+          surface: "index",
+          section: params.section,
+        } satisfies LlmsEndpointReference)
+      : null);
+  if (!reference) return new Response("Not found", { status: 404 });
+  const payload = await getLlmsPayload(reference, {
+    request,
+  });
+  if (!payload) return new Response("Not found", { status: 404 });
+  return new Response(payload.body, {
+    headers: { "Content-Type": payload.mediaType },
   });
 }
 ```
 
-Keep all five routes prerendered, including when HTML pages render on request. The `/build` helpers require the Nimbus Astro integration and must not enter a Worker bundle.
+Keep all five endpoints prerendered unless you deliberately want them rendered on request. The `agent-endpoints` helpers support either mode and require the Nimbus Astro integration.
 
 ## Verify
 
@@ -156,7 +216,7 @@ Each command must return content with a successful status. A `404` means the cor
 
 ## Direct rendering
 
-`renderEntryAsMarkdown()` and `getEntryMarkdown()` remain available for entry bodies that do not contain `<Render>`. Passing a body with `<Render>` throws. Use the routes above for authored Markdown versions and `llms.txt` files. `getEntryMarkdown()` also loads API citation data and is intended for prerendered routes.
+`renderEntryAsMarkdown()` and `getEntryMarkdown()` remain available for entry bodies that do not contain `<Render>`. Passing a body with `<Render>` throws. Use the endpoints above for alternate authored Markdown versions and `llms.txt` indexes. `getEntryMarkdown()` also loads API citation data and is intended for prerendered routes.
 
 ## Next steps
 
