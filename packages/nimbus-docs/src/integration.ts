@@ -410,6 +410,8 @@ export function nimbus(
   let sitemapCustomPages: string[] = [];
   let sitemapExcludedPaths = new Set<string>();
   let sitemapTrailingSlash: "always" | "never" | "ignore" = "ignore";
+  let sitemapBareRootUrl: string | null = null;
+  let sitemapHasResolvedRootPage = false;
   let building = false;
   let indexedCollectionsForBuild: string[] = [];
   let apiCollectionsForBuild: string[] = [];
@@ -578,6 +580,8 @@ export function nimbus(
         sitemapCustomPages = [];
         sitemapExcludedPaths = new Set();
         sitemapTrailingSlash = astroConfig.trailingSlash;
+        sitemapBareRootUrl = null;
+        sitemapHasResolvedRootPage = false;
 
         // Materialize the resolved lint config so the standalone
         // `nimbus-docs lint` CLI can read severities authored here. Guarded
@@ -1009,6 +1013,13 @@ export function nimbus(
             config,
             astroConfig.base,
           );
+          const deploymentRoot = new URL(
+            astroConfig.base || "/",
+            config.site,
+          );
+          if (deploymentRoot.pathname !== "/") {
+            sitemapBareRootUrl = deploymentRoot.href.replace(/\/$/, "");
+          }
           const sitemapIntegration = sitemap({
             // Our public `SitemapSerialize` types `changefreq` as a
             // string-literal union and may return `null` to drop an entry.
@@ -1024,9 +1035,13 @@ export function nimbus(
             ...((sitemapOpts?.customPages || requestRenderingConfigured) && {
               customPages: sitemapCustomPages,
             }),
-            ...((hiddenPrefixes.length > 0 || requestRenderingConfigured) && {
+            ...((hiddenPrefixes.length > 0 ||
+              requestRenderingConfigured ||
+              sitemapBareRootUrl) && {
               filter: (url: string) =>
                 hiddenFilter(url) &&
+                (!sitemapHasResolvedRootPage ||
+                  url !== sitemapBareRootUrl) &&
                 !isRequestRouteInventoryPath(
                   new URL(url, config.site).pathname,
                   astroConfig.base,
@@ -1471,6 +1486,13 @@ export function nimbus(
         }
       },
       "astro:routes:resolved": ({ routes }) => {
+        sitemapHasResolvedRootPage = routes.some(
+          (route) =>
+            route.type === "page" &&
+            [route, ...(route.fallbackRoutes ?? [])].some(
+              (candidate) => candidate.pathname === "/",
+            ),
+        );
         resolvedRoutesForBuild = routes.map((r) => ({
           pattern: r.pattern,
           type: r.type,
