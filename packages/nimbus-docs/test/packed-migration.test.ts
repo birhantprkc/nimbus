@@ -31,7 +31,7 @@ test("published failure becomes a packed migration and preserves partial-heading
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { dependencies: Record<string, string> };
     manifest.dependencies["@cloudflare/nimbus-docs"] = `file:${tarball}`;
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    successful(root, ["install", "--ignore-workspace", "--force"]);
+    successful(root, ["install", "--ignore-workspace", "--force", "--no-frozen-lockfile"]);
 
     const candidate = run(root, ["exec", "astro", "check"]);
     assert.notEqual(candidate.status, 0, candidate.output);

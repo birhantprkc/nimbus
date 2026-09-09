@@ -10,7 +10,6 @@
     "typecheck": "pnpm --filter ./packages/nimbus-docs build && pnpm -r typecheck",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "audit:published-prod": "node scripts/audit-published-prod.mjs",
     "dev": "pnpm --filter nimbus-starter-source dev",
     "build:templates": "node packages/create-nimbus-docs/scripts/copy-template.mjs",
     "api-reference:check": "node scripts/api-reference-check.mjs",
