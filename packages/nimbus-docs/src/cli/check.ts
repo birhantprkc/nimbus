@@ -30,12 +30,14 @@ export interface CheckCliFlags {
   structure?: boolean;
   lint?: boolean;
   types?: boolean;
+  migrations?: boolean;
   fix?: boolean;
   json?: boolean;
   format?: string;
   quiet?: boolean;
   color?: boolean;
   yes?: boolean;
+  srcDir?: string;
 }
 
 export async function checkCommand(flags: CheckCliFlags): Promise<void> {
@@ -50,7 +52,7 @@ export async function checkCommand(flags: CheckCliFlags): Promise<void> {
   const scopes = resolveScopes(flags);
   const wantJson = flags.json === true || flags.format === "json";
 
-  let result = await runChecks(cwd, scopes);
+  let result = await runChecks(cwd, scopes, { srcDir: flags.srcDir });
   let interrupted = false;
 
   if (flags.fix) {
@@ -76,7 +78,7 @@ export async function checkCommand(flags: CheckCliFlags): Promise<void> {
     } finally {
       process.off("SIGINT", onSigint);
     }
-    result = await runChecks(cwd, scopes);
+    result = await runChecks(cwd, scopes, { srcDir: flags.srcDir });
   }
 
   if (wantJson) {
@@ -96,13 +98,14 @@ export async function checkCommand(flags: CheckCliFlags): Promise<void> {
 }
 
 export function resolveScopes(flags: CheckCliFlags): CheckScopes {
-  const any = flags.env || flags.structure || flags.lint || flags.types;
+  const any = flags.env || flags.structure || flags.lint || flags.types || flags.migrations;
   if (!any) return ALL_SCOPES;
   return {
     env: flags.env === true,
     structure: flags.structure === true,
     authoring: flags.lint === true,
     types: flags.types === true,
+    migrations: flags.migrations === true,
   };
 }
 

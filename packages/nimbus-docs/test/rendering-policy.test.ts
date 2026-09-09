@@ -38,6 +38,7 @@ import {
   requestInventoryVersionStatusKey,
 } from "../src/_internal/request-route-url.js";
 import { validateNimbusConfig } from "../src/_internal/validate.js";
+import { runningNimbusVersion } from "../src/_internal/upgrades.js";
 import type { NimbusConfig, RenderingConfig } from "../src/types.js";
 
 const baseConfig = (rendering?: RenderingConfig): NimbusConfig => ({
@@ -292,6 +293,10 @@ async function setupIntegration(
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, body, "utf8");
   };
+  await write(
+    "nimbus.json",
+    `${JSON.stringify({ lastReviewedNimbusVersion: runningNimbusVersion() })}\n`,
+  );
   await write("src/content.config.ts", contentConfig);
   await write("src/components.ts", "export const components = {};\n");
   const { omitCanonicalDocsRoute = false, ...options } = integrationOptions;
@@ -689,8 +694,7 @@ test("sitemap deduplicates mixed routes for every trailing slash policy", async 
     );
 
     assert.equal(
-      xml.match(/<loc>https:\/\/example\.test\/docs\/guide\/?<\/loc>/g)
-        ?.length,
+      xml.match(/<loc>https:\/\/example\.test\/docs\/guide\/?<\/loc>/g)?.length,
       1,
     );
 

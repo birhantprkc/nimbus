@@ -54,6 +54,8 @@ jobs:
 
       - run: pnpm --filter ./packages/nimbus-docs build
 
+      - run: pnpm test:upgrades
+
       - run: pnpm -r test
 
   lint:

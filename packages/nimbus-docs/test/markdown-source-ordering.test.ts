@@ -17,6 +17,7 @@ import { build, type AstroIntegration } from "astro";
 
 import { markdownSourcePlugin } from "../src/_internal/markdown-source-vite-plugin.ts";
 import { getPreparedMarkdownSnapshot } from "../src/_internal/prepared-markdown-registry.ts";
+import { runningNimbusVersion } from "../src/_internal/upgrades.ts";
 import nimbus from "../src/index.ts";
 
 const temporaryRoots: string[] = [];
@@ -126,6 +127,11 @@ test("Nimbus production wiring normalizes Markdown and MDX compilation", async (
     path.join(os.tmpdir(), "nimbus-authored-integration-"),
   );
   temporaryRoots.push(root);
+  await writeFile(
+    path.join(root, "nimbus.json"),
+    `${JSON.stringify({ lastReviewedNimbusVersion: runningNimbusVersion() })}\n`,
+    "utf8",
+  );
   await symlink(
     path.resolve(import.meta.dirname, "../node_modules"),
     path.join(root, "node_modules"),

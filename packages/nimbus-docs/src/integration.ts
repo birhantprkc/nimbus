@@ -91,6 +91,8 @@ import {
 } from "./_internal/icon-virtual.js";
 import { scanCodeBlocks } from "./_internal/scan-code-langs.js";
 import { walkFilesSync } from "./_internal/fs-walk.js";
+import { discoverMigrations } from "./_internal/migrations.js";
+import { resolveUpgradeBaseline, selectUpgradeEntries } from "./_internal/upgrades.js";
 import { registerAuthoredLinkNormalizer } from "./_internal/authored-link-normalizer.js";
 import {
   clearCodeStyleRegistry,
@@ -1328,7 +1330,64 @@ export function nimbus(
         injectTypes,
         config: astroConfig,
         buildOutput,
+        logger,
       }) => {
+        const migrationRoot = astroConfig.root
+          ? fileURLToPath(astroConfig.root)
+          : projectRootForBuild;
+        const migrationSrcDir = astroConfig.srcDir
+          ? fileURLToPath(astroConfig.srcDir)
+          : srcDirForBuild;
+        const migrationDiscovery =
+          migrationRoot && migrationSrcDir
+            ? discoverMigrations({ projectRoot: migrationRoot, srcDir: migrationSrcDir })
+            : null;
+        if (migrationDiscovery?.coverage) {
+          const migrationIds = migrationDiscovery.plans.map((plan) => plan.id).join(", ");
+          const message =
+            `Nimbus could not complete package API migration detection (${migrationIds}): ${migrationDiscovery.coverage.message} ` +
+            "Run `nimbus-docs migrate --src-dir <relative-dir>` from the selected project.";
+          logger?.error(message);
+          throw new Error(`nimbus-docs: ${message}`);
+        }
+        if (migrationDiscovery && migrationDiscovery.plans.length > 0) {
+          const details = migrationDiscovery.plans
+            .flatMap((plan) =>
+              plan.locations.length > 0
+                ? plan.locations.map((location) => `${plan.id} at ${location.file}:${location.line}:${location.column}`)
+                : [plan.id],
+            )
+            .join(", ");
+          const message =
+            `Nimbus package API migration required (${details}). ` +
+            "Run `nimbus-docs migrate` to move route-level partial resolution to `markdown.partialResolver`.";
+          logger?.error(message);
+          throw new Error(`nimbus-docs: ${message}`);
+        }
+        if (migrationRoot) {
+          const baseline = resolveUpgradeBaseline({ projectRoot: migrationRoot });
+          if (baseline.error) {
+            const message = `${baseline.error} Run \`nimbus-docs migrate\` to repair the upgrade baseline.`;
+            logger?.error(message);
+            throw new Error(`nimbus-docs: ${message}`);
+          }
+          if (!baseline.fromVersion && baseline.source !== "preview") {
+            const message =
+              "Nimbus has no reviewed upgrade baseline. Run `nimbus-docs migrate --from <version>`, complete every review, then rerun migrate with consent before building.";
+            logger?.error(message);
+            throw new Error(`nimbus-docs: ${message}`);
+          }
+          if (baseline.fromVersion) {
+            const reviews = selectUpgradeEntries(baseline.fromVersion, baseline.targetVersion);
+            if (reviews.length > 0) {
+              const message =
+                `Nimbus upgrade review required (${reviews.map((entry) => entry.id).join(", ")}). ` +
+                "Run `nimbus-docs migrate`, complete every review, then rerun migrate with consent before building.";
+              logger?.error(message);
+              throw new Error(`nimbus-docs: ${message}`);
+            }
+          }
+        }
         outputModeForBuild =
           buildOutput ??
           (astroConfig.output === "server" ? "server" : "static");
