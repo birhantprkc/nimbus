@@ -27,6 +27,32 @@ Slugs are lowercased and folder `index` files collapse to the directory URL. A d
     - styling.mdx
 </FileTree>
 
+## Custom Astro routes
+
+Files you add under `src/pages/` use Astro's native routing and rendering semantics. In a server-output project, a page or endpoint renders on request by default; set Astro's `prerender` export when you want to make the choice explicit:
+
+```astro title="src/pages/status.astro"
+---
+export const prerender = false;
+---
+
+<h1>Service status</h1>
+```
+
+```ts title="src/pages/api/ping.ts"
+export const prerender = false;
+
+export function GET() {
+  return new Response("pong");
+}
+```
+
+Use `export const prerender = true` to emit a custom route as static output during the build. No Nimbus route registration or allowlist is required.
+
+This boundary is not limited to `prerender`. Dynamic segments, endpoint methods, redirects and responses, and other native Astro route behavior remain controlled by the route itself. Nimbus only intervenes when a route claims the exact pattern of a configured canonical content route, package-injected infrastructure, an active feature, or a published content entry.
+
+Nimbus's `rendering` configuration controls canonical content-collection routes, not other files under `src/pages/`. Files scaffolded for `llms.txt`, Markdown alternates, Open Graph images, and `robots.txt` belong to your project and may use Astro's native rendering behavior like any other route.
+
 ## Page modes
 
 Every page renders inside `DocsLayout` by default — sidebar, table of contents, breadcrumbs, prev/next. Opt a page out of all chrome with `mode`:
@@ -59,7 +85,7 @@ draft: true
 
 `src/content/docs/` is the primary collection, mounted at the site root. Additional collections (a `blog`, an `api`, a versioned `docs-v2`) mount under their own URL namespace. Register them in `src/content.config.ts` with the factories from `nimbus-docs/content`.
 
-Nimbus's `docsCollection()`, `partialsCollection()`, and `componentsCollection()` factories prepare content for links, Markdown versions, `llms-full.txt`, and partial headings automatically. If you register a loader that stores Markdown bodies directly, wrap it with `withNimbusMarkdown()`:
+Nimbus's `docsCollection()`, `partialsCollection()`, and `componentsCollection()` factories prepare content for links, alternate Markdown/MDX versions, `llms-full.txt`, and partial headings automatically. If you register a loader that stores Markdown bodies directly, wrap it with `withNimbusMarkdown()`:
 
 ```ts title="src/content.config.ts"
 import { defineCollection } from "astro:content";
@@ -75,7 +101,7 @@ export const collections = {
 };
 ```
 
-The wrapper preserves the loader's methods and lifecycle. Use it when a loader stores entries with a Markdown `body`. Every general-purpose indexed collection must provide prepared Markdown for per-page versions and `llms-full.txt`; arbitrary data-only collections are not supported. `apiCollection()` is the purpose-built exception because Nimbus supplies its renderer. If a collection is not prepared, the build names it and tells you to wrap its loader.
+The wrapper preserves the loader's methods and lifecycle. Use it when a loader stores entries with a Markdown `body`. Every general-purpose indexed collection must provide prepared Markdown for alternate Markdown/MDX versions and `llms-full.txt`; arbitrary data-only collections are not supported. `apiCollection()` is the purpose-built exception because Nimbus supplies its renderer. If a collection is not prepared, the build names it and tells you to wrap its loader.
 
 ## Custom route helpers
 

@@ -2,8 +2,8 @@
  * Per-page `/<slug>/index.mdx` — the raw authored source for every
  * indexable entry of the primary `docs` collection that has a string body.
  *
- * Markdown versions: `index.md` is generated Markdown for reading, while
- * `index.mdx` is prepared source with imports, JSX, and directives intact. The
+ * Alternate Markdown/MDX versions: `index.md` is generated Markdown for reading, while
+ * `index.mdx` is expanded source with imports, JSX, and directives intact. The
  * body is served verbatim; only the canonical frontmatter block (shared
  * with the `.md` version) is framework-shaped.
  *

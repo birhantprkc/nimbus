@@ -454,26 +454,39 @@ Write `src/pages/<slug>/[...slug]/index.md.ts`:
 
 ```ts
 import {
-  getPreparedMarkdownArtifact,
-  getPreparedMarkdownStaticPaths,
-  type PreparedMarkdownReference,
-} from "@cloudflare/nimbus-docs/build";
+  getMarkdownPayload,
+  getMarkdownStaticPaths,
+  type MarkdownEndpointReference,
+} from "@cloudflare/nimbus-docs/agent-endpoints";
 
 export const prerender = true;
 
 const COLLECTION = "docs-<slug>";
 
 interface SlugProps {
-  artifact: PreparedMarkdownReference;
+  reference: MarkdownEndpointReference;
 }
 
-export const getStaticPaths = () =>
-  getPreparedMarkdownStaticPaths({ collection: COLLECTION, surface: "markdown" });
+interface SlugContext {
+  params: { slug?: string };
+  props: Partial<SlugProps>;
+  request: Request;
+}
 
-export async function GET({ props }: { props: SlugProps }) {
-  const artifact = await getPreparedMarkdownArtifact(props.artifact);
-  return new Response(artifact.body, {
-    headers: { "Content-Type": artifact.mediaType },
+export const getStaticPaths = async () =>
+  getMarkdownStaticPaths({ collection: COLLECTION, surface: "markdown" });
+
+export async function GET({ params, props, request }: SlugContext) {
+  const payload = await getMarkdownPayload({
+    collection: COLLECTION,
+    surface: "markdown",
+    slug: params.slug,
+    reference: props.reference,
+    context: { request },
+  });
+  if (!payload) return new Response("Not found", { status: 404 });
+  return new Response(payload.body, {
+    headers: { "Content-Type": payload.mediaType },
   });
 }
 ```
@@ -482,7 +495,7 @@ Substitute the user's version slug for every `<slug>` token in the
 snippet above (the directory name in the file path, plus the
 `COLLECTION` constant value at the top).
 
-The prepared artifact includes the version frontmatter so agents can pin a
+The endpoint payload includes the version frontmatter so agents can pin a
 version. To also serve the expanded source form, mirror this route with
 `surface: "source"` at `src/pages/<slug>/[...slug]/index.mdx.ts`.
 

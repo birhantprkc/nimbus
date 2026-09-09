@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   deriveFootprint,
+  footprintRoutes,
   type FeatureRecipe,
 } from "../src/_internal/footprint.js";
 
@@ -18,6 +19,7 @@ const RECIPES: FeatureRecipe[] = [
     requires: "server",
     env: [{ name: "MCP_PROVIDER_TOKEN", kind: "runtime" }],
     dep: "@cloudflare/nimbus-mcp",
+    routes: [{ pattern: "/mcp", entrypoint: "src/pages/mcp.ts" }],
   },
 ];
 
@@ -32,9 +34,21 @@ test("deriveFootprint selects recipes whose dep is present", () => {
 
 test("deriveFootprint returns nothing when no recipe dep is present", () => {
   const deps = new Set(["astro", "@astrojs/mdx"]);
-  assert.deepEqual(deriveFootprint(deps, RECIPES), []);
+  const footprint = deriveFootprint(deps, RECIPES);
+  assert.deepEqual(footprint, []);
+  assert.deepEqual(footprintRoutes(footprint), []);
 });
 
 test("deriveFootprint defaults to the (empty) first-party recipe set", () => {
   assert.deepEqual(deriveFootprint(new Set(["anything"])), []);
+});
+
+test("footprint routes retain feature and entrypoint ownership", () => {
+  assert.deepEqual(footprintRoutes([RECIPES[1]!, RECIPES[1]!]), [
+    {
+      pattern: "/mcp",
+      entrypoint: "src/pages/mcp.ts",
+      feature: "hosted-mcp",
+    },
+  ]);
 });

@@ -24,7 +24,7 @@ afterEach(async () => {
   );
 });
 
-test("bakes prepared artifacts at astro:build:start for prerendered build helpers", async () => {
+test("bakes agent-endpoint assets at astro:build:start for prerendered endpoints", async () => {
   const root = await mkdtemp(
     path.join(os.tmpdir(), "nimbus-generated-markdown-lifecycle-"),
   );
@@ -41,8 +41,11 @@ test("bakes prepared artifacts at astro:build:start for prerendered build helper
   const contentModule = pathToFileURL(
     path.resolve(import.meta.dirname, "../src/content.ts"),
   ).href;
-  const buildModule = pathToFileURL(
-    path.resolve(import.meta.dirname, "../src/build.ts"),
+  const endpointsModule = pathToFileURL(
+    path.resolve(import.meta.dirname, "../src/agent-endpoints.ts"),
+  ).href;
+  const publicationModule = pathToFileURL(
+    path.resolve(import.meta.dirname, "../src/publication.ts"),
   ).href;
   await writeFile(
     path.join(root, "src/content.config.ts"),
@@ -77,43 +80,45 @@ export const collections = {
   );
   await writeFile(
     path.join(root, "src/pages/[...slug]/index.md.ts"),
-    `import { getPreparedMarkdownArtifact, getPreparedMarkdownStaticPaths } from ${JSON.stringify(buildModule)};
+    `import { getMarkdownPayload } from ${JSON.stringify(endpointsModule)};
+import { getPreparedMarkdownRouteStaticPaths } from ${JSON.stringify(publicationModule)};
 export const prerender = true;
-export const getStaticPaths = () => getPreparedMarkdownStaticPaths({ collection: "docs", surface: "markdown" });
-export async function GET({ props }) {
-  const artifact = await getPreparedMarkdownArtifact(props.artifact);
-  return new Response(artifact.body, { headers: { "content-type": artifact.mediaType } });
+export const getStaticPaths = () => getPreparedMarkdownRouteStaticPaths({ collection: "docs", surface: "markdown" });
+export async function GET({ params, props, request }) {
+  const payload = await getMarkdownPayload({ collection: "docs", surface: "markdown", slug: params.slug, reference: props.artifact, context: { request } });
+  return new Response(payload.body, { headers: { "content-type": payload.mediaType } });
 }`,
     "utf8",
   );
   await writeFile(
     path.join(root, "src/pages/llms.txt.ts"),
-    `import { getPreparedLlmsArtifact } from ${JSON.stringify(buildModule)};
+    `import { getLlmsPayload } from ${JSON.stringify(endpointsModule)};
 export const prerender = true;
-export async function GET() {
-  const artifact = await getPreparedLlmsArtifact({ scope: "site", surface: "index" });
-  return new Response(artifact.body, { headers: { "content-type": artifact.mediaType } });
+export async function GET({ request }) {
+  const payload = await getLlmsPayload({ scope: "site", surface: "index" }, { request });
+  return new Response(payload.body, { headers: { "content-type": payload.mediaType } });
 }`,
     "utf8",
   );
   await writeFile(
     path.join(root, "src/pages/llms-full.txt.ts"),
-    `import { getPreparedLlmsArtifact } from ${JSON.stringify(buildModule)};
+    `import { getLlmsPayload } from ${JSON.stringify(endpointsModule)};
 export const prerender = true;
-export async function GET() {
-  const artifact = await getPreparedLlmsArtifact({ scope: "site", surface: "full" });
-  return new Response(artifact.body, { headers: { "content-type": artifact.mediaType } });
+export async function GET({ request }) {
+  const payload = await getLlmsPayload({ scope: "site", surface: "full" }, { request });
+  return new Response(payload.body, { headers: { "content-type": payload.mediaType } });
 }`,
     "utf8",
   );
   await writeFile(
     path.join(root, "src/pages/[section]/llms.txt.ts"),
-    `import { getPreparedLlmsArtifact, getPreparedLlmsStaticPaths } from ${JSON.stringify(buildModule)};
+    `import { getLlmsPayload } from ${JSON.stringify(endpointsModule)};
+import { getPreparedLlmsRouteStaticPaths } from ${JSON.stringify(publicationModule)};
 export const prerender = true;
-export const getStaticPaths = () => getPreparedLlmsStaticPaths();
-export async function GET({ props }) {
-  const artifact = await getPreparedLlmsArtifact(props.artifact);
-  return new Response(artifact.body, { headers: { "content-type": artifact.mediaType } });
+export const getStaticPaths = () => getPreparedLlmsRouteStaticPaths();
+export async function GET({ props, request }) {
+  const payload = await getLlmsPayload(props.artifact, { request });
+  return new Response(payload.body, { headers: { "content-type": payload.mediaType } });
 }`,
     "utf8",
   );
@@ -180,14 +185,14 @@ export async function GET({ props }) {
   assert.doesNotMatch(llmsFull, /<Render/);
   assert.match(
     await readFile(
-      path.join(root, ".astro/nimbus/prepared-artifacts/manifest.json"),
+      path.join(root, ".astro/nimbus/agent-endpoint-assets/manifest.json"),
       "utf8",
     ),
     /"audience": "public"/,
   );
   assert.match(
     await readFile(
-      path.join(root, ".astro/nimbus/prepared-artifacts/manifest.json"),
+      path.join(root, ".astro/nimbus/agent-endpoint-assets/manifest.json"),
       "utf8",
     ),
     /"slug": "shared"/,

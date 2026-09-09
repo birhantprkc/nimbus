@@ -54,7 +54,7 @@ describe("renderEntryAsMarkdown: coordinate citations", () => {
   test("rejects runtime partial expansion with migration guidance", () => {
     assert.throws(
       () => renderEntryAsMarkdown({ body: '<Render file="shared" />' }),
-      /prepared artifact helpers/,
+      /getMarkdownPayload/,
     );
     assert.doesNotThrow(() =>
       renderEntryAsMarkdown({ body: '```mdx\n<Render file="example" />\n```' }),

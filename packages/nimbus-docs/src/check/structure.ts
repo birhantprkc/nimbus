@@ -26,6 +26,7 @@ import {
 } from "../_internal/rendering-policy.js";
 import { validateMdxContent } from "../_internal/validate-mdx-content.js";
 import { validateNimbusConfig } from "../_internal/validate.js";
+import { isRequiredCanonicalRouteComponent } from "../_internal/route-ownership.js";
 import {
   contentEntryUrl,
   enumerateEntriesByBase,
@@ -89,9 +90,17 @@ async function checkRequestRendering(
   const versions = config.versions
     ? { others: config.versions.others ?? [] }
     : null;
-  const canonicalCollections = candidates.filter((collection) =>
-    existsSync(canonicalCollectionRouteComponent(srcDir, collection, versions)),
-  );
+  const canonicalCollections = candidates.filter((collection) => {
+    const component = canonicalCollectionRouteComponent(
+      srcDir,
+      collection,
+      versions,
+    );
+    return (
+      isRequiredCanonicalRouteComponent(cwd, srcDir, component) ||
+      existsSync(component)
+    );
+  });
   const overrides = config.rendering.collections ?? {};
   const unresolvedOverrides = Object.keys(overrides).filter(
     (collection) => !candidates.includes(collection),

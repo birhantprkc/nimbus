@@ -3,7 +3,7 @@
   "name": "api-reference",
   "type": "registry:feature",
   "title": "OpenAPI reference",
-  "description": "Mount an OpenAPI (Swagger) spec as a routed reference collection with generated pages, per-page Markdown versions, and llms.txt coverage from one spec file. For hand-authored API docs written as MDX, use `new-collection` instead.",
+  "description": "Mount an OpenAPI (Swagger) spec as a routed reference collection with generated pages, alternate Markdown versions, and llms.txt indexes from one spec file. For hand-authored API docs written as MDX, use `new-collection` instead.",
   "markers": ["src/pages/api/[...slug].astro"]
 }
 ---
@@ -12,8 +12,8 @@
 
 You are helping the user mount an **OpenAPI (Swagger) spec** as a first-class
 reference collection on a Nimbus docs site. One spec file in, and the user
-gets: a routed page per operation/schema/tag under `/api`, a clean Markdown
-version of every page, and automatic `llms.txt` and `llms-full.txt` coverage.
+gets: a routed page per operation/schema/tag under `/api`, an alternate Markdown
+version of every page, and automatic `llms.txt` indexes and `llms-full.txt`.
 
 The render is Nimbus's own — the spec is parsed once per build and projected
 into a stable view-model. There is no third-party reference renderer.

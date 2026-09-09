@@ -1,9 +1,9 @@
 import {
-  getPreparedArtifactManifest,
-  registerPreparedArtifactDemand,
-  readPreparedLlmsArtifact,
-  readPreparedMarkdownArtifact,
-} from "./_internal/prepared-artifacts.js";
+  getAgentEndpointAssetManifest,
+  registerAgentEndpointAssetDemand,
+  readLlmsEndpointPayload,
+  readMarkdownEndpointPayload,
+} from "./_internal/agent-endpoint-assets.js";
 import type {
   PreparedLlmsArtifact,
   PreparedLlmsReference,
@@ -27,7 +27,7 @@ const projectRoot: unknown =
     : undefined;
 
 if (typeof projectRoot === "string" && projectRoot.length > 0) {
-  registerPreparedArtifactDemand(projectRoot);
+  registerAgentEndpointAssetDemand(projectRoot);
 }
 
 function configuredRoot(): string {
@@ -39,6 +39,7 @@ function configuredRoot(): string {
   return projectRoot;
 }
 
+/** @deprecated Use `getMarkdownStaticPaths` from `@cloudflare/nimbus-docs/agent-endpoints`; route props use `reference` instead of `artifact`. */
 export async function getPreparedMarkdownStaticPaths(options: {
   collection: string;
   surface: PreparedMarkdownSurface;
@@ -49,8 +50,8 @@ export async function getPreparedMarkdownStaticPaths(options: {
     cacheKey: string;
   }>
 > {
-  const manifest = await getPreparedArtifactManifest(configuredRoot());
-  return manifest.markdownArtifacts
+  const manifest = await getAgentEndpointAssetManifest(configuredRoot());
+  return manifest.markdownAssets
     .filter(
       (artifact) =>
         artifact.collection === options.collection &&
@@ -69,12 +70,14 @@ export async function getPreparedMarkdownStaticPaths(options: {
     }));
 }
 
+/** @deprecated Use `getMarkdownPayload` from `@cloudflare/nimbus-docs/agent-endpoints`. */
 export function getPreparedMarkdownArtifact(
   reference: PreparedMarkdownReference,
 ): Promise<PreparedMarkdownArtifact> {
-  return readPreparedMarkdownArtifact(configuredRoot(), reference);
+  return readMarkdownEndpointPayload(configuredRoot(), reference);
 }
 
+/** @deprecated Use `getLlmsStaticPaths` from `@cloudflare/nimbus-docs/agent-endpoints`; route props use `reference` instead of `artifact`. */
 export async function getPreparedLlmsStaticPaths(): Promise<
   Array<{
     params: { section: string };
@@ -82,13 +85,13 @@ export async function getPreparedLlmsStaticPaths(): Promise<
     cacheKey: string;
   }>
 > {
-  const manifest = await getPreparedArtifactManifest(configuredRoot());
-  return manifest.llmsArtifacts
+  const manifest = await getAgentEndpointAssetManifest(configuredRoot());
+  return manifest.llmsAssets
     .filter(
       (
         artifact,
       ): artifact is Extract<
-        (typeof manifest.llmsArtifacts)[number],
+        (typeof manifest.llmsAssets)[number],
         { scope: "section" }
       > => artifact.scope === "section",
     )
@@ -105,8 +108,9 @@ export async function getPreparedLlmsStaticPaths(): Promise<
     }));
 }
 
+/** @deprecated Use `getLlmsPayload` from `@cloudflare/nimbus-docs/agent-endpoints`. */
 export function getPreparedLlmsArtifact(
   reference: PreparedLlmsReference,
 ): Promise<PreparedLlmsArtifact> {
-  return readPreparedLlmsArtifact(configuredRoot(), reference);
+  return readLlmsEndpointPayload(configuredRoot(), reference);
 }

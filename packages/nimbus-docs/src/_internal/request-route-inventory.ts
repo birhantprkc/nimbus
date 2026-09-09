@@ -1,6 +1,6 @@
 import { collectionMountPrefix } from "./collection-mount.js";
 import {
-  requestInventoryEntryUrl,
+  contentInventoryEntryUrl,
   requestInventoryVersionStatusKey,
   type RequestRouteInventoryEntry,
 } from "./request-route-url.js";
@@ -14,11 +14,17 @@ import {
   getVersionStatus,
   renderIndexedEntryMarkdown,
 } from "../runtime.js";
-import { getPreparedMarkdownArtifact } from "../build.js";
+import { readMarkdownEndpointPayload } from "./agent-endpoint-assets.js";
 
 export const prerender = true;
 
 export async function GET() {
+  const projectRoot: unknown = import.meta.env.NIMBUS_PROJECT_ROOT;
+  if (typeof projectRoot !== "string" || projectRoot.length === 0) {
+    throw new Error(
+      "nimbus-docs: request route inventory requires the Nimbus Astro integration.",
+    );
+  }
   const config = await loadNimbusConfig();
   const requestCollections = new Set(await loadRequestRenderingCollections());
   const apiCollections = new Set(await loadApiCollections());
@@ -32,6 +38,7 @@ export async function GET() {
     const collection = item.collection;
     const prefix = collectionMountPrefix(collection, versions);
     const data = (item.entry.data ?? {}) as Record<string, unknown>;
+    const request = requestCollections.has(collection);
     const versionStatus = await getVersionStatus(
       requestInventoryVersionStatusKey(
         collection,
@@ -46,12 +53,13 @@ export async function GET() {
         (data.searchable !== false && data.noindex !== true));
     const route: RequestRouteInventoryEntry = {
       collection,
-      url: requestInventoryEntryUrl(
+      url: contentInventoryEntryUrl(
         prefix,
         item.entry.id,
         apiCollections.has(collection),
+        request,
       ),
-      request: requestCollections.has(collection),
+      request,
       discoverable,
       searchable,
       title: item.title,
@@ -64,11 +72,14 @@ export async function GET() {
       route.content = apiCollections.has(collection)
         ? await renderIndexedEntryMarkdown(item, { base: import.meta.env.BASE_URL })
         : (
-            await getPreparedMarkdownArtifact({
-              collection,
-              id: item.entry.id,
-              surface: "markdown",
-            })
+            await readMarkdownEndpointPayload(
+              projectRoot,
+              {
+                collection,
+                id: item.entry.id,
+                surface: "markdown",
+              },
+            )
           ).content;
     }
     routes.push(route);

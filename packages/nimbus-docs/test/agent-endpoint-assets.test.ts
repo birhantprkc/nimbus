@@ -6,6 +6,7 @@ import {
   readdir,
   rm,
   symlink,
+  writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -22,16 +23,20 @@ import {
 } from "../src/_internal/prepared-markdown-registry.ts";
 import {
   bakePreparedHeadings,
-  bakePreparedArtifacts,
-  configurePreparedArtifactRoot,
-  ensurePreparedArtifacts,
-  invalidatePreparedArtifacts,
-  isPreparedArtifactRequested,
+  bakeAgentEndpointAssets,
+  configureAgentEndpointAssetRoot,
+  ensureAgentEndpointAssets,
+  invalidateAgentEndpointAssets,
+  isAgentEndpointAssetRequested,
+  agentEndpointAssetLoaderPlugin,
+  agentEndpointAssetsRuntimePlugin,
   preparedHeadingsPlugin,
-  readPreparedLlmsArtifact,
-  readPreparedMarkdownArtifact,
-  registerPreparedArtifactDemand,
-} from "../src/_internal/prepared-artifacts.ts";
+  readLlmsEndpointPayload,
+  readMarkdownEndpointPayload,
+  registerAgentEndpointAssetDemand,
+  removeAgentEndpointAssets,
+  stageAgentEndpointAssets,
+} from "../src/_internal/agent-endpoint-assets.ts";
 
 const roots: string[] = [];
 const capability = { generation: 1, base: "/docs" };
@@ -44,7 +49,7 @@ afterEach(async () => {
 });
 
 async function root(): Promise<string> {
-  const value = await mkdtemp(path.join(os.tmpdir(), "nimbus-prepared-artifacts-"));
+  const value = await mkdtemp(path.join(os.tmpdir(), "nimbus-agent-endpoint-assets-"));
   roots.push(value);
   beginPreparedMarkdownSession(value);
   return value;
@@ -52,10 +57,10 @@ async function root(): Promise<string> {
 
 function configure(
   projectRoot: string,
-  options: Parameters<typeof bakePreparedArtifacts>[0],
+  options: Parameters<typeof bakeAgentEndpointAssets>[0],
 ): void {
-  configurePreparedArtifactRoot(projectRoot, "build", () =>
-    bakePreparedArtifacts(options),
+  configureAgentEndpointAssetRoot(projectRoot, "build", () =>
+    bakeAgentEndpointAssets(options),
   );
 }
 
@@ -142,7 +147,7 @@ test("bakes compact headings with a revisioned partial resolver", async () => {
     },
   };
   configure(projectRoot, options);
-  const manifest = await bakePreparedArtifacts(options);
+  const manifest = await bakeAgentEndpointAssets(options);
   assert.deepEqual(manifest.headings, [
     {
       collection: "docs",
@@ -156,7 +161,7 @@ test("bakes compact headings with a revisioned partial resolver", async () => {
   ]);
   assert.match(
     (
-      await readPreparedMarkdownArtifact(projectRoot, {
+      await readMarkdownEndpointPayload(projectRoot, {
         collection: "docs",
         id: "guide",
         surface: "source",
@@ -166,7 +171,7 @@ test("bakes compact headings with a revisioned partial resolver", async () => {
   );
 });
 
-test("bakes expanded source and transformed Markdown artifacts deterministically", async () => {
+test("bakes expanded source and transformed Markdown endpoint assets deterministically", async () => {
   const projectRoot = await root();
   commit(projectRoot, "docs", [
     {
@@ -215,13 +220,13 @@ test("bakes expanded source and transformed Markdown artifacts deterministically
     },
   };
   configure(projectRoot, options);
-  const first = await bakePreparedArtifacts(options);
-  const second = await bakePreparedArtifacts(options);
+  const first = await bakeAgentEndpointAssets(options);
+  const second = await bakeAgentEndpointAssets(options);
   assert.deepEqual(second, first);
-  assert.equal(first.markdownArtifacts.length, 2);
-  assert.equal(first.llmsArtifacts.length, 2);
+  assert.equal(first.markdownAssets.length, 2);
+  assert.equal(first.llmsAssets.length, 2);
 
-  const source = await readPreparedMarkdownArtifact(projectRoot, {
+  const source = await readMarkdownEndpointPayload(projectRoot, {
     collection: "docs",
     id: "guide",
     surface: "source",
@@ -231,7 +236,7 @@ test("bakes expanded source and transformed Markdown artifacts deterministically
   assert.doesNotMatch(source.body, /<Render/);
   assert.equal(source.mediaType, "text/mdx; charset=utf-8");
 
-  const markdown = await readPreparedMarkdownArtifact(projectRoot, {
+  const markdown = await readMarkdownEndpointPayload(projectRoot, {
     collection: "docs",
     id: "guide",
     surface: "markdown",
@@ -254,13 +259,13 @@ test("bakes expanded source and transformed Markdown artifacts deterministically
   assert.doesNotMatch(markdown.content, /Documentation Index|Source:|^---/m);
 
   const manifest = await readFile(
-    path.join(projectRoot, ".astro/nimbus/prepared-artifacts/manifest.json"),
+    path.join(projectRoot, ".astro/nimbus/agent-endpoint-assets/manifest.json"),
     "utf8",
   );
   assert.equal(manifest, `${JSON.stringify(first, null, 2)}\n`);
 });
 
-test("bakes site and section llms.txt artifacts from public discoverable prose and API pages", async () => {
+test("bakes site and section llms.txt endpoint assets from public discoverable prose and API pages", async () => {
   const projectRoot = await root();
   commit(projectRoot, "docs", [
     { id: "guide/a", body: "Guide A", data: { title: "Guide A" } },
@@ -332,17 +337,17 @@ test("bakes site and section llms.txt artifacts from public discoverable prose a
     ],
   };
   configure(projectRoot, options);
-  const manifest = await bakePreparedArtifacts(options);
+  const manifest = await bakeAgentEndpointAssets(options);
   assert.deepEqual(
-    manifest.llmsArtifacts.map((artifact) =>
-      artifact.scope === "site"
-        ? `${artifact.scope}:${artifact.surface}`
-        : `${artifact.scope}:${artifact.section}`,
+    manifest.llmsAssets.map((asset) =>
+      asset.scope === "site"
+        ? `${asset.scope}:${asset.surface}`
+        : `${asset.scope}:${asset.section}`,
     ),
     ["section:api", "section:blog", "section:guide", "site:full", "site:index"],
   );
 
-  const index = await readPreparedLlmsArtifact(projectRoot, {
+  const index = await readLlmsEndpointPayload(projectRoot, {
     scope: "site",
     surface: "index",
   });
@@ -360,7 +365,7 @@ test("bakes site and section llms.txt artifacts from public discoverable prose a
   );
   assert.doesNotMatch(index.body, /v1|Hidden/);
 
-  const guide = await readPreparedLlmsArtifact(projectRoot, {
+  const guide = await readLlmsEndpointPayload(projectRoot, {
     scope: "section",
     surface: "index",
     section: "guide",
@@ -369,7 +374,7 @@ test("bakes site and section llms.txt artifacts from public discoverable prose a
   assert.match(guide.body, /Guide B.*Second guide/);
   assert.doesNotMatch(guide.body, /Hidden/);
 
-  const full = await readPreparedLlmsArtifact(projectRoot, {
+  const full = await readLlmsEndpointPayload(projectRoot, {
     scope: "site",
     surface: "full",
   });
@@ -381,13 +386,181 @@ test("bakes site and section llms.txt artifacts from public discoverable prose a
   assert.doesNotMatch(full.body, /# Old|# Hidden|Secret API/);
 
   assert.ok(
-    manifest.markdownArtifacts.some(
-      (artifact) => artifact.collection === "docs" && artifact.id === "hidden",
+    manifest.markdownAssets.some(
+      (asset) => asset.collection === "docs" && asset.id === "hidden",
     ),
   );
   assert.ok(
-    manifest.markdownArtifacts.every((artifact) => artifact.collection !== "docs-v1"),
+    manifest.markdownAssets.every((asset) => asset.collection !== "docs-v1"),
   );
+});
+
+test("Markdown and llms.txt endpoints expose metadata and stage bodies as assets", async () => {
+  const projectRoot = await root();
+  commit(projectRoot, "docs", [
+    { id: "guide", body: "Unique prepared body", data: { title: "Guide" } },
+  ]);
+  const options = {
+    root: projectRoot,
+    base: "/docs",
+    site: "https://example.test",
+    title: "Test",
+    indexedCollections: ["docs"],
+  };
+  configure(projectRoot, options);
+
+  const plugin = agentEndpointAssetsRuntimePlugin(projectRoot);
+  const id = plugin.resolveId("virtual:nimbus/agent-endpoint-assets");
+  assert.ok(id);
+  const source = await plugin.load.call(
+    { environment: { name: "ssr" } },
+    id,
+  );
+  assert.ok(source);
+  assert.doesNotMatch(source, /Unique prepared body/);
+  assert.match(source, /assets\//);
+  assert.equal(isAgentEndpointAssetRequested(projectRoot), true);
+
+  const output = path.join(projectRoot, "dist", "client");
+  const stale = path.join(
+    output,
+    "_nimbus",
+    "agent-endpoint-assets",
+    "assets",
+    "stale.txt",
+  );
+  await mkdir(path.dirname(stale), { recursive: true });
+  await writeFile(stale, "stale");
+  const legacyStale = path.join(
+    output,
+    "_nimbus",
+    "prepared-artifacts",
+    "assets",
+    "stale.txt",
+  );
+  await mkdir(path.dirname(legacyStale), { recursive: true });
+  await writeFile(legacyStale, "legacy stale");
+  await stageAgentEndpointAssets(projectRoot, output);
+  await assert.rejects(readFile(stale, "utf8"), { code: "ENOENT" });
+  await assert.rejects(readFile(legacyStale, "utf8"), { code: "ENOENT" });
+  const manifest = await ensureAgentEndpointAssets(projectRoot);
+  for (const asset of [
+    ...manifest.markdownAssets,
+    ...manifest.llmsAssets,
+  ]) {
+    assert.equal(
+      await readFile(
+        path.join(output, "_nimbus", "agent-endpoint-assets", asset.path),
+        "utf8",
+      ),
+      await readFile(
+        path.join(
+          projectRoot,
+          ".astro",
+          "nimbus",
+          "agent-endpoint-assets",
+          asset.path,
+        ),
+        "utf8",
+      ),
+    );
+  }
+  await removeAgentEndpointAssets(output);
+  await assert.rejects(
+    readdir(path.join(output, "_nimbus", "agent-endpoint-assets")),
+    { code: "ENOENT" },
+  );
+});
+
+test("agent-endpoint asset loader uses the Cloudflare assets binding only on Cloudflare", async () => {
+  const cloudflare = agentEndpointAssetLoaderPlugin(() => "@astrojs/cloudflare");
+  const cloudflareId = cloudflare.resolveId(
+    "virtual:nimbus/agent-endpoint-asset-loader",
+  );
+  assert.ok(cloudflareId);
+  const cloudflareSource = await cloudflare.load.call(
+    { environment: { name: "ssr" } },
+    cloudflareId,
+  );
+  assert.match(cloudflareSource ?? "", /cloudflare:workers/);
+  assert.match(cloudflareSource ?? "", /env\.ASSETS/);
+  const prerenderSource = await cloudflare.load.call(
+    { environment: { name: "prerender" } },
+    cloudflareId,
+  );
+  assert.doesNotMatch(prerenderSource ?? "", /cloudflare:workers|ASSETS/);
+
+  const node = agentEndpointAssetLoaderPlugin(() => "@astrojs/node");
+  const nodeId = node.resolveId("virtual:nimbus/agent-endpoint-asset-loader");
+  assert.ok(nodeId);
+  const nodeSource = await node.load(nodeId);
+  assert.doesNotMatch(nodeSource ?? "", /cloudflare:workers|ASSETS/);
+});
+
+test("staging rejects manifest paths outside asset roots before cleanup", async () => {
+  const projectRoot = await root();
+  commit(projectRoot, "docs", [
+    { id: "guide", body: "Guide", data: { title: "Guide" } },
+  ]);
+  configure(projectRoot, {
+    root: projectRoot,
+    base: "/docs",
+    site: "https://example.test",
+    title: "Test",
+    indexedCollections: ["docs"],
+  });
+  const manifest = await ensureAgentEndpointAssets(projectRoot);
+  const asset = manifest.markdownAssets[0];
+  assert.ok(asset);
+  asset.path = "../outside.md";
+
+  const output = path.join(projectRoot, "dist", "client");
+  const staged = path.join(
+    output,
+    "_nimbus",
+    "agent-endpoint-assets",
+    "assets",
+    "retained.md",
+  );
+  const outsideTarget = path.join(output, "_nimbus", "outside.md");
+  const outsideSource = path.join(
+    projectRoot,
+    ".astro",
+    "nimbus",
+    "outside.md",
+  );
+  await mkdir(path.dirname(staged), { recursive: true });
+  await writeFile(staged, "retained");
+  await writeFile(outsideTarget, "outside retained");
+  await writeFile(outsideSource, "poisoned");
+
+  await assert.rejects(
+    stageAgentEndpointAssets(projectRoot, output),
+    /asset path escapes its root/,
+  );
+  assert.equal(await readFile(staged, "utf8"), "retained");
+  assert.equal(await readFile(outsideTarget, "utf8"), "outside retained");
+});
+
+test("staged agent-endpoint asset cleanup rejects a symlinked output root", async () => {
+  const projectRoot = await root();
+  const realOutput = path.join(projectRoot, "real-output");
+  const linkedOutput = path.join(projectRoot, "linked-output");
+  const retained = path.join(
+    realOutput,
+    "_nimbus",
+    "agent-endpoint-assets",
+    "retained.txt",
+  );
+  await mkdir(path.dirname(retained), { recursive: true });
+  await writeFile(retained, "retained");
+  await symlink(realOutput, linkedOutput, "dir");
+
+  await assert.rejects(
+    removeAgentEndpointAssets(linkedOutput),
+    /contains a symbolic link/,
+  );
+  assert.equal(await readFile(retained, "utf8"), "retained");
 });
 
 test("waits for API index transactions before caching llms.txt output", async () => {
@@ -406,8 +579,8 @@ test("waits for API index transactions before caching llms.txt output", async ()
   };
   let firstRead = true;
   let update: Promise<void> | undefined;
-  configurePreparedArtifactRoot(projectRoot, "dev", () => {
-    return bakePreparedArtifacts({
+  configureAgentEndpointAssetRoot(projectRoot, "dev", () => {
+    return bakeAgentEndpointAssets({
       ...options,
       loadApiEntries: async () => {
         const captured = apiEntries;
@@ -427,9 +600,9 @@ test("waits for API index transactions before caching llms.txt output", async ()
     });
   });
 
-  await ensurePreparedArtifacts(projectRoot);
+  await ensureAgentEndpointAssets(projectRoot);
   await update;
-  const full = await readPreparedLlmsArtifact(projectRoot, {
+  const full = await readLlmsEndpointPayload(projectRoot, {
     scope: "site",
     surface: "full",
   });
@@ -451,26 +624,26 @@ test("rebakes when invalidated during API input loading", async () => {
   };
   let bakes = 0;
   let reads = 0;
-  configurePreparedArtifactRoot(projectRoot, "dev", () => {
+  configureAgentEndpointAssetRoot(projectRoot, "dev", () => {
     bakes += 1;
-    return bakePreparedArtifacts({
+    return bakeAgentEndpointAssets({
       ...options,
       loadApiEntries: async () => {
         reads += 1;
-        if (reads === 1) invalidatePreparedArtifacts(projectRoot);
+        if (reads === 1) invalidateAgentEndpointAssets(projectRoot);
         return [apiPage(reads === 1 ? "Old API" : "New API")];
       },
     });
   });
 
-  const manifest = await ensurePreparedArtifacts(projectRoot);
+  const manifest = await ensureAgentEndpointAssets(projectRoot);
   assert.equal(bakes, 2);
   assert.deepEqual(
     (
-      await readdir(path.join(projectRoot, ".astro/nimbus/prepared-artifacts/artifacts"))
+      await readdir(path.join(projectRoot, ".astro/nimbus/agent-endpoint-assets/assets"))
     ).sort(),
-    [...manifest.markdownArtifacts, ...manifest.llmsArtifacts]
-      .map((artifact) => path.basename(artifact.path))
+    [...manifest.markdownAssets, ...manifest.llmsAssets]
+      .map((asset) => path.basename(asset.path))
       .sort(),
   );
 });
@@ -493,7 +666,7 @@ test("rejects page collisions and unsafe section route parameters", async () => 
     indexedCollections: ["docs"],
   };
   await assert.rejects(
-    bakePreparedArtifacts(options),
+    bakeAgentEndpointAssets(options),
     /guide\/llms\.txt.*collides with the generated llms.txt route/s,
   );
 
@@ -502,14 +675,14 @@ test("rejects page collisions and unsafe section route parameters", async () => 
     { id: "guide/index", body: "Index", data: { title: "Index" } },
   ]);
   await assert.rejects(
-    bakePreparedArtifacts(options),
+    bakeAgentEndpointAssets(options),
     /guide\/index.*collides with.*docs:guide.*generated Markdown route/s,
   );
 
   commit(projectRoot, "docs", [
     { id: "../secret", body: "Secret", data: { title: "Secret" } },
   ]);
-  await assert.rejects(bakePreparedArtifacts(options), /section slug is unsafe/);
+  await assert.rejects(bakeAgentEndpointAssets(options), /section slug is unsafe/);
 
   commit(projectRoot, "docs", [
     {
@@ -518,7 +691,7 @@ test("rejects page collisions and unsafe section route parameters", async () => 
       data: { title: "Secret" },
     },
   ]);
-  await assert.rejects(bakePreparedArtifacts(options), /unsafe entry ID/);
+  await assert.rejects(bakeAgentEndpointAssets(options), /unsafe entry ID/);
 
   commit(projectRoot, "docs", [
     { id: "%67uide/a", body: "A", data: { title: "A" } },
@@ -530,7 +703,7 @@ test("rejects page collisions and unsafe section route parameters", async () => 
     },
   ]);
   await assert.rejects(
-    bakePreparedArtifacts(options),
+    bakeAgentEndpointAssets(options),
     /guide\/llms\.txt.*collides with the generated llms.txt route/s,
   );
 });
@@ -551,8 +724,8 @@ test("uses locale-independent ordering in llms.txt indexes", async () => {
     indexedCollections: ["docs"],
   };
   configure(projectRoot, options);
-  await bakePreparedArtifacts(options);
-  const index = await readPreparedLlmsArtifact(projectRoot, {
+  await bakeAgentEndpointAssets(options);
+  const index = await readLlmsEndpointPayload(projectRoot, {
     scope: "site",
     surface: "index",
   });
@@ -577,8 +750,8 @@ test("preserves protocol-relative social images", async () => {
     indexedCollections: ["docs"],
   };
   configure(projectRoot, options);
-  await bakePreparedArtifacts(options);
-  const markdown = await readPreparedMarkdownArtifact(projectRoot, {
+  await bakeAgentEndpointAssets(options);
+  const markdown = await readMarkdownEndpointPayload(projectRoot, {
     collection: "docs",
     id: "guide",
     surface: "markdown",
@@ -597,7 +770,7 @@ test("resolves the complete audience before touching partials", async () => {
     { id: "public", body: "Public", data: { title: "Public" } },
   ]);
 
-  const manifest = await bakePreparedArtifacts({
+  const manifest = await bakeAgentEndpointAssets({
     root: projectRoot,
     base: "/docs",
     site: "https://example.test",
@@ -605,7 +778,7 @@ test("resolves the complete audience before touching partials", async () => {
     indexedCollections: ["docs"],
   });
   assert.deepEqual(
-    manifest.markdownArtifacts.map(({ id, surface }) => [id, surface]),
+    manifest.markdownAssets.map(({ id, surface }) => [id, surface]),
     [
       ["public", "markdown"],
       ["public", "source"],
@@ -633,7 +806,7 @@ test("fails closed for unknown audiences and invalid transitive partials", async
     indexedCollections: ["docs"],
   };
   await assert.rejects(
-    bakePreparedArtifacts(options),
+    bakeAgentEndpointAssets(options),
     /exclude.*partials:hidden|excluded partial/s,
   );
 
@@ -645,7 +818,7 @@ test("fails closed for unknown audiences and invalid transitive partials", async
     },
   ]);
   await assert.rejects(
-    bakePreparedArtifacts(options),
+    bakeAgentEndpointAssets(options),
     /visibility is unknown.*docs:guide/s,
   );
 });
@@ -653,7 +826,7 @@ test("fails closed for unknown audiences and invalid transitive partials", async
 test("rejects unprepared collections and stale collection capabilities", async () => {
   const projectRoot = await root();
   await assert.rejects(
-    bakePreparedArtifacts({
+    bakeAgentEndpointAssets({
       root: projectRoot,
       base: "/docs",
       site: "https://example.test",
@@ -676,7 +849,7 @@ test("rejects unprepared collections and stale collection capabilities", async (
     [{ id: "guide", body: "Guide", data: { title: "Guide" } }] as never,
   );
   await assert.rejects(
-    bakePreparedArtifacts({
+    bakeAgentEndpointAssets({
       root: projectRoot,
       base: "/docs",
       site: "https://example.test",
@@ -715,13 +888,13 @@ test("prepares headings without requiring every indexed collection to support pr
     ["docs:guide"],
   );
 
-  let artifactBakes = 0;
-  configurePreparedArtifactRoot(
+  let assetBakes = 0;
+  configureAgentEndpointAssetRoot(
     projectRoot,
     "build",
     async () => {
-      artifactBakes += 1;
-      throw new Error("strict artifact bake should not run");
+      assetBakes += 1;
+      throw new Error("strict asset bake should not run");
     },
     () =>
       bakePreparedHeadings({
@@ -734,7 +907,7 @@ test("prepares headings without requiring every indexed collection to support pr
   const plugin = preparedHeadingsPlugin(projectRoot);
   const resolved = plugin.resolveId("virtual:nimbus/headings")!;
   const source = await plugin.load(resolved);
-  assert.equal(artifactBakes, 0);
+  assert.equal(assetBakes, 0);
   assert.match(source ?? "", /export const base = "\/docs"/u);
   assert.match(source ?? "", /"collection":"docs","id":"guide"/u);
   assert.doesNotMatch(source ?? "", /bodyless|unwrapped/u);
@@ -753,7 +926,7 @@ test("prepares headings without requiring every indexed collection to support pr
   assert.equal(invalidated, headingModule);
 });
 
-test("joins concurrent rebakes and rejects symlinked artifact roots", async () => {
+test("joins concurrent rebakes and rejects symlinked agent-endpoint asset roots", async () => {
   const projectRoot = await root();
   commit(projectRoot, "docs", [
     { id: "guide", body: "Guide", data: { title: "Guide" } },
@@ -766,14 +939,14 @@ test("joins concurrent rebakes and rejects symlinked artifact roots", async () =
     indexedCollections: ["docs"],
   };
   let calls = 0;
-  configurePreparedArtifactRoot(projectRoot, "dev", async () => {
+  configureAgentEndpointAssetRoot(projectRoot, "dev", async () => {
     calls += 1;
     await new Promise((resolve) => setTimeout(resolve, 10));
-    return bakePreparedArtifacts(options);
+    return bakeAgentEndpointAssets(options);
   });
   const [first, second] = await Promise.all([
-    ensurePreparedArtifacts(projectRoot),
-    ensurePreparedArtifacts(projectRoot),
+    ensureAgentEndpointAssets(projectRoot),
+    ensureAgentEndpointAssets(projectRoot),
   ]);
   assert.deepEqual(second, first);
   assert.equal(calls, 1);
@@ -784,9 +957,9 @@ test("joins concurrent rebakes and rejects symlinked artifact roots", async () =
   ]);
   const outside = await root();
   await mkdir(path.join(escapedRoot, ".astro/nimbus"), { recursive: true });
-  await symlink(outside, path.join(escapedRoot, ".astro/nimbus/prepared-artifacts"), "dir");
+  await symlink(outside, path.join(escapedRoot, ".astro/nimbus/agent-endpoint-assets"), "dir");
   await assert.rejects(
-    bakePreparedArtifacts({ ...options, root: escapedRoot }),
+    bakeAgentEndpointAssets({ ...options, root: escapedRoot }),
     /symbolic link/,
   );
 });
@@ -812,9 +985,9 @@ test("queues a follow-up bake when invalidated during in-flight work", async () 
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  configurePreparedArtifactRoot(projectRoot, "dev", async () => {
+  configureAgentEndpointAssetRoot(projectRoot, "dev", async () => {
     calls += 1;
-    const manifest = await bakePreparedArtifacts(options);
+    const manifest = await bakeAgentEndpointAssets(options);
     if (calls === 1) {
       entered?.();
       await gate;
@@ -822,15 +995,15 @@ test("queues a follow-up bake when invalidated during in-flight work", async () 
     return manifest;
   });
 
-  const read = ensurePreparedArtifacts(projectRoot);
+  const read = ensureAgentEndpointAssets(projectRoot);
   await started;
-  invalidatePreparedArtifacts(projectRoot);
+  invalidateAgentEndpointAssets(projectRoot);
   release?.();
   await read;
   assert.equal(calls, 2);
 });
 
-test("removes artifacts made obsolete by edits and deletions", async () => {
+test("removes assets made obsolete by edits and deletions", async () => {
   const projectRoot = await root();
   commit(projectRoot, "docs", [
     { id: "guide", body: "Old guide", data: { title: "Guide" } },
@@ -844,26 +1017,26 @@ test("removes artifacts made obsolete by edits and deletions", async () => {
     indexedCollections: ["docs"],
   };
   configure(projectRoot, options);
-  await bakePreparedArtifacts(options);
+  await bakeAgentEndpointAssets(options);
 
   configure(projectRoot, options);
 
   commit(projectRoot, "docs", [
     { id: "guide", body: "New guide", data: { title: "Guide" } },
   ]);
-  const manifest = await bakePreparedArtifacts(options);
+  const manifest = await bakeAgentEndpointAssets(options);
   const files = await readdir(
-    path.join(projectRoot, ".astro/nimbus/prepared-artifacts/artifacts"),
+    path.join(projectRoot, ".astro/nimbus/agent-endpoint-assets/assets"),
   );
   assert.deepEqual(
     files.sort(),
-    [...manifest.markdownArtifacts, ...manifest.llmsArtifacts]
-      .map((artifact) => path.basename(artifact.path))
+    [...manifest.markdownAssets, ...manifest.llmsAssets]
+      .map((asset) => path.basename(asset.path))
       .sort(),
   );
 });
 
-test("scopes artifact demand to the current configuration session", async () => {
+test("scopes agent-endpoint asset demand to the current configuration session", async () => {
   const projectRoot = await root();
   const options = {
     root: projectRoot,
@@ -873,9 +1046,9 @@ test("scopes artifact demand to the current configuration session", async () => 
     indexedCollections: ["docs"],
   };
   configure(projectRoot, options);
-  registerPreparedArtifactDemand(projectRoot);
-  assert.equal(isPreparedArtifactRequested(projectRoot), true);
+  registerAgentEndpointAssetDemand(projectRoot);
+  assert.equal(isAgentEndpointAssetRequested(projectRoot), true);
 
   configure(projectRoot, options);
-  assert.equal(isPreparedArtifactRequested(projectRoot), false);
+  assert.equal(isAgentEndpointAssetRequested(projectRoot), false);
 });

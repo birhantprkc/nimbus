@@ -9,6 +9,8 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     runtime: "src/runtime.ts",
+    "agent-endpoints": "src/agent-endpoints.ts",
+    publication: "src/publication.ts",
     build: "src/build.ts",
     config: "src/config.ts",
     content: "src/content.ts",
@@ -25,8 +27,8 @@ export default defineConfig({
     "_internal/request-route-inventory":
       "src/_internal/request-route-inventory.ts",
     "_internal/git-last-updated": "src/_internal/git-last-updated.ts",
-    "_internal/prepared-artifacts":
-      "src/_internal/prepared-artifacts.ts",
+    "_internal/agent-endpoint-assets":
+      "src/_internal/agent-endpoint-assets.ts",
     "_internal/api-loader": "src/_internal/api-loader.ts",
   },
   format: "esm",

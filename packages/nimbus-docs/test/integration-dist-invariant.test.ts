@@ -101,6 +101,7 @@ async function driveBuild(
 
   const infos: string[] = [];
   const warnings: string[] = [];
+  const injectedRoutes: ResolvedRouteLike[] = [];
   const logger = {
     info: (m: string) => infos.push(m),
     warn: (m: string) => warnings.push(m),
@@ -138,6 +139,19 @@ async function driveBuild(
     },
     logger,
     command: "build",
+    injectRoute: (route: {
+      pattern: string;
+      entrypoint: URL;
+      prerender?: boolean;
+    }) => {
+      injectedRoutes.push({
+        pattern: route.pattern,
+        entrypoint: route.entrypoint.href,
+        type: "endpoint",
+        isPrerendered: route.prerender === true,
+        origin: "external",
+      });
+    },
   } as never);
 
   hooks["astro:config:done"]!({
@@ -149,9 +163,9 @@ async function driveBuild(
     },
   } as never);
 
-  if (opts.routes) {
-    hooks["astro:routes:resolved"]!({ routes: opts.routes } as never);
-  }
+  hooks["astro:routes:resolved"]!({
+    routes: [...injectedRoutes, ...(opts.routes ?? [])],
+  } as never);
 
   if (opts.seedRedirects !== undefined) {
     await writeFile(
@@ -161,12 +175,23 @@ async function driveBuild(
     );
   }
 
-  const runBuild = () =>
-    hooks["astro:build:done"]!({
+  const runBuild = async () => {
+    const inventory = path.join(
+      distDir,
+      "_nimbus/request-route-inventory.json",
+    );
+    await mkdir(path.dirname(inventory), { recursive: true });
+    await writeFile(
+      inventory,
+      JSON.stringify([{ collection: "docs", url: "/" }]),
+      "utf8",
+    );
+    await hooks["astro:build:done"]!({
       dir: dirUrl(distDir),
       pages: [{ pathname: "/" }],
       logger,
-    } as never) as Promise<void>;
+    } as never);
+  };
 
   await runBuild();
 
@@ -251,7 +276,15 @@ test("server output with no adapter is not the static lane → no _redirects", a
   const { distEntries } = await driveBuild(t, {
     signal: "cloudflare",
     output: "server",
-    routes: [{ pattern: "/", type: "page", isPrerendered: true, origin: "project" }],
+    routes: [
+      {
+        pattern: "/",
+        entrypoint: "src/pages/index.astro",
+        type: "page",
+        isPrerendered: true,
+        origin: "project",
+      },
+    ],
     redirects: { "/old": "/new" },
   });
   assert.deepEqual(distEntries, BASELINE_DIST);
@@ -268,11 +301,92 @@ test("custom Astro infrastructure routes are excluded by origin", async (t) => {
         isPrerendered: false,
         origin: "internal",
       },
-      { pattern: "/", type: "page", isPrerendered: true, origin: "project" },
+      {
+        pattern: "/",
+        entrypoint: "src/pages/index.astro",
+        type: "page",
+        isPrerendered: true,
+        origin: "project",
+      },
     ],
   });
   assert.deepEqual(distEntries, BASELINE_DIST);
-  assert.ok(infos.some((message) => /on-demand routes=0/.test(message)));
+  assert.ok(infos.some((message) => /custom on-demand routes=0/.test(message)));
+});
+
+test("project pages and endpoints reach build completion as custom on-demand routes", async (t) => {
+  const { infos, projectRoot } = await driveBuild(t, {
+    output: "server",
+    adapter: "@astrojs/node",
+    base: "/docs",
+    routes: [
+      {
+        pattern: "/foo",
+        entrypoint: "src/pages/foo.astro",
+        type: "page",
+        isPrerendered: false,
+        origin: "project",
+      },
+      {
+        pattern: "/api/ping",
+        entrypoint: "src/pages/api/ping.ts",
+        type: "endpoint",
+        isPrerendered: false,
+        origin: "project",
+      },
+      {
+        pattern: "/dynamic/[slug]",
+        entrypoint: "src/pages/dynamic/[slug].ts",
+        type: "endpoint",
+        isPrerendered: false,
+        origin: "project",
+      },
+    ],
+  });
+  assert.ok(
+    infos.some((message) =>
+      /custom on-demand routes=3 \(\/foo, \/api\/ping, \/dynamic\/\[slug\]\)/.test(
+        message,
+      ),
+    ),
+  );
+  const routeTruth = JSON.parse(
+    await readFile(path.join(projectRoot, ".nimbus/routes.json"), "utf8"),
+  );
+  assert.equal(routeTruth.base, "/docs");
+  assert.deepEqual(
+    routeTruth.knownRoutes,
+    ["/", "/api/ping", "/foo"],
+  );
+});
+
+test("unrelated integration routes reach build completion separately", async (t) => {
+  const { infos, projectRoot } = await driveBuild(t, {
+    output: "server",
+    adapter: "@astrojs/node",
+    routes: [
+      {
+        pattern: "/integration/status",
+        entrypoint: "node_modules/example-integration/status.ts",
+        type: "endpoint",
+        isPrerendered: false,
+        origin: "external",
+      },
+    ],
+  });
+  assert.ok(
+    infos.some((message) =>
+      /integration on-demand routes=1 \(\/integration\/status\)/.test(
+        message,
+      ),
+    ),
+  );
+  assert.deepEqual(
+    JSON.parse(
+      await readFile(path.join(projectRoot, ".nimbus/routes.json"), "utf8"),
+    ).knownRoutes,
+    ["/", "/integration/status"],
+  );
 });
 
 test("a pre-existing dist/_redirects is preserved and the emit is idempotent", async (t) => {

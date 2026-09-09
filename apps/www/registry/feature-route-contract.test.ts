@@ -47,7 +47,7 @@ test("collection recipes guard disabled table-of-contents configuration", async 
   }
 });
 
-test("changelog serves and links its expanded source artifact", async () => {
+test("changelog serves and links its expanded source version", async () => {
   const source = await feature("changelog");
   assert.match(source, /surface: "source"/);
   assert.match(source, /sourcePath[\s\S]*index\.mdx/);

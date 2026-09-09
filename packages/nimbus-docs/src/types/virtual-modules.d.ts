@@ -33,6 +33,20 @@ declare module "virtual:nimbus/headings" {
   export const records: import("../_internal/prepared-headings.js").PreparedHeadingRecord[];
 }
 
+declare module "virtual:nimbus/agent-endpoint-assets" {
+  export const projectRoot: string;
+  export const base: string;
+  export const markdownAssets: import("../_internal/agent-endpoint-assets.js").MarkdownEndpointAsset[];
+  export const llmsAssets: import("../_internal/agent-endpoint-assets.js").LlmsEndpointAsset[];
+}
+
+declare module "virtual:nimbus/agent-endpoint-asset-loader" {
+  export function fetchAgentEndpointAsset(
+    path: string,
+    request: Request,
+  ): Promise<Response> | null;
+}
+
 declare module "virtual:nimbus/api-build-config" {
   export const api: import("../types.js").ApiSpec[];
   export const root: string;
