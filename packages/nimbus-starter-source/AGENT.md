@@ -1,11 +1,14 @@
 # This Nimbus docs site
 
+> `CLAUDE.md` delegates here. Keep project instructions canonical in this file.
+
 Astro-based docs. The `nimbus-docs` package handles content schemas, sidebar/TOC, MDX→markdown, build hooks, and the `nimbus` CLI. Everything in `src/` is yours to edit.
 
 ## File layout
 
 ```
 astro.config.ts              # imports nimbus + defineNimbusConfig
+nimbus.json                  # records the last reviewed Nimbus package version
 src/
 ├── components.ts            # MDX globals registry — every component used in .mdx must be listed
 ├── components/              # AgentDirective, Header, Render + ui/<slug>/
@@ -63,10 +66,23 @@ Rules:
 | Custom page route | Add a file under `src/pages/`. |
 | Custom OG style | Edit `src/pages/og/_og-card-config.ts`. |
 | Check for updates | `pnpm exec nimbus-docs outdated` — starter files behind their tag + registry components behind. |
+| Upgrade Nimbus | Update the package, then run `pnpm exec nimbus-docs migrate --dry-run --diff`. Review every change and required manual step before applying. |
 | Upgrade a starter file | `pnpm exec nimbus-docs diff <file>` to review, `diff --apply <file>` to pull a clean upstream change. |
 | Upgrade a registry component | `pnpm exec nimbus-docs add <slug> --overwrite`, then review with `git diff`. |
 
 List installable items: `pnpm exec nimbus-docs list`.
+
+## Upgrading Nimbus
+
+Keep `nimbus.json` committed. Its `lastReviewedNimbusVersion` is the baseline Nimbus uses to select every migration and manual review crossed by a package upgrade; it is not a package pin and should not be edited by hand.
+
+1. Update `@cloudflare/nimbus-docs` with the project's package manager.
+2. Preview the complete plan with `pnpm exec nimbus-docs migrate --dry-run --diff`. If no baseline exists yet, add `--from <previous-version>`.
+3. Resolve every blocked/manual item, then rerun the preview until it is clear.
+4. Apply safe edits or record the completed review only with explicit consent: `pnpm exec nimbus-docs migrate --yes`.
+5. Run the project's typecheck and production build, then run `pnpm exec nimbus-docs check` again for post-build coverage.
+
+`migrate` exits nonzero while work or review remains; that is a pending-upgrade signal, not necessarily a command failure. Never skip versions by changing `nimbus.json` directly.
 
 ## Audit this site
 
