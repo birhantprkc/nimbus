@@ -146,7 +146,22 @@ import { docsCollection } from ${JSON.stringify(
       pathToFileURL(path.resolve(import.meta.dirname, "../src/content.ts"))
         .href,
     )};
-export const collections = { docs: defineCollection(docsCollection()) };`,
+const programmaticLoader = {
+  name: "programmatic-markdown",
+  async load(context) {
+    const body = "Use {account id}.\\n\\n[Programmatic](/guide)";
+    context.store.set({
+      id: "skill",
+      data: {},
+      body,
+      rendered: await context.renderMarkdown(body),
+    });
+  },
+};
+export const collections = {
+  docs: defineCollection(docsCollection()),
+  programmatic: defineCollection({ loader: programmaticLoader }),
+};`,
     "utf8",
   );
   await writeFile(

@@ -126,7 +126,7 @@ pnpm exec nimbus-docs outdated
 
 Composes every declared breaking change between the project's `lastReviewedNimbusVersion` and the installed Nimbus version. It shows complete diffs for statically proven edits and bounded review tasks for everything else. Customized or ambiguous code is never forced.
 
-Existing projects without a reviewed baseline must provide their previous exact version once:
+Existing projects without a reviewed baseline must provide the exact Nimbus version whose migrations they last completed:
 
 ```sh
 pnpm exec nimbus-docs migrate --from PREVIOUS_VERSION
@@ -144,7 +144,7 @@ After completing all reported work, explicitly confirm it and advance the commit
 pnpm exec nimbus-docs migrate --from PREVIOUS_VERSION --yes
 ```
 
-Repeat `--from` only when the project has no recorded baseline. A clean interactive rerun asks before recording the reviewed version; agents provide that consent with `--yes`. Nimbus never records completion while a detectable migration remains. Then run `outdated` to review user-owned starter and registry code, followed by `nimbus-docs check`, `astro check`, and the production build. See [Upgrading Nimbus](/upgrading) for the cumulative manifest-generated guide.
+Repeat `--from` only when the project has no recorded baseline. A clean interactive rerun asks before recording the reviewed version; agents provide that consent with `--yes`. Nimbus never records completion while a detectable migration remains. Then run `outdated` to review user-owned starter and registry code, followed by `nimbus-docs check`, `astro check`, and the production build. The `migrate` output is the version-selected upgrade guide.
 
 ### `nimbus-docs outdated`
 

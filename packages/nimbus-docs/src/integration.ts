@@ -1107,6 +1107,7 @@ export function nimbus(
           (source, renderOptions) =>
             authoredLinks.normalizeAuthoredLinks(source, {
               base: authoredLinkBase,
+              format: "markdown",
               sourceId: renderOptions?.fileURL
                 ? fileURLToPath(renderOptions.fileURL)
                 : undefined,
@@ -1222,6 +1223,7 @@ export function nimbus(
                 transform: (source, filePath) =>
                   authoredLinks.normalizeAuthoredLinks(source, {
                     base: authoredLinkBase,
+                    format: "mdx",
                     sourceId: filePath,
                   }),
               }),

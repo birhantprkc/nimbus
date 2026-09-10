@@ -128,6 +128,25 @@ export default defineConfig({ integrations: [nimbus({}, { markdown: { partialRes
   }
 });
 
+test("identifies an indirect integrations option without rejecting unrelated shorthand", () => {
+  const root = project({
+    config: `import { defineConfig } from "astro/config";
+import nimbus from "@cloudflare/nimbus-docs";
+const markdown = {};
+const integrations = [nimbus({})];
+export default defineConfig({ markdown, integrations });
+`,
+  });
+  const plan = discoverMigrations({
+    projectRoot: root,
+    srcDirOverride: "src",
+  }).plans[0]!;
+  assert.deepEqual(plan.changes, []);
+  assert.equal(plan.blockers[0]?.code, "dynamic-config");
+  assert.match(plan.blockers[0]?.message ?? "", /integrations option references an indirect value/);
+  assert.ok(plan.locations.some((location) => location.file === "astro.config.ts" && location.line === 5));
+});
+
 test("blocks only remaining partialHeadings properties in contained source ASTs", () => {
   const route = `---
 import { getDocsPageProps } from "@cloudflare/nimbus-docs";

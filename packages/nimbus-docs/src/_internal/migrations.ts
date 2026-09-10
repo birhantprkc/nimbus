@@ -619,13 +619,33 @@ function analyzeConfig(
     return { locations: [location], blocker: { code: "dynamic-config", file, message: "The config does not have one unshadowed default import named nimbus." } };
   }
   const configObject = astroConfigObject(sourceFile);
-  if (!configObject || hasDynamicOrDuplicateProperties(configObject)) {
+  if (!configObject || hasDynamicOrDuplicateProperties(configObject, true)) {
     return { locations: [location], blocker: { code: "dynamic-config", file, message: "The default Astro config is not a canonical literal defineConfig call." } };
   }
+  const integrationsMember = configObject.properties.find(
+    (item) => propertyName(item.name) === "integrations",
+  );
   const integrations = property(configObject, "integrations");
   const array = integrations && unwrapParentheses(integrations.initializer);
+  if (!integrationsMember) {
+    return { locations: [location], blocker: { code: "dynamic-config", file, message: "The Astro config does not define an integrations option." } };
+  }
   if (!integrations || !array || !ts.isArrayLiteralExpression(array)) {
-    return { locations: [location], blocker: { code: "dynamic-config", file, message: "The Astro integrations option is not a literal array." } };
+    const integrationsLocation = locationForNode(
+      file,
+      source,
+      integrationsMember,
+      sourceFile,
+      0,
+    );
+    return {
+      locations: [location, integrationsLocation],
+      blocker: {
+        code: "dynamic-config",
+        file,
+        message: "The Astro integrations option references an indirect value; inline its literal array before running the migration.",
+      },
+    };
   }
   if (array.elements.some((element) => ts.isSpreadElement(element))) {
     return { locations: [location], blocker: { code: "dynamic-config", file, message: "The Astro integrations array contains a spread." } };
@@ -928,10 +948,18 @@ function propertyName(name: ts.PropertyName | undefined): string | null {
   return ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? name.text : null;
 }
 
-function hasDynamicOrDuplicateProperties(object: ts.ObjectLiteralExpression): boolean {
+function hasDynamicOrDuplicateProperties(
+  object: ts.ObjectLiteralExpression,
+  allowShorthand = false,
+): boolean {
   const names = new Set<string>();
   for (const item of object.properties) {
-    if (!ts.isPropertyAssignment(item)) return true;
+    if (
+      !ts.isPropertyAssignment(item) &&
+      !(allowShorthand && ts.isShorthandPropertyAssignment(item))
+    ) {
+      return true;
+    }
     const name = propertyName(item.name);
     if (name === null || names.has(name)) return true;
     names.add(name);

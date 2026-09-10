@@ -75,6 +75,11 @@ test("migrate plans, diffs, applies, preserves modes, and becomes idempotent", (
   assert.doesNotMatch(diff.stdout, /partial-resolver-to-markdown: available/);
   assert.doesNotMatch(fs.readFileSync(config, "utf8"), /partialResolver/);
 
+  const dryDiff = run(root, ["migrate", "--dry-run", "--diff"]);
+  assert.equal(dryDiff.status, 1, dryDiff.stderr);
+  assert.match(dryDiff.stdout, /--- a\/astro\.config\.ts/);
+  assert.equal(fs.readFileSync(config, "utf8").includes("partialResolver"), false);
+
   const printed = run(root, ["migrate", "--print"]);
   assert.equal(printed.status, 0, printed.stderr);
   assert.match(printed.stdout, /^# Nimbus migration task/);
@@ -361,6 +366,11 @@ test("invalid migrate output and write flag combinations fail before edits", () 
   assert.equal(json.stderr, "");
   assert.equal(JSON.parse(json.stdout).errors[0].code, "invalid-arguments");
   assert.equal(fs.readFileSync(route, "utf8"), before);
+
+  const competingOutput = run(root, ["migrate", "--diff", "--json"]);
+  assert.equal(competingOutput.status, 2);
+  assert.equal(competingOutput.stderr, "");
+  assert.match(JSON.parse(competingOutput.stdout).errors[0].message, /cannot be combined/);
 });
 
 test("JSON planning is read-only without explicit consent", () => {

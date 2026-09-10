@@ -65,6 +65,135 @@ test("normalizes authored Markdown and static JSX links", () => {
   assert.match(transformed, /\[Fence\]\(\/unchanged\)/);
 });
 
+test("parses .md comments and literal braces as Markdown", () => {
+  const source = `<!-- Generated content -->
+
+😀 Use {account_id} in /api/{account_id}.
+
+[Guide](/guide)
+
+<div>😀 <a HREF='/native'>Native</a></div>`;
+
+  assert.equal(
+    normalizeAuthoredLinks(source, {
+      base: "/docs",
+      sourceId: "generated.md",
+    }),
+    source
+      .replace("[Guide](/guide)", "[Guide](/docs/guide)")
+      .replace("HREF='/native'", "HREF='/docs/native'"),
+  );
+  assert.throws(
+    () =>
+      normalizeAuthoredLinks(
+        `${source}\n\n[Escape](/%252e%252e/admin)`,
+        { base: "/docs", sourceId: "generated.md" },
+      ),
+    /destination escapes its canonical path/,
+  );
+  assert.equal(
+    normalizeAuthoredLinks(
+      `<div>
+<a foo=bar href="/decoy" href="/real">Native</a>
+<a href="/first" href="/second">Duplicate</a>
+</div>`,
+      { base: "/docs", sourceId: "generated.md" },
+    ),
+    `<div>
+<a foo=bar href="/decoy" href="/docs/real">Native</a>
+<a href="/docs/first" href="/second">Duplicate</a>
+</div>`,
+  );
+  assert.equal(
+    normalizeAuthoredLinks(
+      `Prefix <script>const example = '<a href="/unchanged">'</script>
+
+<div>
+<template><a href="/template">Template</a></template>
+<area href="/map" />
+</div>`,
+      { base: "/docs", sourceId: "generated.md" },
+    ),
+    `Prefix <script>const example = '<a href="/unchanged">'</script>
+
+<div>
+<template><a href="/docs/template">Template</a></template>
+<area href="/docs/map" />
+</div>`,
+  );
+  assert.equal(
+    normalizeAuthoredLinks(String.raw`<a href="/search?q=C:\temp">Search</a>`, {
+      base: "/docs",
+      sourceId: "generated.md",
+    }),
+    String.raw`<a href="/docs/search?q=C:\temp">Search</a>`,
+  );
+  assert.equal(
+    normalizeAuthoredLinks(
+      `<Feature href=" /guide ">Attribute</Feature>
+<Feature href={" /guide "}>Expression</Feature>`,
+      { base: "/docs", sourceId: "generated.mdx" },
+    ),
+    `<Feature href=" /docs/guide ">Attribute</Feature>
+<Feature href={" /docs/guide "}>Expression</Feature>`,
+  );
+  for (const source of [
+    `<a href="/..&#x09;/admin">Escape</a>`,
+    `<a href="&#10;/%252e%252e/admin">Escape</a>`,
+    `<a href="/&#9;/evil.test">Escape</a>`,
+    `<a href="	/%252e%252e/admin">Escape</a>`,
+    `<a href="\\..\\admin">Escape</a>`,
+    `<area href="/%252e%252e/admin" />`,
+    `<div>
+<template><a href="/../admin">Escape</a></template>
+</div>`,
+  ]) {
+    assert.throws(
+      () =>
+        normalizeAuthoredLinks(source, {
+          base: "/docs",
+          sourceId: "generated.md",
+        }),
+      /destination escapes its canonical path/,
+    );
+  }
+  assert.throws(
+    () =>
+      normalizeAuthoredLinks(`<Card href={"\\n/%252e%252e/admin"} />`, {
+        base: "/docs",
+        sourceId: "generated.mdx",
+      }),
+    /destination escapes its canonical path/,
+  );
+  assert.throws(
+    () =>
+      normalizeAuthoredLinks(
+        `<a href="/%252e%252e/admin">Escape</a>`,
+        { base: "/docs", sourceId: "generated.md" },
+      ),
+    /destination escapes its canonical path/,
+  );
+  assert.throws(
+    () =>
+      normalizeAuthoredLinks(source, {
+        base: "/docs",
+        sourceId: "generated.mdx",
+      }),
+    /generated\.mdx:1:1: could not parse source/,
+  );
+});
+
+test("parses explicitly programmatic Markdown without a source ID", () => {
+  const source = "Use {account id}.\n\n[Guide](/guide)";
+  assert.equal(
+    normalizeAuthoredLinks(source, {
+      base: "/docs",
+      format: "markdown",
+    }),
+    "Use {account id}.\n\n[Guide](/docs/guide)",
+  );
+});
+
 test("preserves source at the root base", () => {
   const source = "[Guide](/guide)";
   assert.equal(normalizeAuthoredLinks(source, { base: "/" }), source);

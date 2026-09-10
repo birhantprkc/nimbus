@@ -29,7 +29,7 @@
       "instructions": [
         "Run nimbus-docs migrate to apply the canonical getDocsPageProps transform where available.",
         "Review every getDocsPageProps, getDocsPage, getCollectionPageProps, and getCollectionPage call that passes partialHeadings.",
-        "Move custom resolver behavior to markdown.partialResolver in the Nimbus integration and remove the route-level option.",
+        "Move custom resolver behavior to markdown.partialResolver in the Nimbus integration as { revision: \"partial-resolver-v1\", resolve: ({ file, product }) => product ? `${product}/${file}` : file }, preserving the project's exact resolver behavior, and remove the route-level option.",
         "Remove PartialHeadingOptions imports and use the markdown.partialResolver callback types inferred from Nimbus config."
       ],
       "verify": [
@@ -45,7 +45,8 @@
       "affected": "Custom routes calling renderEntryAsMarkdown or getEntryMarkdown with authored Render partials.",
       "instructions": [
         "Review custom Markdown and MDX endpoints for renderEntryAsMarkdown, getEntryMarkdown, and Render partial expansion.",
-        "Use getPreparedMarkdownStaticPaths and getPreparedMarkdownArtifact from @cloudflare/nimbus-docs/build for generated publication routes.",
+        "Use getMarkdownStaticPaths and getMarkdownPayload from @cloudflare/nimbus-docs/agent-endpoints for generated publication routes.",
+        "Read route props from props.reference and call getMarkdownPayload with { collection, surface, slug: params.slug, reference: props.reference, context: { request } }; handle a null payload before constructing the response.",
         "Move custom component transforms into revisioned markdown.componentMap integration configuration."
       ],
       "verify": [
@@ -61,7 +62,7 @@
       "affected": "Projects with a custom llms-full.txt route using renderCorpusMarkdown.",
       "instructions": [
         "Review the project for renderCorpusMarkdown imports and calls.",
-        "Prefer getPreparedLlmsArtifact({ scope: \"site\", surface: \"full\" }) from @cloudflare/nimbus-docs/build.",
+        "Use getLlmsPayload({ scope: \"site\", surface: \"full\" }, { request }) from @cloudflare/nimbus-docs/agent-endpoints and handle a null payload before constructing the response.",
         "If custom runtime composition is still required and contains no partials, use renderLlmsFullMarkdown."
       ],
       "verify": [
@@ -107,11 +108,17 @@
       "mode": "review-required",
       "changeset": "calm-upgrades-plan",
       "summary": "Replace the removed Twin and Corpus publication API names.",
-      "affected": "Projects importing TwinSurface, PreparedTwin*, PreparedCorpus*, getPreparedTwin*, getPreparedCorpus*, or renderCorpusMarkdown.",
+      "affected": "Projects importing legacy Twin or Corpus APIs, deprecated prepared helpers from @cloudflare/nimbus-docs/build or @cloudflare/nimbus-docs/publication, or renderCorpusMarkdown.",
       "instructions": [
-        "Rename TwinSurface to PreparedMarkdownSurface and PreparedTwin* symbols to their PreparedMarkdown* equivalents.",
-        "Rename PreparedCorpus* symbols to PreparedLlms* and getPreparedCorpus* helpers to getPreparedLlms*.",
-        "Rename getPreparedTwin* helpers to getPreparedMarkdown* and renderCorpusMarkdown to renderLlmsFullMarkdown.",
+        "Import getMarkdownStaticPaths, getMarkdownPayload, getLlmsStaticPaths, getLlmsPayload, and their endpoint types from @cloudflare/nimbus-docs/agent-endpoints.",
+        "Map getPreparedTwinStaticPaths, getPreparedMarkdownStaticPaths, and getPreparedMarkdownRouteStaticPaths to getMarkdownStaticPaths; map getPreparedCorpusStaticPaths, getPreparedLlmsStaticPaths, and getPreparedLlmsRouteStaticPaths to getLlmsStaticPaths; update static-path props from artifact to reference.",
+        "Map getPreparedMarkdownRouteArtifact(options) to getMarkdownPayload(options), and map getPreparedLlmsRouteArtifact(reference, { request }) to getLlmsPayload(reference, { request }).",
+        "Map getPreparedTwinArtifact(reference) and getPreparedMarkdownArtifact(reference) to getMarkdownPayload({ collection: reference.collection, surface: reference.surface, reference, context: { request } }).",
+        "Map getPreparedCorpusArtifact(reference) and getPreparedLlmsArtifact(reference) to getLlmsPayload(reference, { request }).",
+        "For section llms.txt routes, preserve request-rendered fallback resolution with props.reference ?? (params.section ? { scope: \"section\", surface: \"index\", section: params.section } : null); return a 404 response when reference is null before calling getLlmsPayload(reference, { request }).",
+        "Map TwinSurface and PreparedMarkdownSurface to MarkdownEndpointSurface; PreparedTwinReference and PreparedMarkdownReference to MarkdownEndpointReference; PreparedTwinArtifact and PreparedMarkdownArtifact to MarkdownEndpointPayload; PreparedCorpusReference and PreparedLlmsReference to LlmsEndpointReference; and PreparedCorpusArtifact and PreparedLlmsArtifact to LlmsEndpointPayload.",
+        "Handle the nullable result from getMarkdownPayload and getLlmsPayload before constructing a response.",
+        "Use renderLlmsFullMarkdown only when custom runtime composition is still required and contains no partials.",
         "Review argument and return types at every renamed call rather than applying an unbounded text replacement."
       ],
       "verify": [

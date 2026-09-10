@@ -558,7 +558,7 @@ function invalidFlags(options: {
   print: boolean;
 }): string | null {
   if (options.yes && (options.dryRun || options.diff)) return "--yes cannot be combined with --dry-run or --diff.";
-  if (options.diff && (options.json || options.dryRun)) return "--diff cannot be combined with --json or --dry-run.";
+  if (options.diff && options.json) return "--diff cannot be combined with --json.";
   if (options.print && (options.yes || options.json || options.diff || options.dryRun)) {
     return "--print cannot be combined with --yes, --json, --diff, or --dry-run.";
   }
