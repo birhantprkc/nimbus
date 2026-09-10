@@ -74,15 +74,16 @@ List installable items: `pnpm exec nimbus-docs list`.
 
 ## Upgrading Nimbus
 
-Keep `nimbus.json` committed. Its `lastReviewedNimbusVersion` is the baseline Nimbus uses to select every migration and manual review crossed by a package upgrade; it is not a package pin and should not be edited by hand.
+Keep `nimbus.json` committed. Its `lastReviewedNimbusVersion` is the baseline Nimbus uses to select the versioned reviews crossed by a package upgrade; state-detected migrations come from the current project files. It is not a package pin and should not be edited by hand.
 
 1. Update `@cloudflare/nimbus-docs` with the project's package manager.
 2. Preview the complete plan with `pnpm exec nimbus-docs migrate --dry-run --diff`. If no baseline exists yet, add `--from <previous-version>`.
-3. Resolve every blocked/manual item, then rerun the preview until it is clear.
-4. Apply safe edits or record the completed review only with explicit consent: `pnpm exec nimbus-docs migrate --yes`.
-5. Run the project's typecheck and production build, then run `pnpm exec nimbus-docs check` again for post-build coverage.
+3. Review every versioned entry and resolve each blocked/manual item.
+4. Apply safe edits only with explicit consent: `pnpm exec nimbus-docs migrate --yes`. Review the resulting diff, then rerun the preview.
+5. When no migration remains, run `pnpm exec nimbus-docs migrate --yes` again to record the completed review in `nimbus.json`.
+6. Run the project's typecheck and production build, then run `pnpm exec nimbus-docs check` again for post-build coverage.
 
-`migrate` exits nonzero while work or review remains; that is a pending-upgrade signal, not necessarily a command failure. Never skip versions by changing `nimbus.json` directly.
+Except for task-printing mode (`--print`), `migrate` exits nonzero while work or review remains; that is a pending-upgrade signal, not necessarily a command failure. Never skip versions by changing `nimbus.json` directly.
 
 ## Audit this site
 
