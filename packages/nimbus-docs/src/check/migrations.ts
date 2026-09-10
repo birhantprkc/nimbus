@@ -5,8 +5,15 @@ import { resolveUpgradeBaseline, selectUpgradeEntries } from "../_internal/upgra
 import type { ScopeReport } from "./finding.js";
 
 export function checkMigrations(cwd: string, srcDirOverride?: string): ScopeReport {
-  const discovery = discoverMigrations({ projectRoot: cwd, srcDirOverride });
   const baseline = resolveUpgradeBaseline({ projectRoot: cwd });
+  const entries = baseline.fromVersion && !baseline.error
+    ? selectUpgradeEntries(baseline.fromVersion, baseline.targetVersion)
+    : [];
+  const discovery = discoverMigrations({
+    projectRoot: cwd,
+    srcDirOverride,
+    allowUnresolvedLayout: baseline.fromVersion === baseline.targetVersion && !baseline.error,
+  });
   const baselineBlocked = Boolean(baseline.error || (!baseline.fromVersion && baseline.source !== "preview"));
   const entry = process.argv[1] ? fs.realpathSync(process.argv[1]) : "nimbus-docs";
   const migrateArgs = [entry, "migrate", ...(srcDirOverride ? ["--src-dir", srcDirOverride] : [])];
@@ -43,7 +50,7 @@ export function checkMigrations(cwd: string, srcDirOverride?: string): ScopeRepo
         }));
       }),
       ...(baseline.fromVersion && !baseline.error
-        ? selectUpgradeEntries(baseline.fromVersion, baseline.targetVersion).map((entry) => ({
+        ? entries.map((entry) => ({
             scope: "migrations" as const,
             code: "nimbus/upgrade-review",
             severity: "error" as const,

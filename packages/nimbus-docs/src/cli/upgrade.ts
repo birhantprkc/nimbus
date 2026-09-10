@@ -267,7 +267,15 @@ export async function gatherOutdated(cwd: string, flags: UpgradeFlags = {}): Pro
   let hiddenContent = 0;
   let fatal = false;
 
-  const discovery = discoverMigrations({ projectRoot: cwd, srcDirOverride: flags.srcDir });
+  const baseline = resolveUpgradeBaseline({ projectRoot: cwd });
+  const entries = baseline.fromVersion && !baseline.error
+    ? selectUpgradeEntries(baseline.fromVersion, baseline.targetVersion)
+    : [];
+  const discovery = discoverMigrations({
+    projectRoot: cwd,
+    srcDirOverride: flags.srcDir,
+    allowUnresolvedLayout: baseline.fromVersion === baseline.targetVersion && !baseline.error,
+  });
   if (discovery.coverage) {
     errors.push({ scope: "package-apis", code: discovery.coverage.code, message: discovery.coverage.message, recoverable: true });
   }
@@ -284,7 +292,6 @@ export async function gatherOutdated(cwd: string, flags: UpgradeFlags = {}): Pro
       action: { kind: "migrate", command: migrate, automatic, instructions: plan.instructions },
     });
   }
-  const baseline = resolveUpgradeBaseline({ projectRoot: cwd });
   if (!baseline.fromVersion || baseline.error) {
     errors.push({
       scope: "package-apis",
@@ -294,7 +301,7 @@ export async function gatherOutdated(cwd: string, flags: UpgradeFlags = {}): Pro
     });
   } else {
     const activeMigrationIds = new Set(discovery.plans.map((plan) => plan.id));
-    for (const entry of selectUpgradeEntries(baseline.fromVersion, baseline.targetVersion)) {
+    for (const entry of entries) {
       if (entry.migrationId && activeMigrationIds.has(entry.migrationId)) continue;
       packageApis.push({
         migrationId: entry.id,

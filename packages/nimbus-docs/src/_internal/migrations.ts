@@ -9,6 +9,13 @@ export const PARTIAL_RESOLVER_MIGRATION_ID = "partial-resolver-to-markdown";
 export const PARTIAL_RESOLVER_INTRODUCED_IN = "0.13.0";
 
 const PACKAGE_ROOT = "@cloudflare/nimbus-docs";
+const ROUTE_ENTRYPOINTS = [PACKAGE_ROOT, `${PACKAGE_ROOT}/runtime`] as const;
+const PROSE_HELPERS = [
+  "getDocsPageProps",
+  "getDocsPage",
+  "getCollectionPageProps",
+  "getCollectionPage",
+] as const;
 const ASTRO_CONFIGS = [
   "astro.config.js",
   "astro.config.mjs",
@@ -169,6 +176,7 @@ export function discoverMigrations(options: {
   projectRoot: string;
   srcDir?: string;
   srcDirOverride?: string;
+  allowUnresolvedLayout?: boolean;
 }): MigrationDiscovery {
   const projectRoot = path.resolve(options.projectRoot);
   try {
@@ -176,6 +184,14 @@ export function discoverMigrations(options: {
       ? { srcDir: path.resolve(options.srcDir) as string | null, error: undefined as string | undefined }
       : resolveMigrationSrcDir(projectRoot, options.srcDirOverride);
     if (!layout.srcDir || layout.error || !isInside(projectRoot, layout.srcDir)) {
+      if (
+        options.allowUnresolvedLayout &&
+        options.srcDirOverride === undefined &&
+        layout.error &&
+        /^(?:Astro config is computed or spread|Astro srcDir is computed or imported)\./.test(layout.error)
+      ) {
+        return { projectRoot, srcDir: null, plans: [] };
+      }
       return unresolvedDiscovery(
         projectRoot,
         layout.error ?? "The resolved Astro srcDir is outside the selected project.",
@@ -223,6 +239,7 @@ function discoverPartialResolverMigration(context: {
   srcDir: string;
 }): MigrationPlan | null {
   const route = discoverRouteCandidates(context.projectRoot, path.join(context.srcDir, "pages"));
+  scanRemainingPartialHeadings(context.projectRoot, context.srcDir, route);
   if (route.locations.length === 0 && route.blockers.length === 0) return null;
 
   const blockers = [...route.blockers];
@@ -292,27 +309,46 @@ function discoverRouteCandidates(projectRoot: string, pagesRoot: string): RouteA
     }
     const extracted = extractAstroFrontmatter(source);
     if (!extracted) {
-      if (!hasAstroFrontmatterOpening(source) || !isRouteCandidate(source)) continue;
-      result.locations.push({ file, line: 1, column: 1 });
-      result.blockers.push({ code: "parse-error", file, message: "Astro frontmatter is not a complete delimited block." });
+      const opening = /^\uFEFF?[ \t]*(?:\r?\n[ \t]*)*---[ \t]*\r?\n/.exec(source);
+      if (!opening) continue;
+      const recovered = parseSource(abs, source.slice(opening[0].length));
+      const directCalls = findDirectProseCalls(recovered.file);
+      result.callsiteCount += directCalls.length;
+      if (
+        findPartialHeadingsProperties(recovered.file).length > 0 ||
+        directCalls.some(isPotentiallyLegacyCall)
+      ) {
+        result.locations.push({ file, line: 1, column: 1 });
+        result.blockers.push({ code: "parse-error", file, message: "Astro frontmatter is not a complete delimited block." });
+      }
       continue;
     }
-    if (!isRouteCandidate(extracted.script)) continue;
     const parsed = parseSource(abs, extracted.script);
+    const directCalls = findDirectProseCalls(parsed.file);
+    result.callsiteCount += directCalls.length;
     if (parsed.error) {
+      if (
+        findPartialHeadingsProperties(parsed.file).length === 0 &&
+        !directCalls.some(isPotentiallyLegacyCall)
+      ) continue;
       result.locations.push({ file, ...diagnosticLocation(extracted.script, parsed.diagnosticStart, extracted.offset) });
       result.blockers.push({ code: "parse-error", file, message: parsed.error });
       continue;
     }
 
-    const imports = getNamedImports(parsed.file, PACKAGE_ROOT, "getDocsPageProps");
+    const imports = ROUTE_ENTRYPOINTS.flatMap((moduleName) =>
+      getNamedImports(parsed.file, moduleName, "getDocsPageProps")
+    );
     if (imports.length === 0) continue;
+    const calls = imports.flatMap((item) => findIdentifierCalls(parsed.file, item.name.text));
+    const legacyCalls = calls.filter(isPotentiallyLegacyCall);
+    if (legacyCalls.length === 0) continue;
     const importLocation = imports[0]
       ? locationForNode(file, source, imports[0], parsed.file, extracted.offset)
       : { file, line: 1, column: 1 };
     result.locations.push(importLocation);
     if (imports.length !== 1) {
-      result.blockers.push({ code: "unsupported-source", file, message: "Expected one getDocsPageProps import from the Nimbus package root." });
+      result.blockers.push({ code: "unsupported-source", file, message: "Expected one getDocsPageProps import from a supported Nimbus entrypoint." });
       continue;
     }
     const imported = imports[0]!;
@@ -325,16 +361,10 @@ function discoverRouteCandidates(projectRoot: string, pagesRoot: string): RouteA
       result.blockers.push({ code: "unsupported-source", file, message: "Another declaration uses the getDocsPageProps binding name." });
     }
 
-    const calls = findIdentifierCalls(parsed.file, localName);
-    result.callsiteCount += calls.length;
     if (hasIndirectReference(parsed.file, localName, imported)) {
       result.blockers.push({ code: "captured-binding", file, message: "Indirect use of the imported getDocsPageProps binding requires manual migration." });
     }
-    if (calls.length === 0) {
-      result.blockers.push({ code: "unsupported-source", file, message: "The legacy tokens are present, but no direct imported getDocsPageProps call was found." });
-      continue;
-    }
-    for (const call of calls) {
+    for (const call of legacyCalls) {
       const location = locationForNode(file, source, call, parsed.file, extracted.offset);
       result.locations.push(location);
       const blocker = canonicalRouteBlocker(call, parsed.file, file);
@@ -356,6 +386,88 @@ function discoverRouteCandidates(projectRoot: string, pagesRoot: string): RouteA
   return result;
 }
 
+function scanRemainingPartialHeadings(projectRoot: string, srcDir: string, route: RouteAnalysis): void {
+  const ignored = new Set<string>();
+  for (const legacy of route.calls) {
+    const options = unwrapParentheses(legacy.call.arguments[1]!);
+    if (!ts.isObjectLiteralExpression(options)) continue;
+    const partial = property(options, "partialHeadings");
+    if (partial) {
+      ignored.add(`${legacy.absoluteFile}\0${partial.getStart(legacy.sourceFile) + legacy.scriptOffset}\0${partial.getEnd() + legacy.scriptOffset}`);
+    }
+  }
+
+  for (const { abs } of walkFilesSync(srcDir, {
+    extensions: [".astro", ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
+    skipDotDirs: false,
+  })) {
+    const file = relativeFile(projectRoot, abs);
+    let source: string;
+    try {
+      source = fs.readFileSync(abs, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+
+    let script = source;
+    let offset = 0;
+    if (abs.endsWith(".astro")) {
+      const extracted = extractAstroFrontmatter(source);
+      if (!extracted) {
+        const opening = /^\uFEFF?[ \t]*(?:\r?\n[ \t]*)*---[ \t]*\r?\n/.exec(source);
+        if (!opening || !source.includes("partialHeadings")) continue;
+        const recovered = parseSource(abs, source.slice(opening[0].length));
+        if (findPartialHeadingsProperties(recovered.file).length === 0) continue;
+        route.locations.push({ file, line: 1, column: 1 });
+        route.blockers.push({ code: "parse-error", file, message: "Astro frontmatter is not a complete delimited block." });
+        continue;
+      }
+      script = extracted.script;
+      offset = extracted.offset;
+    }
+    if (!script.includes("partialHeadings")) continue;
+
+    const parsed = parseSource(abs, script);
+    const properties = findPartialHeadingsProperties(parsed.file);
+    if (parsed.error) {
+      if (properties.length === 0) continue;
+      route.locations.push({ file, ...diagnosticLocation(source, parsed.diagnosticStart, offset) });
+      route.blockers.push({ code: "parse-error", file, message: parsed.error });
+      continue;
+    }
+
+    for (const node of properties) {
+      const start = node.getStart(parsed.file) + offset;
+      const end = node.getEnd() + offset;
+      if (!ignored.has(`${abs}\0${start}\0${end}`)) {
+        route.locations.push({ file, ...lineColumn(source, start) });
+        route.blockers.push({
+          code: "unsupported-source",
+          file,
+          message: "A remaining partialHeadings property requires manual migration.",
+        });
+      }
+    }
+  }
+}
+
+function findPartialHeadingsProperties(sourceFile: ts.SourceFile): Array<ts.PropertyAssignment | ts.ShorthandPropertyAssignment> {
+  const properties: Array<ts.PropertyAssignment | ts.ShorthandPropertyAssignment> = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) {
+      const name = node.name;
+      if (
+        ((ts.isIdentifier(name) || ts.isStringLiteralLike(name)) && name.text === "partialHeadings") ||
+        (ts.isComputedPropertyName(name) && ts.isStringLiteralLike(name.expression) && name.expression.text === "partialHeadings")
+      ) properties.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return properties;
+}
+
 function canonicalRouteBlocker(
   call: ts.CallExpression,
   sourceFile: ts.SourceFile,
@@ -367,10 +479,14 @@ function canonicalRouteBlocker(
   if (call.questionDotToken || call.arguments.some((argument) => ts.isSpreadElement(argument)) || call.arguments.length !== 2 || !ts.isIdentifier(unwrapParentheses(call.arguments[0]!)) || (unwrapParentheses(call.arguments[0]!) as ts.Identifier).text !== "Astro") {
     return { code: "unsupported-source", file, message: "The route call is not the canonical getDocsPageProps(Astro, options) shape." };
   }
-  return legacyResolverBlocker(unwrapParentheses(call.arguments[1]!), file);
+  const betweenArguments = sourceFile.text.slice(call.arguments[0]!.getEnd(), call.arguments[1]!.getStart(sourceFile));
+  if (/\/[*/]/.test(betweenArguments)) {
+    return { code: "unsupported-source", file, message: "Comments between route arguments require manual migration." };
+  }
+  return legacyResolverBlocker(unwrapParentheses(call.arguments[1]!), sourceFile, file);
 }
 
-function legacyResolverBlocker(expression: ts.Expression, file: string): MigrationBlocker | null {
+function legacyResolverBlocker(expression: ts.Expression, sourceFile: ts.SourceFile, file: string): MigrationBlocker | null {
   if (!ts.isObjectLiteralExpression(expression) || hasDynamicOrDuplicateProperties(expression)) {
     return { code: "unsupported-source", file, message: "The route options are not the supported literal partialHeadings shape." };
   }
@@ -383,13 +499,13 @@ function legacyResolverBlocker(expression: ts.Expression, file: string): Migrati
     return { code: "unsupported-source", file, message: "partialHeadings is not a literal object." };
   }
   const resolver = property(partialObject, "resolvePartialId");
-  if (partialObject.properties.length !== 1 || !resolver || !isKnownFileProductResolver(unwrapParentheses(resolver.initializer))) {
+  if (partialObject.properties.length !== 1 || !resolver || !isKnownFileProductResolver(unwrapParentheses(resolver.initializer), sourceFile)) {
     return { code: "captured-binding", file, message: "The partial resolver is customized or captures behavior Nimbus cannot move safely." };
   }
   return null;
 }
 
-function isKnownFileProductResolver(expression: ts.Expression): boolean {
+function isKnownFileProductResolver(expression: ts.Expression, sourceFile: ts.SourceFile): boolean {
   if (!ts.isArrowFunction(expression) || expression.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword)) return false;
   if (expression.parameters.length !== 1) return false;
   const parameter = expression.parameters[0]!;
@@ -401,20 +517,31 @@ function isKnownFileProductResolver(expression: ts.Expression): boolean {
       : "",
   );
   if (names[0] !== "file" || names[1] !== "product") return false;
-  if (!ts.isBlock(expression.body) || expression.body.statements.length !== 2) return false;
-  const [guard, returned] = expression.body.statements;
-  if (!guard || !returned || !ts.isIfStatement(guard) || guard.elseStatement) return false;
-  const condition = unwrapParentheses(guard.expression);
-  if (!ts.isPrefixUnaryExpression(condition) || condition.operator !== ts.SyntaxKind.ExclamationToken) return false;
-  if (!ts.isIdentifier(unwrapParentheses(condition.operand)) || (unwrapParentheses(condition.operand) as ts.Identifier).text !== "file") return false;
-  const thenStatement = guard.thenStatement;
-  const guardReturn = ts.isBlock(thenStatement) && thenStatement.statements.length === 1
-    ? thenStatement.statements[0]
-    : thenStatement;
-  if (!guardReturn || !ts.isReturnStatement(guardReturn) || !guardReturn.expression) return false;
-  if (!ts.isIdentifier(unwrapParentheses(guardReturn.expression)) || (unwrapParentheses(guardReturn.expression) as ts.Identifier).text !== "undefined") return false;
-  if (!ts.isReturnStatement(returned) || !returned.expression) return false;
-  const ternary = unwrapParentheses(returned.expression);
+  let returned: ts.Expression;
+  if (!ts.isBlock(expression.body)) {
+    returned = expression.body;
+  } else if (expression.body.statements.length === 1) {
+    const statement = expression.body.statements[0];
+    if (!statement || !ts.isReturnStatement(statement) || !statement.expression) return false;
+    returned = statement.expression;
+  } else {
+    if (expression.body.statements.length !== 2) return false;
+    const [guard, statement] = expression.body.statements;
+    if (!guard || !statement || !ts.isIfStatement(guard) || guard.elseStatement) return false;
+    const condition = unwrapParentheses(guard.expression);
+    if (!ts.isPrefixUnaryExpression(condition) || condition.operator !== ts.SyntaxKind.ExclamationToken) return false;
+    if (!ts.isIdentifier(unwrapParentheses(condition.operand)) || (unwrapParentheses(condition.operand) as ts.Identifier).text !== "file") return false;
+    const thenStatement = guard.thenStatement;
+    const guardReturn = ts.isBlock(thenStatement) && thenStatement.statements.length === 1
+      ? thenStatement.statements[0]
+      : thenStatement;
+    if (!guardReturn || !ts.isReturnStatement(guardReturn) || !guardReturn.expression) return false;
+    if (!ts.isIdentifier(unwrapParentheses(guardReturn.expression)) || (unwrapParentheses(guardReturn.expression) as ts.Identifier).text !== "undefined") return false;
+    if (hasOtherDeclaration(sourceFile, "undefined", expression)) return false;
+    if (!ts.isReturnStatement(statement) || !statement.expression) return false;
+    returned = statement.expression;
+  }
+  const ternary = unwrapParentheses(returned);
   if (!ts.isConditionalExpression(ternary)) return false;
   if (!ts.isIdentifier(unwrapParentheses(ternary.condition)) || (unwrapParentheses(ternary.condition) as ts.Identifier).text !== "product") return false;
   if (!ts.isIdentifier(unwrapParentheses(ternary.whenFalse)) || (unwrapParentheses(ternary.whenFalse) as ts.Identifier).text !== "file") return false;
@@ -586,6 +713,51 @@ function getNamedImports(sourceFile: ts.SourceFile, moduleName: string, imported
   return imports;
 }
 
+function findDirectProseCalls(sourceFile: ts.SourceFile): ts.CallExpression[] {
+  const calls = PROSE_HELPERS.flatMap((helper) =>
+    ROUTE_ENTRYPOINTS.flatMap((moduleName) =>
+      getNamedImports(sourceFile, moduleName, helper).flatMap((item) =>
+        findIdentifierCalls(sourceFile, item.name.text)
+      )
+    )
+  );
+  const namespaces = new Set(
+    sourceFile.statements.flatMap((statement) =>
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteral(statement.moduleSpecifier) &&
+      ROUTE_ENTRYPOINTS.includes(statement.moduleSpecifier.text as (typeof ROUTE_ENTRYPOINTS)[number]) &&
+      statement.importClause?.namedBindings &&
+      ts.isNamespaceImport(statement.importClause.namedBindings)
+        ? [statement.importClause.namedBindings.name.text]
+        : []
+    ),
+  );
+  if (namespaces.size === 0) return calls;
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const callee = unwrapParentheses(node.expression);
+      const helper = ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)
+        ? callee.name.text
+        : ts.isElementAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.argumentExpression && ts.isStringLiteralLike(callee.argumentExpression)
+          ? callee.argumentExpression.text
+          : null;
+      const receiver = ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)
+        ? callee.expression
+        : null;
+      if (
+        helper &&
+        receiver &&
+        ts.isIdentifier(receiver) &&
+        namespaces.has(receiver.text) &&
+        PROSE_HELPERS.includes(helper as (typeof PROSE_HELPERS)[number])
+      ) calls.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return calls;
+}
+
 function hasNimbusDefaultImport(sourceFile: ts.SourceFile): boolean {
   return sourceFile.statements.some(
     (statement) =>
@@ -607,6 +779,14 @@ function findIdentifierCalls(sourceFile: ts.SourceFile, name: string): ts.CallEx
   };
   visit(sourceFile);
   return calls;
+}
+
+function isPotentiallyLegacyCall(call: ts.CallExpression): boolean {
+  if (call.arguments.length >= 2) return true;
+  const only = call.arguments[0];
+  if (!only || !ts.isSpreadElement(only)) return false;
+  const spread = unwrapParentheses(only.expression);
+  return !ts.isArrayLiteralExpression(spread) || spread.elements.length >= 2;
 }
 
 function hasIndirectReference(sourceFile: ts.SourceFile, name: string, allowedImport: ts.Node): boolean {
@@ -809,10 +989,6 @@ function extractAstroFrontmatter(source: string): { script: string; offset: numb
   return { script: source.slice(start, end), offset: start };
 }
 
-function hasAstroFrontmatterOpening(source: string): boolean {
-  return /^\uFEFF?[ \t]*(?:\r?\n[ \t]*)*---[ \t]*\r?\n/.test(source);
-}
-
 function routeSymlinks(root: string): string[] {
   const symlinks: string[] = [];
   try {
@@ -846,13 +1022,6 @@ function routeSymlinks(root: string): string[] {
   };
   visit(root);
   return symlinks.sort((a, b) => a.localeCompare(b));
-}
-
-function isRouteCandidate(source: string): boolean {
-  return source.includes("partialHeadings") &&
-    source.includes("resolvePartialId") &&
-    source.includes("getDocsPageProps") &&
-    source.includes(PACKAGE_ROOT);
 }
 
 function isConfigCandidate(source: string): boolean {

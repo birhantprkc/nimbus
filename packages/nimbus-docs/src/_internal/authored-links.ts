@@ -256,6 +256,11 @@ function staticHrefOffsets(
   if (!Array.isArray(node.attributes)) {
     fail("missing JSX attributes", source, sourceId, sourceStart);
   }
+  if (!node.attributes.some((attribute) =>
+    attribute?.type === "mdxJsxAttribute" &&
+    typeof attribute.name === "string" &&
+    isHref(node, attribute.name)
+  )) return [];
   const key = jsxRangeKey(sourceStart, sourceStart + raw.length);
   if (!parsedRanges.has(key)) {
     const prefix = "const element = (";
@@ -267,23 +272,24 @@ function staticHrefOffsets(
       ts.ScriptKind.TSX,
     );
     const sourceBase = sourceStart - prefix.length;
+    const matchingStart: ParsedJsxRange[] = [];
     const collect = (candidate: ts.Node) => {
       if (
         ts.isJsxElement(candidate) ||
         ts.isJsxSelfClosingElement(candidate) ||
         ts.isJsxFragment(candidate)
       ) {
-        parsedRanges.set(
-          jsxRangeKey(
-            candidate.getStart(parsed) + sourceBase,
-            candidate.getEnd() + sourceBase,
-          ),
-          { node: candidate, sourceFile: parsed, sourceBase },
-        );
+        const range = { node: candidate, sourceFile: parsed, sourceBase };
+        const start = candidate.getStart(parsed) + sourceBase;
+        parsedRanges.set(jsxRangeKey(start, candidate.getEnd() + sourceBase), range);
+        if (start === sourceStart) matchingStart.push(range);
       }
       ts.forEachChild(candidate, collect);
     };
     collect(parsed);
+    if (!parsedRanges.has(key) && matchingStart.length === 1) {
+      parsedRanges.set(key, matchingStart[0]!);
+    }
   }
   const parsedRange = parsedRanges.get(key);
   if (!parsedRange) {

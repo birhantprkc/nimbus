@@ -70,6 +70,32 @@ test("preserves source at the root base", () => {
   assert.equal(normalizeAuthoredLinks(source, { base: "/" }), source);
 });
 
+test("preserves fenced Markdown inside JSX wrappers without link attributes", () => {
+  const source = `<TypeScriptExample>
+
+\`\`\`ts
+const value = "{";
+\`\`\`
+
+</TypeScriptExample>`;
+  assert.equal(normalizeAuthoredLinks(source, { base: "/" }), source);
+  assert.equal(normalizeAuthoredLinks(source, { base: "/docs" }), source);
+});
+
+test("normalizes linked JSX wrappers containing fenced Markdown", () => {
+  const source = `<Card href="/guide">
+
+\`\`\`ts
+const value = "{";
+\`\`\`
+
+</Card>`;
+  assert.equal(
+    normalizeAuthoredLinks(source, { base: "/docs" }),
+    source.replace('href="/guide"', 'href="/docs/guide"'),
+  );
+});
+
 test("fails closed at the root base", () => {
   assert.throws(
     () => normalizeAuthoredLinks("<Card href={", { base: "/" }),

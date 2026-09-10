@@ -5,6 +5,7 @@
 
 import path from "node:path";
 import { spawnSync, type StdioOptions } from "node:child_process";
+import fs from "node:fs";
 
 import * as p from "@clack/prompts";
 
@@ -178,9 +179,20 @@ async function fixSetConfig(
     },
   });
   if (p.isCancel(value)) return;
+  let currentSource: string;
+  try {
+    currentSource = fs.readFileSync(result.location.file, "utf8");
+  } catch {
+    p.log.warn(`Skipped updating ${path.relative(cwd, result.location.file)} because it changed or became unreadable while Nimbus was waiting for input. Rerun nimbus-docs check.`);
+    return;
+  }
+  if (currentSource !== result.location.source) {
+    p.log.warn(`Skipped updating ${path.relative(cwd, result.location.file)} because it changed while Nimbus was waiting for input. Rerun nimbus-docs check.`);
+    return;
+  }
 
   const next = rewriteConfigField(result.location, "site", value);
-  writeFileAtomic(result.location.file, next);
+  writeFileAtomic(result.location.file, next, { expectedContent: result.location.source });
   applied.push(`set site to ${value} in ${path.relative(cwd, result.location.file)}`);
 }
 

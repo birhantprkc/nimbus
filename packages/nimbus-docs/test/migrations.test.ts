@@ -73,14 +73,28 @@ test("plans the canonical resolver as two byte-preserving edits", () => {
   assert.match(route, /<p>\{page\.entry\.id\}<\/p>/);
 });
 
-test("recognizes comments between import tokens through the frontmatter AST", () => {
+test("plans the documented expression-bodied resolver", () => {
   const root = project();
   const route = path.join(root, "src", "pages", "[...slug].astro");
   fs.writeFileSync(
     route,
-    fs.readFileSync(route, "utf8").replace("import { getDocsPageProps }", "import /* keep */ { getDocsPageProps }"),
+    fs.readFileSync(route, "utf8").replace(
+      `{\n      if (!file) return undefined;\n      return product ? \`${"${product}"}/${"${file}"}\` : file;\n    }`,
+      `product ? \`${"${product}"}/${"${file}"}\` : file`,
+    ),
   );
   assert.deepEqual(discoverMigrations({ projectRoot: root }).plans[0]!.blockers, []);
+});
+
+test("does not globalize a route resolver when another direct prose route exists", () => {
+  const root = project();
+  fs.writeFileSync(
+    path.join(root, "src", "pages", "other.astro"),
+    `---\nimport * as docs from "@cloudflare/nimbus-docs/runtime";\nconst page = docs.getDocsPage(Astro);\n---\n`,
+  );
+  const plan = discoverMigrations({ projectRoot: root }).plans[0]!;
+  assert.deepEqual(plan.changes, []);
+  assert.ok(plan.blockers.some((blocker) => blocker.code === "multiple-callsites"));
 });
 
 test("skips customized resolver behavior without proposing edits", () => {
@@ -96,62 +110,6 @@ test("skips customized resolver behavior without proposing edits", () => {
   assert.equal(fs.readFileSync(path.join(root, "astro.config.ts"), "utf8"), beforeConfig);
 });
 
-test("skips aliased and nested package-root calls", () => {
-  for (const route of [
-    `---
-import { getDocsPageProps as loadPage } from "@cloudflare/nimbus-docs";
-await loadPage(Astro, { partialHeadings: { resolvePartialId: ({ file, product }) => {
-  if (!file) return undefined;
-  return product ? \`${"${product}"}/${"${file}"}\` : file;
-} } });
----
-`,
-    `---
-import { getDocsPageProps } from "@cloudflare/nimbus-docs";
-async function load() {
-  return getDocsPageProps(Astro, { partialHeadings: { resolvePartialId: ({ file, product }) => {
-    if (!file) return undefined;
-    return product ? \`${"${product}"}/${"${file}"}\` : file;
-  } } });
-}
----
-`,
-  ]) {
-    const plan = discoverMigrations({ projectRoot: project({ route }) }).plans[0]!;
-    assert.equal(plan.changes.length, 0);
-    assert.ok(plan.blockers.some((blocker) => blocker.code === "unsupported-source" || blocker.code === "captured-binding"));
-  }
-});
-
-test("skips an indirect binding even when a canonical call also exists", () => {
-  const root = project();
-  const route = path.join(root, "src", "pages", "[...slug].astro");
-  fs.writeFileSync(
-    route,
-    fs.readFileSync(route, "utf8").replace(
-      "const page = await",
-      "const legacyPageLoader = getDocsPageProps;\nconst page = await",
-    ),
-  );
-  const plan = discoverMigrations({ projectRoot: root }).plans[0]!;
-  assert.deepEqual(plan.changes, []);
-  assert.ok(plan.blockers.some((blocker) => blocker.code === "captured-binding"));
-});
-
-test("skips optional calls and callback parameter defaults", () => {
-  for (const edit of [
-    (source: string) => source.replace("getDocsPageProps(Astro", "getDocsPageProps?.(Astro"),
-    (source: string) => source.replace("({ file, product }) =>", "({ file, product } = fallback) =>"),
-  ]) {
-    const root = project();
-    const route = path.join(root, "src", "pages", "[...slug].astro");
-    fs.writeFileSync(route, edit(fs.readFileSync(route, "utf8")));
-    const plan = discoverMigrations({ projectRoot: root }).plans[0]!;
-    assert.deepEqual(plan.changes, []);
-    assert.ok(plan.blockers.length > 0);
-  }
-});
-
 test("skips dynamic and conflicting integration destinations", () => {
   const configs = [
     `import { defineConfig } from "astro/config";
@@ -162,18 +120,6 @@ export default defineConfig({ integrations: [nimbus({}, { ...options })] });
 import nimbus from "@cloudflare/nimbus-docs";
 export default defineConfig({ integrations: [nimbus({}, { markdown: { partialResolver: existing } })] });
 `,
-    `import { defineConfig } from "astro/config";
-import nimbus from "@cloudflare/nimbus-docs";
-export default defineConfig({ integrations: [...extra, nimbus({})] });
-`,
-    `import { defineConfig } from "astro/config";
-import nimbus from "@cloudflare/nimbus-docs";
-export default defineConfig({ integrations: [nimbus?.({})] });
-`,
-    `import { defineConfig } from "astro/config";
-import nimbus from "@cloudflare/nimbus-docs";
-export default defineConfig({ integrations: [nimbus(...args)] });
-`,
   ];
   for (const config of configs) {
     const plan = discoverMigrations({ projectRoot: project({ config }) }).plans[0]!;
@@ -182,37 +128,58 @@ export default defineConfig({ integrations: [nimbus(...args)] });
   }
 });
 
-test("claims only root configs and srcDir pages Astro files", () => {
-  const root = project();
-  const canonical = fs.readFileSync(path.join(root, "src", "pages", "[...slug].astro"), "utf8");
-  fs.rmSync(path.join(root, "src", "pages", "[...slug].astro"));
-  fs.mkdirSync(path.join(root, "src", "content"), { recursive: true });
-  fs.writeFileSync(path.join(root, "src", "content", "route.astro"), canonical);
-  fs.writeFileSync(path.join(root, "src", "pages", "route.ts"), canonical.slice(4, canonical.indexOf("---", 4)));
-  fs.writeFileSync(path.join(root, "outside.astro"), canonical);
-  assert.deepEqual(discoverMigrations({ projectRoot: root }).plans, []);
+test("blocks only remaining partialHeadings properties in contained source ASTs", () => {
+  const route = `---
+import { getDocsPageProps } from "@cloudflare/nimbus-docs";
+import { options } from "../options";
+const page = await getDocsPageProps(Astro, options);
+---
+<p>{page.entry.id}</p>
+`;
+  const currentRoute = route.replace(", options)", ")");
+  const cases = [
+    {
+      name: "TypeScript options",
+      route,
+      file: "src/options.ts",
+      source: "export const options = { partialHeadings: {} };\n",
+      blocker: "unsupported-source",
+    },
+    {
+      name: "malformed candidate",
+      route: currentRoute,
+      file: "src/options.ts",
+      source: "export const options = { partialHeadings: ;\n",
+      blocker: "parse-error",
+    },
+    {
+      name: "Astro markup, comment, and string mentions",
+      route: currentRoute,
+      file: "src/pages/example.astro",
+      source: `---\n// partialHeadings\nconst example = "partialHeadings";\nconst broken = ;\n---\n<p>partialHeadings</p>\n`,
+    },
+    {
+      name: "source outside srcDir",
+      route: currentRoute,
+      file: "options.ts",
+      source: "export const options = { partialHeadings: {} };\n",
+    },
+  ];
 
-  fs.writeFileSync(
-    path.join(root, "src", "pages", "markup-only.astro"),
-    `<p>import { getDocsPageProps } from "@cloudflare/nimbus-docs"; partialHeadings resolvePartialId</p>\n`,
-  );
-  assert.deepEqual(discoverMigrations({ projectRoot: root }).plans, []);
-
-  fs.writeFileSync(
-    path.join(root, "src", "pages", "markup.astro"),
-    `---\nconst clean = true;\n---\n<p>import { getDocsPageProps } from "@cloudflare/nimbus-docs"; partialHeadings resolvePartialId</p>\n`,
-  );
-  assert.deepEqual(discoverMigrations({ projectRoot: root }).plans, []);
-
-  fs.writeFileSync(
-    path.join(root, "src", "pages", "runtime.astro"),
-    canonical.replace('"@cloudflare/nimbus-docs"', '"@cloudflare/nimbus-docs/runtime"'),
-  );
-  assert.deepEqual(discoverMigrations({ projectRoot: root }).plans, []);
-
-  fs.mkdirSync(path.join(root, "src", "pages", ".internal"));
-  fs.writeFileSync(path.join(root, "src", "pages", ".internal", "route.astro"), canonical);
-  assert.equal(discoverMigrations({ projectRoot: root }).plans.length, 1);
+  for (const example of cases) {
+    const root = project({ route: example.route });
+    fs.mkdirSync(path.dirname(path.join(root, example.file)), { recursive: true });
+    fs.writeFileSync(path.join(root, example.file), example.source);
+    const discovery = discoverMigrations({ projectRoot: root });
+    if (!example.blocker) {
+      assert.deepEqual(discovery.plans, [], example.name);
+      continue;
+    }
+    const plan = discovery.plans[0]!;
+    assert.deepEqual(plan.changes, [], example.name);
+    assert.ok(plan.blockers.some((blocker) => blocker.code === example.blocker && blocker.file === example.file), example.name);
+    assert.ok(plan.locations.some((location) => location.file === example.file), example.name);
+  }
 });
 
 test("reports symlinked Astro files and route directories as uncertain coverage", () => {

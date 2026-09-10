@@ -128,7 +128,7 @@ export function resolveUpgradeBaseline(options: {
           fromVersion,
           targetVersion,
           source: "argument",
-          error: `Could not read the Nimbus upgrade baseline: ${errorMessage(error)}`,
+          error: baselineReadError(error),
         };
       }
     }
@@ -168,8 +168,12 @@ export function resolveUpgradeBaseline(options: {
     }
     return { fromVersion: value, targetVersion, source: "nimbus-json" };
   } catch (error) {
-    return { fromVersion: null, targetVersion, source: "nimbus-json", error: `Could not read the Nimbus upgrade baseline: ${errorMessage(error)}` };
+    return { fromVersion: null, targetVersion, source: "nimbus-json", error: baselineReadError(error) };
   }
+}
+
+function baselineReadError(error: unknown): string {
+  return `Could not read nimbus.json: ${errorMessage(error)}. Back up and repair the file. If its starter and registry provenance can be discarded, run \`nimbus-docs init --force\` from the affected project root to recreate it.`;
 }
 
 function hasPreviewNimbusDependency(projectRoot: string): boolean {

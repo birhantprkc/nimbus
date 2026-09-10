@@ -113,7 +113,11 @@ export async function migrateCommand(input: MigrateOptions): Promise<void> {
   const reviews = entries;
   let discovery: ReturnType<typeof discoverMigrations>;
   try {
-    discovery = discoverMigrations({ projectRoot, srcDirOverride: options.srcDir });
+    discovery = discoverMigrations({
+      projectRoot,
+      srcDirOverride: options.srcDir,
+      allowUnresolvedLayout: !baselineNeedsRecording && entries.every((entry) => !entry.migrationId),
+    });
   } catch (error) {
     finish(makeReport(baseline, [], reviews, [{ code: "discovery-failed", message: errorMessage(error) }]), options.json, false, completionOptions);
     process.exitCode = 1;
@@ -166,6 +170,16 @@ export async function migrateCommand(input: MigrateOptions): Promise<void> {
   }
   const report = makeReport(baseline, results, reviews, [], false, baselineNeedsRecording);
   if (!readOnly && consent && canRecordBaseline) {
+    const latest = discoverMigrations({ projectRoot, srcDirOverride: options.srcDir });
+    if (latest.plans.length > 0) {
+      const latestResults = latest.plans.map((plan) =>
+        plan.blockers.length > 0 ? blockedResult(plan) : availableResult(plan)
+      );
+      const changed = makeReport(baseline, latestResults, reviews, [], false, true, false);
+      finish(changed, options.json, false, completionOptions);
+      process.exitCode = 1;
+      return;
+    }
     const errors = recordUpgradeBaseline(projectRoot, baseline.targetVersion, baselinePreimage);
     const recorded = errors.length === 0;
     const completed = makeReport(baseline, [], reviews, errors, recorded, !recorded, recorded);
@@ -198,7 +212,7 @@ export function applyMigrationPlan(
         changes.push(resultChange(change, "not_written"));
         break;
       }
-      writeFileAtomic(change.absoluteFile, change.after);
+      writeFileAtomic(change.absoluteFile, change.after, { expectedContent: change.before });
       changes.push(resultChange(change, "applied"));
     } catch (error) {
       errors.push({ code: "write-failed", file: change.file, message: errorMessage(error) });

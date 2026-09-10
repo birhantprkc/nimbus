@@ -88,6 +88,22 @@ test("resolveUpgradeBaseline prefers --from and validates persisted baselines", 
   }
 });
 
+test("malformed nimbus.json guidance names the file and recovery command", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nimbus-upgrades-malformed-"));
+  try {
+    fs.writeFileSync(path.join(root, "nimbus.json"), "{");
+    for (const result of [
+      resolveUpgradeBaseline({ projectRoot: root, targetVersion: "0.13.1" }),
+      resolveUpgradeBaseline({ projectRoot: root, fromVersion: "0.12.0", targetVersion: "0.13.1" }),
+    ]) {
+      assert.match(result.error ?? "", /Could not read nimbus\.json/);
+      assert.match(result.error ?? "", /nimbus-docs init --force/);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("installedNimbusVersion finds an installed project or workspace package", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nimbus-installed-version-"));
   try {

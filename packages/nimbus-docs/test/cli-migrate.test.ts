@@ -82,7 +82,7 @@ test("migrate plans, diffs, applies, preserves modes, and becomes idempotent", (
   assert.doesNotMatch(printed.stdout, /\x1b\[/);
 
   const applied = run(root, ["migrate", "--yes", "--json"]);
-  assert.equal(applied.status, 0, applied.stderr);
+  assert.equal(applied.status, 0, applied.stderr || applied.stdout);
   const appliedResult = JSON.parse(applied.stdout);
   assert.equal(appliedResult.status, "passed");
   assert.equal(appliedResult.migrations[0].state, "applied");
@@ -146,6 +146,70 @@ test("historical jumps stay blocked until a clean consented rerun records the ra
   const checked = run(root, ["check", "--migrations", "--json"]);
   assert.equal(checked.status, 0, checked.stderr);
   assert.equal(JSON.parse(checked.stdout).findings.length, 0);
+});
+
+test("runtime imports cannot bypass migration completion", () => {
+  const root = makeProject();
+  const nimbusFile = path.join(root, "nimbus.json");
+  const route = path.join(root, "src", "pages", "[...slug].astro");
+  fs.writeFileSync(nimbusFile, `${JSON.stringify({ lastReviewedNimbusVersion: "0.12.0" }, null, 2)}\n`);
+  fs.writeFileSync(
+    route,
+    `---
+import { getDocsPageProps } from "@cloudflare/nimbus-docs/runtime";
+const page = await getDocsPageProps(Astro, {
+  partialHeadings: {
+    resolvePartialId: ({ file, product }) => {
+      if (!file) return undefined;
+      return product ? \`${"${product}"}/${"${file}"}\` : file;
+    },
+  },
+});
+---
+<p>{page.entry.id}</p>
+`,
+  );
+
+  const applied = run(root, ["migrate", "--yes", "--json"]);
+  assert.equal(applied.status, 1, applied.stderr);
+  assert.equal(JSON.parse(applied.stdout).migrations[0].state, "applied");
+  assert.equal(JSON.parse(fs.readFileSync(nimbusFile, "utf8")).lastReviewedNimbusVersion, "0.12.0");
+  assert.match(fs.readFileSync(route, "utf8"), /getDocsPageProps\(Astro\)/);
+  assert.doesNotMatch(fs.readFileSync(route, "utf8"), /partialHeadings|resolvePartialId/);
+
+  const completed = run(root, ["migrate", "--yes", "--json"]);
+  assert.equal(completed.status, 0, completed.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(nimbusFile, "utf8")).lastReviewedNimbusVersion, CURRENT_VERSION);
+});
+
+test("unresolved runtime options block migration completion", () => {
+  const root = makeProject();
+  const nimbusFile = path.join(root, "nimbus.json");
+  const route = path.join(root, "src", "pages", "[...slug].astro");
+  fs.writeFileSync(nimbusFile, `${JSON.stringify({ lastReviewedNimbusVersion: "0.12.0" }, null, 2)}\n`);
+  fs.writeFileSync(
+    route,
+    `---
+import { getDocsPageProps } from "@cloudflare/nimbus-docs/runtime";
+import { options } from "../options";
+await getDocsPageProps(Astro, options);
+---
+`,
+  );
+  fs.writeFileSync(
+    path.join(root, "src", "options.ts"),
+    `export const options = {
+  partialHeadings: {
+    resolvePartialId: customResolver,
+  },
+};
+`,
+  );
+
+  const result = run(root, ["migrate", "--yes", "--json"]);
+  assert.equal(result.status, 1, result.stderr);
+  assert.equal(JSON.parse(result.stdout).migrations[0].state, "blocked");
+  assert.equal(JSON.parse(fs.readFileSync(nimbusFile, "utf8")).lastReviewedNimbusVersion, "0.12.0");
 });
 
 test("missing baselines require --from before completion", () => {
@@ -353,9 +417,11 @@ test("TTY mode shows the complete diff and cancellation writes nothing", { skip:
 
 test("unresolved srcDir is a blocked migration and invalid cwd is structured", () => {
   const root = makeProject();
+  const nimbusFile = path.join(root, "nimbus.json");
+  fs.writeFileSync(nimbusFile, `${JSON.stringify({ lastReviewedNimbusVersion: "0.12.0" }, null, 2)}\n`);
   fs.writeFileSync(
     path.join(root, "astro.config.ts"),
-    `import { defineConfig } from "astro/config";\nconst srcDir = process.env.SRC;\nexport default defineConfig({ srcDir });\n`,
+    `import { defineConfig } from "astro/config";\nimport nimbus from "@cloudflare/nimbus-docs";\nconst srcDir = process.env.SRC;\nexport default defineConfig({ srcDir, integrations: [nimbus({ site: "https://example.com", title: "Docs" })] });\n`,
   );
   const unresolved = run(root, ["migrate", "--json"]);
   assert.equal(unresolved.status, 1, unresolved.stderr);
@@ -373,6 +439,42 @@ test("unresolved srcDir is a blocked migration and invalid cwd is structured", (
   const mismatched = run(root, ["migrate", "--from", "0.12.0", "--json"]);
   assert.equal(mismatched.status, 1, mismatched.stderr);
   assert.equal(JSON.parse(mismatched.stdout).baseline.recorded, false);
+
+  fs.writeFileSync(
+    path.join(root, "src", "pages", "[...slug].astro"),
+    `---\nimport { getDocsPageProps } from "@cloudflare/nimbus-docs";\nconst page = await getDocsPageProps(Astro);\n---\n<p>{page.entry.id}</p>\n`,
+  );
+  const completed = run(root, ["migrate", "--src-dir", "src", "--yes", "--json"]);
+  assert.equal(completed.status, 0, completed.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(nimbusFile, "utf8")).lastReviewedNimbusVersion, CURRENT_VERSION);
+
+  const idempotent = run(root, ["migrate", "--yes", "--json"]);
+  assert.equal(idempotent.status, 0, idempotent.stderr);
+  assert.equal(JSON.parse(idempotent.stdout).status, "passed");
+  const checked = run(root, ["check", "--migrations", "--json"]);
+  assert.equal(checked.status, 0, checked.stderr);
+  const unsafeOverride = run(root, ["migrate", "--src-dir", "../outside", "--json"]);
+  assert.equal(unsafeOverride.status, 1, unsafeOverride.stderr);
+  assert.equal(JSON.parse(unsafeOverride.stdout).migrations[0].blockers[0].code, "project-layout-unresolved");
+});
+
+test("unresolved srcDir cannot advance a non-current baseline", () => {
+  const root = makeProject();
+  const nimbusFile = path.join(root, "nimbus.json");
+  fs.writeFileSync(nimbusFile, `${JSON.stringify({ lastReviewedNimbusVersion: "0.13.0" }, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(root, "astro.config.ts"),
+    `import { defineConfig } from "astro/config";\nconst srcDir = process.env.SRC;\nexport default defineConfig({ srcDir });\n`,
+  );
+  fs.writeFileSync(
+    path.join(root, "src", "pages", "[...slug].astro"),
+    `---\nimport { getDocsPageProps } from "@cloudflare/nimbus-docs";\nconst page = await getDocsPageProps(Astro);\n---\n`,
+  );
+
+  const result = run(root, ["migrate", "--yes", "--json"]);
+  assert.equal(result.status, 1, result.stderr);
+  assert.equal(JSON.parse(result.stdout).migrations[0].blockers[0].code, "project-layout-unresolved");
+  assert.equal(JSON.parse(fs.readFileSync(nimbusFile, "utf8")).lastReviewedNimbusVersion, "0.13.0");
 });
 
 test("blocked output is vendor-neutral and never probes a local agent", () => {

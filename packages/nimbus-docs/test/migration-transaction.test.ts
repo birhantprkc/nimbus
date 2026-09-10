@@ -42,6 +42,27 @@ test("a preimage changed after complete preflight is refused before its write", 
   }
 });
 
+test("a target deleted while the atomic temp file is flushed is not recreated", () => {
+  const { root, plan, files } = fixture();
+  const fsyncSync = fs.fsyncSync;
+  let deleted = false;
+  fs.fsyncSync = ((fd: number) => {
+    fsyncSync(fd);
+    if (!deleted) {
+      deleted = true;
+      fs.unlinkSync(files[0]!);
+    }
+  }) as typeof fs.fsyncSync;
+  try {
+    const result = applyMigrationPlan(root, undefined, plan);
+    assert.equal(result.state, "failed");
+    assert.equal(result.errors[0]?.code, "write-failed");
+    assert.equal(fs.existsSync(files[0]!), false);
+  } finally {
+    fs.fsyncSync = fsyncSync;
+  }
+});
+
 test("an escaping target refuses the complete edit set", () => {
   const { root, plan, files } = fixture();
   const outside = path.join(path.dirname(root), `${path.basename(root)}-outside.ts`);
