@@ -258,7 +258,7 @@ describe("Markdown loader preparation", () => {
     const metadata = JSON.parse(
       harness.metadata.get(NIMBUS_MARKDOWN_META_KEY)!,
     );
-    assert.equal(metadata.version, 2);
+    assert.equal(metadata.version, 3);
     assert.equal(metadata.generation, 1);
     assert.equal(metadata.base, "/docs");
     assert.match(metadata.digest, /^sha256:[a-f0-9]{64}$/u);
@@ -347,6 +347,47 @@ describe("Markdown loader preparation", () => {
     const prepared = getPreparedMarkdownSnapshot(root)?.collections.get("docs");
     assert.deepEqual(prepared?.entries.get("entry")?.data, {});
     assert.match(prepared?.capability.digest ?? "", /^sha256:[a-f0-9]{64}$/u);
+  });
+
+  test("invalidates warm preparation when a source changes format", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "nimbus-loader-format-"));
+    temporaryRoots.push(root);
+    let filePath = "src/content/docs/guide.mdx";
+    const loader = {
+      name: "format-loader",
+      load(context: LoaderContext) {
+        context.store.set({
+          id: "guide",
+          body: "body",
+          data: {},
+          digest: "fixed",
+          filePath,
+        });
+      },
+    };
+    const wrapped = prepareMarkdownLoader(loader, {
+      generation: 1,
+      base: "/docs",
+      transform: (source, sourceId) =>
+        `${path.extname(sourceId ?? "")}:${source}`,
+    });
+    const harness = createHarness(root);
+
+    await wrapped.load(harness.context);
+    const before = JSON.parse(
+      harness.metadata.get(NIMBUS_MARKDOWN_META_KEY)!,
+    ).digest;
+    assert.equal(harness.entries.get("guide")?.body, ".mdx:body");
+
+    filePath = "src/content/docs/guide.md";
+    await wrapped.load(harness.context);
+    const entry = harness.entries.get("guide");
+    assert.equal(entry?.body, ".md:body");
+    assert.equal(entry?.filePath, "src/content/docs/guide.md");
+    assert.notEqual(
+      JSON.parse(harness.metadata.get(NIMBUS_MARKDOWN_META_KEY)!).digest,
+      before,
+    );
   });
 
   test("commits authoritative digest no-ops and isolated registry snapshots", async () => {

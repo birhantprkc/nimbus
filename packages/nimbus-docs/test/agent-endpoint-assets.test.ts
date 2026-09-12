@@ -70,6 +70,7 @@ function commit(
   entries: Array<{
     id: string;
     body?: string;
+    filePath?: string;
     data?: Record<string, unknown>;
     headings?: Array<{ depth: number; text: string; slug: string }>;
   }>,
@@ -85,6 +86,7 @@ function commit(
       entries.map((entry) => ({
         id: entry.id,
         body: entry.body,
+        filePath: entry.filePath,
         data: { ...entry.data },
       })) as never,
       new Map(entries.map((entry) => [entry.id, entry.headings ?? []])),
@@ -169,6 +171,36 @@ test("bakes compact headings with a revisioned partial resolver", async () => {
     ).body,
     /## Product heading/,
   );
+});
+
+test("does not expand literal Render elements in Markdown headings", async () => {
+  const projectRoot = await root();
+  commit(projectRoot, "docs", [
+    {
+      id: "guide",
+      filePath: "src/content/docs/guide.md",
+      body: '# Guide\n\n<Render file="snippet" />',
+      headings: [{ depth: 1, text: "Guide", slug: "guide" }],
+    },
+  ]);
+  commit(projectRoot, "partials", [
+    {
+      id: "snippet",
+      body: "## Partial heading",
+      headings: [
+        { depth: 2, text: "Partial heading", slug: "partial-heading" },
+      ],
+    },
+  ]);
+
+  const records = await bakePreparedHeadings({
+    root: projectRoot,
+    base: "/docs",
+    indexedCollections: ["docs"],
+  });
+  assert.deepEqual(records[0]?.headings, [
+    { depth: 1, text: "Guide", slug: "guide" },
+  ]);
 });
 
 test("bakes expanded source and transformed Markdown endpoint assets deterministically", async () => {

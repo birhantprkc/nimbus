@@ -103,7 +103,7 @@ function copyEntry(
 
 export function preparedMarkdownCollectionCapability(
   collection: string,
-  entries: Iterable<Pick<PreparedMarkdownEntry, "id" | "body">>,
+  entries: Iterable<Pick<PreparedMarkdownEntry, "id" | "body" | "filePath">>,
   capability: NimbusMarkdownCapability,
 ): PreparedMarkdownCollectionCapability {
   const identities = [...entries]
@@ -112,6 +112,7 @@ export function preparedMarkdownCollectionCapability(
       typeof entry.body === "string"
         ? createHash("sha256").update(entry.body).digest("hex")
         : null,
+      /\.md$/iu.test(entry.filePath ?? "") ? "markdown" : "mdx",
     ])
     .sort(([a], [b]) =>
       String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0,
@@ -119,7 +120,7 @@ export function preparedMarkdownCollectionCapability(
   const digest = createHash("sha256")
     .update(
       JSON.stringify({
-        version: 1,
+        version: 2,
         generation: capability.generation,
         base: capability.base,
         collection,
