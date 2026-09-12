@@ -71,10 +71,21 @@ function proxyStore(
           }
         : entry;
     const overlay = currentEntries();
-    if (!overlay) return Reflect.apply(set, store, [prepared]);
+    if (!overlay) {
+      const current = store.get(prepared.id);
+      if (
+        prepared.digest &&
+        current?.digest === prepared.digest &&
+        current.filePath !== prepared.filePath
+      ) {
+        Reflect.apply(deleteEntry, store, [prepared.id]);
+      }
+      return Reflect.apply(set, store, [prepared]);
+    }
     if (
       prepared.digest &&
-      overlay.get(prepared.id)?.digest === prepared.digest
+      overlay.get(prepared.id)?.digest === prepared.digest &&
+      overlay.get(prepared.id)?.filePath === prepared.filePath
     ) {
       return false;
     }
@@ -325,7 +336,7 @@ export function prepareMarkdownLoader<T extends Loader>(
       );
       const reusable =
         context.meta.get(NIMBUS_MARKDOWN_META_KEY) ===
-        JSON.stringify({ version: 2, ...currentCapability });
+        JSON.stringify({ version: 3, ...currentCapability });
       const epoch = beginPreparedMarkdownLoad(
         root,
         context.collection,
@@ -383,7 +394,7 @@ export function prepareMarkdownLoader<T extends Loader>(
           );
           context.meta.set(
             NIMBUS_MARKDOWN_META_KEY,
-            JSON.stringify({ version: 2, ...sealed }),
+            JSON.stringify({ version: 3, ...sealed }),
           );
         }
         return committed;

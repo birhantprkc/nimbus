@@ -998,23 +998,25 @@ async function preparedHeadingRecord(
   partialResolver: GeneratedMarkdownPartialResolver | undefined,
 ): Promise<PreparedHeadingRecord | null> {
   if (typeof entry.body !== "string" || !entry.headings) return null;
-  const headings = await mergePartialHeadings(
-    entry.body,
-    entry.headings,
-    async (collection, id) =>
-      collection === "partials" ? partials?.entries.get(id) : undefined,
-    async (partial) => {
-      const prepared = partial as PreparedMarkdownEntry;
-      if (!prepared.headings) throw new Error("missing prepared headings");
-      return { headings: prepared.headings };
-    },
-    partialResolver
-      ? {
-          resolvePartialId: ({ file, product }) =>
-            file ? partialResolver.resolve({ file, product }) : undefined,
-        }
-      : undefined,
-  );
+  const headings = /\.md$/iu.test(entry.filePath ?? "")
+    ? entry.headings
+    : await mergePartialHeadings(
+        entry.body,
+        entry.headings,
+        async (collection, id) =>
+          collection === "partials" ? partials?.entries.get(id) : undefined,
+        async (partial) => {
+          const prepared = partial as PreparedMarkdownEntry;
+          if (!prepared.headings) throw new Error("missing prepared headings");
+          return { headings: prepared.headings };
+        },
+        partialResolver
+          ? {
+              resolvePartialId: ({ file, product }) =>
+                file ? partialResolver.resolve({ file, product }) : undefined,
+            }
+          : undefined,
+      );
   return {
     collection: entry.collection,
     id: entry.id,
@@ -1284,12 +1286,12 @@ export async function bakeAgentEndpointAssets(
       );
     }
     const expanded = await expandPreparedPartials(entry.body, {
-      sourceId: `${entry.collection}:${entry.id}`,
+      sourceId: `${entry.collection}:${entry.filePath ?? entry.id}`,
       getPartial,
       resolvePartialId: options.partialResolver?.resolve,
     });
     const markdown = renderEntryAsMarkdown(
-      { body: expanded },
+      { body: expanded, filePath: entry.filePath },
       {
         citationIndex: basedCitationIndex,
         componentMap: renderers,
@@ -1300,31 +1302,33 @@ export async function bakeAgentEndpointAssets(
     llmsRoutePages.push(page);
     if (isDiscoverable(entry)) preparedLlmsPages.push(page);
     if (entry.headings) {
-      const headings = await mergePartialHeadings(
-        entry.body,
-        entry.headings,
-        async (collection, id) =>
-          collection === "partials" ? getPartial(id) : undefined,
-        async (partial) => {
-          const prepared = partial as PreparedMarkdownEntry;
-          if (!prepared.headings) {
-            throw new Error(
-              `nimbus-docs: prepared partial "${prepared.id}" is missing headings.`,
-            );
-          }
-          return {
-            headings: prepared.headings,
-          };
-        },
-        options.partialResolver
-          ? {
-              resolvePartialId: ({ file, product }) =>
-                file
-                  ? options.partialResolver!.resolve({ file, product })
-                  : undefined,
-            }
-          : undefined,
-      );
+      const headings = /\.md$/iu.test(entry.filePath ?? "")
+        ? entry.headings
+        : await mergePartialHeadings(
+            entry.body,
+            entry.headings,
+            async (collection, id) =>
+              collection === "partials" ? getPartial(id) : undefined,
+            async (partial) => {
+              const prepared = partial as PreparedMarkdownEntry;
+              if (!prepared.headings) {
+                throw new Error(
+                  `nimbus-docs: prepared partial "${prepared.id}" is missing headings.`,
+                );
+              }
+              return {
+                headings: prepared.headings,
+              };
+            },
+            options.partialResolver
+              ? {
+                  resolvePartialId: ({ file, product }) =>
+                    file
+                      ? options.partialResolver!.resolve({ file, product })
+                      : undefined,
+                }
+              : undefined,
+          );
       headingRecords.push({
         collection: entry.collection,
         id: entry.id,
